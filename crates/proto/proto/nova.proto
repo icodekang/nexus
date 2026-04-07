@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package nova;
+
+service ProviderAdapter {
+    // Chat completion
+    rpc Chat(ChatRequest) returns (ChatResponse);
+    
+    // Streaming chat completion
+    rpc ChatStream(ChatRequest) returns (stream ChatChunk);
+    
+    // Embeddings
+    rpc Embeddings(EmbeddingsRequest) returns (EmbeddingsResponse);
+    
+    // Health check
+    rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+
+message ChatRequest {
+    string provider = 1;
+    string model = 2;
+    repeated Message messages = 3;
+    float temperature = 4;
+    int32 max_tokens = 5;
+    bool stream = 6;
+    map<string, string> extra = 7;
+}
+
+message Message {
+    string role = 1;
+    string content = 2;
+}
+
+message ChatResponse {
+    string id = 1;
+    string model = 2;
+    Message message = 3;
+    Usage usage = 4;
+    int64 latency_ms = 5;
+}
+
+message ChatChunk {
+    string delta = 1;
+    bool finished = 2;
+    Usage usage = 3;
+    string finish_reason = 4;
+}
+
+message Usage {
+    int32 prompt_tokens = 1;
+    int32 completion_tokens = 2;
+    int32 total_tokens = 3;
+}
+
+message EmbeddingsRequest {
+    string model = 1;
+    repeated string inputs = 2;
+}
+
+message EmbeddingsResponse {
+    repeated Embedding embeddings = 1;
+}
+
+message Embedding {
+    string object = 1;
+    repeated float values = 2;
+    int32 index = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+    bool healthy = 1;
+    string status = 2;
+}

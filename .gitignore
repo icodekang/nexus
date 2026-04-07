@@ -1,0 +1,66 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+*.pdb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+*.log
+.npm
+.yarn
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.msi
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+*.pem
+*.key
+secrets/
+credentials/

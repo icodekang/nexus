@@ -1,0 +1,1 @@
+# NovaChat Adapter Module
