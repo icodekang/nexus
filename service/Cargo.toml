@@ -1,27 +1,26 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/api-gateway",
-    "crates/router-core",
-    "crates/auth-service",
-    "crates/billing",
-    "crates/models",
-    "crates/db",
-    "crates/proto",
+    "models",
+    "db",
+    "auth",
+    "api",
+    "router",
+    "billing",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["NovaChat Team"]
+authors = ["nexus Team"]
 
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
 
 # Web framework
-axum = "0.7"
-tower = "0.4"
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.4" }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Serialization
@@ -45,6 +44,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 jsonwebtoken = "9.2"
 bcrypt = "0.15"
 rust_decimal = { version = "1.33", features = ["serde"] }
+sha2 = "0.10"
 
 # gRPC
 tonic = "0.11"

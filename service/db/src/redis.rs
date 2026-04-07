@@ -1,0 +1,133 @@
+use redis::{AsyncCommands, Client};
+use deadpool_redis::{Pool, Config as DeadpoolConfig, Runtime};
+use anyhow::Result;
+
+pub struct RedisPool(Pool);
+
+impl RedisPool {
+    pub async fn new(redis_url: &str) -> Result<Self> {
+        let cfg = DeadpoolConfig::from_url(redis_url);
+        let pool = cfg.create_pool(Some(Runtime::Tokio1))?;
+        
+        Ok(Self(pool))
+    }
+
+    pub async fn get(&self) -> Result<deadpool_redis::Connection, redis::RedisError> {
+        self.0.get().await
+    }
+
+    // ============ Rate Limiting ============
+
+    /// Check rate limit for a user
+    /// Returns (allowed, remaining, reset_time)
+    pub async fn check_rate_limit(
+        &self,
+        user_id: &str,
+        limit: i64,
+        window_seconds: i64,
+    ) -> Result<(bool, i64, i64), redis::RedisError> {
+        let mut conn = self.get().await?;
+        let key = format!("rate_limit:{}", user_id);
+        let now = chrono::Utc::now().timestamp();
+        let window_start = now - window_seconds;
+
+        // Remove old entries
+        let _: () = conn.zremrangebyscore(&key, 0, window_start).await?;
+
+        // Count current requests
+        let count: i64 = conn.zcard(&key).await?;
+
+        if count >= limit {
+            // Get the oldest entry to calculate reset time
+            let oldest: Option<i64> = conn.zrange_withscores(&key, 0, 0)
+                .await?
+                .into_iter()
+                .next()
+                .map(|(_, score)| score as i64);
+            
+            let reset_time = oldest.unwrap_or(now) + window_seconds;
+            return Ok((false, 0, reset_time));
+        }
+
+        // Add new request
+        let _: () = conn.zadd(&key, format!("{}", now), now).await?;
+        let _: () = conn.expire(&key, window_seconds).await?;
+
+        Ok((true, limit - count - 1, now + window_seconds))
+    }
+
+    // ============ Caching ============
+
+    /// Cache a value with TTL
+    pub async fn set_with_ttl(
+        &self,
+        key: &str,
+        value: &str,
+        ttl_seconds: i64,
+    ) -> Result<(), redis::RedisError> {
+        let mut conn = self.get().await?;
+        let _: () = conn.set_ex(key, value, ttl_seconds as u64).await?;
+        Ok(())
+    }
+
+    /// Get a cached value
+    pub async fn get(&self, key: &str) -> Result<Option<String>, redis::RedisError> {
+        let mut conn = self.get().await?;
+        let result: Option<String> = conn.get(key).await?;
+        Ok(result)
+    }
+
+    /// Delete a cached value
+    pub async fn delete(&self, key: &str) -> Result<(), redis::RedisError> {
+        let mut conn = self.get().await?;
+        let _: () = conn.del(key).await?;
+        Ok(())
+    }
+
+    // ============ Session Management ============
+
+    /// Store a session token
+    pub async fn store_session(
+        &self,
+        token: &str,
+        user_id: &str,
+        ttl_seconds: i64,
+    ) -> Result<(), redis::RedisError> {
+        let mut conn = self.get().await?;
+        let key = format!("session:{}", token);
+        let _: () = conn.set_ex(&key, user_id, ttl_seconds as u64).await?;
+        Ok(())
+    }
+
+    /// Get user_id from session token
+    pub async fn get_session(&self, token: &str) -> Result<Option<String>, redis::RedisError> {
+        let mut conn = self.get().await?;
+        let key = format!("session:{}", token);
+        let result: Option<String> = conn.get(&key).await?;
+        Ok(result)
+    }
+
+    /// Delete a session
+    pub async fn delete_session(&self, token: &str) -> Result<(), redis::RedisError> {
+        let mut conn = self.get().await?;
+        let key = format!("session:{}", token);
+        let _: () = conn.del(&key).await?;
+        Ok(())
+    }
+
+    // ============ Model Cache ============
+
+    /// Cache model list
+    pub async fn cache_models(&self, models_json: &str) -> Result<(), redis::RedisError> {
+        let mut conn = self.get().await?;
+        let _: () = conn.set_ex("models:all", models_json, 3600).await?; // 1 hour TTL
+        Ok(())
+    }
+
+    /// Get cached model list
+    pub async fn get_cached_models(&self) -> Result<Option<String>, redis::RedisError> {
+        let mut conn = self.get().await?;
+        let result: Option<String> = conn.get("models:all").await?;
+        Ok(result)
+    }
+}
