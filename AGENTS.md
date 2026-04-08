@@ -14,36 +14,37 @@ nexus is an LLM API gateway platform (similar to OpenRouter) that aggregates mul
 - `service/router/` — Rust routing engine (strategy pattern for provider selection)
 - `service/billing/` — Rust subscription/billing service
 - `service/models/` — Rust shared data models
-- `service/db/` — Rust database layer (PostgreSQL + Redis)
+- `service/db/` — Rust database layer (PostgreSQL + Redis + ClickHouse)
 - `service/adapters/` — Python FastAPI provider adapters (OpenAI, Anthropic, Google, DeepSeek)
 
 **Database:** PostgreSQL + Redis + ClickHouse (usage logging)
 
 ## API Conventions
 
-- OpenAI-compatible endpoints: `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`
+- OpenAI-compatible endpoints: `/v1/chat/completions`, `/v1/chat/stream`, `/v1/completions`, `/v1/embeddings`, `/v1/models`
 - Auth via `Authorization: Bearer <API_KEY>` header (SHA256-hashed keys stored in DB)
 - Route strategy header: `X-Route-Strategy: cheapest | fastest | quality | balanced`
 - Model specifier format: `provider/model-name` (e.g., `anthropic/claude-3-5-sonnet`)
+- Adapter service runs on port 50051 and communicates via HTTP (FastAPI), not gRPC
 
 ## Key Implementation Notes
 
 - API key storage: bcrypt password hashing, SHA256 key hashing (never plaintext)
-- Provider adapters communicate with API gateway via gRPC or HTTP
-- Admin dashboard at port 3000, API gateway at port 443/8080
-- All Dockerfiles exist but are empty placeholders; implement before building
+- Adapter endpoints: `/v1/chat/completions`, `/v1/chat/stream`, `/v1/embeddings`, `/health`, `/providers`
+- Admin dashboard at port 3000 (dev) / served via nginx in prod, API gateway at ports 443/8080
+- **Dockerfile status:** Only `service/adapters/Dockerfile` is implemented; `service/Dockerfile`, `app/admin/Dockerfile`, and `app/client/Dockerfile` are empty placeholders
 
-## Development Commands (planned)
+## Development Commands
 
 ```bash
-# Rust service
+# Rust services (workspace at service/)
 cd service && cargo build --release
 
 # Python adapters
-cd service/adapters && pip install -r requirements.txt
+cd service/adapters && pip install -r requirements.txt && python -m adapter.main
 
 # React Native client
-cd app/client && npm install && npm run ios
+cd app/client && npm install && npm start
 
 # Admin dashboard
 cd app/admin && npm install && npm run dev
@@ -62,5 +63,6 @@ docker-compose up -d
 
 ## Important Files
 
-- `docs/ARCHITECTURE.md` — Detailed architecture documentation (830 lines)
+- `docs/ARCHITECTURE.md` — Detailed architecture documentation (830 lines, Chinese)
 - `README.md` — Product overview and quick start
+- `docker-compose.yml` — Service orchestration (API:8080, adapters:50051, postgres:5432, redis:6379, admin:3000)
