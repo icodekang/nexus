@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -20,6 +22,8 @@ export default function ProfileScreen() {
   const [subscription, setSubscription] = useState<any>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
 
   useEffect(() => {
     loadData();
@@ -42,19 +46,19 @@ export default function ProfileScreen() {
   };
 
   const handleCreateApiKey = async () => {
-    Alert.prompt(
-      'Create API Key',
-      'Enter a name for this API key (optional)',
-      async (name) => {
-        try {
-          await createApiKey({ name: name || undefined });
-          await loadData();
-          Alert.alert('Success', 'API key created successfully. Make sure to copy it now - you won\'t see it again!');
-        } catch (error) {
-          Alert.alert('Error', 'Failed to create API key');
-        }
-      }
-    );
+    setShowCreateKeyModal(true);
+  };
+
+  const handleCreateKeyConfirm = async () => {
+    setShowCreateKeyModal(false);
+    try {
+      await createApiKey({ name: newKeyName || undefined });
+      setNewKeyName('');
+      await loadData();
+      Alert.alert('Success', 'API key created successfully. Make sure to copy it now - you won\'t see it again!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create API key');
+    }
   };
 
   const handleDeleteApiKey = (keyId: string) => {
@@ -216,6 +220,44 @@ export default function ProfileScreen() {
       <View style={styles.footer}>
         <Text style={styles.footerText}>Nexus v0.1.0</Text>
       </View>
+
+      {/* Create API Key Modal */}
+      <Modal
+        visible={showCreateKeyModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreateKeyModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Create API Key</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Key name (optional)"
+              placeholderTextColor="#86868B"
+              value={newKeyName}
+              onChangeText={setNewKeyName}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowCreateKeyModal(false);
+                  setNewKeyName('');
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmButton}
+                onPress={handleCreateKeyConfirm}
+              >
+                <Text style={styles.modalConfirmText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -405,5 +447,62 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: '#86868B',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 16,
+  },
+  modalInput: {
+    backgroundColor: '#F5F5F7',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1D1D1F',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F7',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#86868B',
+  },
+  modalConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#10A37F',
+    alignItems: 'center',
+  },
+  modalConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

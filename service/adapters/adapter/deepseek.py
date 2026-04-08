@@ -26,6 +26,8 @@ class DeepSeekAdapter(BaseAdapter):
 
     def __init__(self):
         self.api_key = os.getenv("DEEPSEEK_API_KEY", "")
+        if not self.api_key:
+            raise ValueError("DEEPSEEK_API_KEY environment variable is not set")
         self.client = httpx.AsyncClient(timeout=60.0)
 
     @property

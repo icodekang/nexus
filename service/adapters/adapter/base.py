@@ -18,7 +18,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: Optional[int] = None
     stream: bool = False
-    extra: Dict[str, str] = {}
+    extra: Dict[str, str] = Field(default_factory=dict)
 
 
 class ChatResponse(BaseModel):

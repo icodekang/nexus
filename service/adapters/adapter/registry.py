@@ -35,12 +35,12 @@ class AdapterRegistry:
         """List all registered provider names."""
         return list(self._adapters.keys())
 
-    def health_check_all(self) -> Dict[str, bool]:
+    async def health_check_all(self) -> Dict[str, bool]:
         """Check health of all adapters."""
         results = {}
         for name, adapter in self._adapters.items():
             try:
-                results[name] = True  # adapter.health_check()
+                results[name] = await adapter.health_check()
             except Exception as e:
                 print(f"Health check failed for {name}: {e}")
                 results[name] = False

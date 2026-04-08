@@ -1,6 +1,7 @@
 """
 OpenAI API adapter.
 """
+import json
 import os
 import time
 from typing import AsyncIterator
@@ -25,6 +26,8 @@ class OpenAIAdapter(BaseAdapter):
 
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY", "")
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is not set")
         self.client = httpx.AsyncClient(timeout=60.0)
 
     @property
@@ -120,7 +123,3 @@ class OpenAIAdapter(BaseAdapter):
         return EmbeddingsResponse(
             embeddings=[item["embedding"] for item in data["data"]]
         )
-
-
-# Import json for streaming
-import json

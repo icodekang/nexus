@@ -1,7 +1,9 @@
 import { useUserStore } from '../stores/userStore';
 import { Model } from '../stores/modelStore';
 
-const API_BASE_URL = 'http://localhost:8080/v1';
+const API_BASE_URL = typeof window !== 'undefined' 
+  ? (window.ENV?.API_URL || 'http://localhost:8080/v1')
+  : 'http://localhost:8080/v1';
 
 interface RequestOptions {
   method?: string;
@@ -88,7 +90,8 @@ export async function* streamChat(
     headers['Authorization'] = `Bearer ${token}`;
   }
   
-  const response = await fetch(`${API_BASE_URL}/chat/completions?stream=true`, {
+  // Send stream=true only in body, not in query string
+  const response = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ...request, stream: true }),
@@ -110,14 +113,34 @@ export async function* streamChat(
   while (true) {
     const { done, value } = await reader.read();
     
-    if (done) break;
+    if (done) {
+      // Process any remaining data in buffer
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.slice(6);
+        if (data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              onChunk(delta);
+              yield delta;
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+      break;
+    }
     
     buffer += decoder.decode(value, { stream: true });
     
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    
-    for (const line of lines) {
+    // Handle complete SSE messages (data: xxx\n\n)
+    while (buffer.includes('\n\n')) {
+      const msgEnd = buffer.indexOf('\n\n');
+      const line = buffer.slice(0, msgEnd);
+      buffer = buffer.slice(msgEnd + 2);
+      
       if (line.startsWith('data: ')) {
         const data = line.slice(6);
         
