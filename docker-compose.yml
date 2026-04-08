@@ -11,13 +11,26 @@ services:
     environment:
       - DATABASE_URL=postgres://nexus:password@postgres:5432/nexus
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - RUST_LOG=info
+      - ADAPTER_URL=http://adapter:50051
+      - PORT=8080
     depends_on:
-      - postgres
-      - redis
-      - adapter
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      adapter:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - nexus-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # Python Adapter Service
   adapter:
@@ -31,9 +44,16 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - PORT=50051
     restart: unless-stopped
     networks:
       - nexus-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:50051/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   # PostgreSQL Database
   postgres:
@@ -41,26 +61,39 @@ services:
     environment:
       POSTGRES_DB: nexus
       POSTGRES_USER: nexus
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./service/db/migrations:/docker-entrypoint-initdb.d
+      - ./service/db/migrations:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     restart: unless-stopped
     networks:
       - nexus-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Redis (for rate limiting and caching)
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redisdata:/data
+    ports:
+      - "6379:6379"
     restart: unless-stopped
     networks:
       - nexus-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   # Admin Dashboard
   admin:
@@ -72,6 +105,12 @@ services:
     restart: unless-stopped
     networks:
       - nexus-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 volumes:
   pgdata:
