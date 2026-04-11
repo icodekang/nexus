@@ -1,184 +1,279 @@
+import { useI18n } from '../i18n';
+
 export default function Transactions() {
+  const { t } = useI18n();
   const transactions = [
-    { id: '1', user: 'user@example.com', type: 'Subscription Purchase', plan: 'Yearly', amount: '$199.00', status: 'Completed', date: '2024-01-15 10:30' },
-    { id: '2', user: 'john@example.com', type: 'Subscription Purchase', plan: 'Monthly', amount: '$19.90', status: 'Completed', date: '2024-01-14 15:22' },
-    { id: '3', user: 'jane@example.com', type: 'Subscription Purchase', plan: 'Team', amount: '$99.00', status: 'Completed', date: '2024-01-14 09:15' },
-    { id: '4', user: 'bob@example.com', type: 'Refund', plan: 'Monthly', amount: '-$19.90', status: 'Refunded', date: '2024-01-13 11:45' },
-    { id: '5', user: 'alice@example.com', type: 'Subscription Renewal', plan: 'Monthly', amount: '$19.90', status: 'Completed', date: '2024-01-12 08:30' },
+    { id: '1', user: 'user@company.com', type: 'Purchase', plan: 'Yearly', amount: '$199', status: 'Completed', date: '2024-01-15' },
+    { id: '2', user: 'john@company.com', type: 'Purchase', plan: 'Monthly', amount: '$19.9', status: 'Completed', date: '2024-01-14' },
+    { id: '3', user: 'jane@company.com', type: 'Purchase', plan: 'Team', amount: '$99', status: 'Completed', date: '2024-01-14' },
+    { id: '4', user: 'bob@company.com', type: 'Refund', plan: 'Monthly', amount: '-$19.9', status: 'Refunded', date: '2024-01-13' },
+    { id: '5', user: 'alice@company.com', type: 'Renewal', plan: 'Monthly', amount: '$19.9', status: 'Completed', date: '2024-01-12' },
   ];
 
+  const planColors: Record<string, string> = {
+    Yearly: '#6366F1',
+    Monthly: '#3B82F6',
+    Team: '#F59E0B',
+    Enterprise: '#EC4899',
+  };
+
+  const statusLabel = (s: string) => {
+    if (s === 'Completed') return t('transactions.completed');
+    if (s === 'Refunded') return t('transactions.refunded');
+    return s;
+  };
+
+  const typeLabel = (s: string) => {
+    if (s === 'Purchase') return t('transactions.purchase');
+    if (s === 'Refund') return t('transactions.refund');
+    if (s === 'Renewal') return t('transactions.renewal');
+    return s;
+  };
+
   return (
-    <div>
-      <div style={styles.header}>
-        <h1 style={styles.pageTitle}>Transactions</h1>
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <div>
+          <h1 style={styles.pageTitle}>{t('transactions.title')}</h1>
+          <p style={styles.pageSubtitle}>{t('transactions.subtitle')}</p>
+        </div>
         <div style={styles.filters}>
           <select style={styles.select}>
-            <option>All Types</option>
-            <option>Subscription Purchase</option>
-            <option>Subscription Renewal</option>
-            <option>Refund</option>
+            <option>{t('transactions.allTypes')}</option>
           </select>
           <select style={styles.select}>
-            <option>All Status</option>
-            <option>Completed</option>
-            <option>Pending</option>
-            <option>Refunded</option>
+            <option>{t('transactions.allStatus')}</option>
           </select>
         </div>
-      </div>
-      
-      <div style={styles.summary}>
-        <div style={styles.summaryCard}>
-          <div style={styles.summaryLabel}>Total Revenue (Today)</div>
-          <div style={styles.summaryValue}>$318.80</div>
-        </div>
-        <div style={styles.summaryCard}>
-          <div style={styles.summaryLabel}>Total Transactions</div>
-          <div style={styles.summaryValue}>1,234</div>
-        </div>
-        <div style={styles.summaryCard}>
-          <div style={styles.summaryLabel}>Average Order Value</div>
-          <div style={styles.summaryValue}>$25.60</div>
-        </div>
-      </div>
-      
-      <div style={styles.table}>
-        <div style={styles.tableHeader}>
-          <div style={styles.tableCell}>User</div>
-          <div style={styles.tableCell}>Type</div>
-          <div style={styles.tableCell}>Plan</div>
-          <div style={styles.tableCell}>Amount</div>
-          <div style={styles.tableCell}>Status</div>
-          <div style={styles.tableCell}>Date</div>
-        </div>
-        {transactions.map((tx) => (
-          <div key={tx.id} style={styles.tableRow}>
-            <div style={styles.tableCell}>
-              <div style={styles.userEmail}>{tx.user}</div>
-            </div>
-            <div style={styles.tableCell}>{tx.type}</div>
-            <div style={styles.tableCell}>
-              <span style={styles.planBadge}>{tx.plan}</span>
-            </div>
-            <div style={styles.tableCell}>
-              <span style={[styles.amount, tx.amount.startsWith('-') && styles.amountNegative]}>
-                {tx.amount}
-              </span>
-            </div>
-            <div style={styles.tableCell}>
-              <span style={[styles.statusBadge, tx.status === 'Completed' ? styles.statusCompleted : styles.statusRefunded]}>
-                {tx.status}
-              </span>
-            </div>
-            <div style={styles.tableCell}>{tx.date}</div>
+      </header>
+
+      <div style={styles.summaryGrid}>
+        {[
+          { label: t('transactions.revenueToday'), value: '$318', color: '#6366F1' },
+          { label: t('transactions.transactionsCount'), value: '1,234', color: '#22C55E' },
+          { label: t('transactions.avgOrder'), value: '$25.6', color: '#F59E0B' },
+        ].map((s, i) => (
+          <div key={i} style={styles.summaryCard}>
+            <div style={{ ...styles.summaryDot, backgroundColor: s.color }} />
+            <span style={styles.summaryLabel}>{s.label}</span>
+            <span style={styles.summaryValue}>{s.value}</span>
           </div>
         ))}
+      </div>
+
+      <div style={styles.tableCard}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={{ ...styles.th, paddingLeft: '20px' }}>{t('transactions.thUser')}</th>
+              <th style={styles.th}>{t('transactions.thType')}</th>
+              <th style={styles.th}>{t('transactions.thPlan')}</th>
+              <th style={styles.th}>{t('transactions.thAmount')}</th>
+              <th style={styles.th}>{t('transactions.thStatus')}</th>
+              <th style={{ ...styles.th, paddingRight: '20px' }}>{t('transactions.thDate')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactions.map((tx) => (
+              <tr key={tx.id} style={styles.tr}>
+                <td style={{ ...styles.td, paddingLeft: '20px' }}>
+                  <div style={styles.userCell}>
+                    <div style={styles.userAvatar}>{tx.user.charAt(0).toUpperCase()}</div>
+                    <span style={styles.email}>{tx.user}</span>
+                  </div>
+                </td>
+                <td style={styles.td}>
+                  <span style={styles.type}>{typeLabel(tx.type)}</span>
+                </td>
+                <td style={styles.td}>
+                  <span style={{
+                    ...styles.planBadge,
+                    color: planColors[tx.plan] || '#A1A1AA',
+                    backgroundColor: `${planColors[tx.plan] || '#A1A1AA'}12`,
+                  }}>
+                    {tx.plan}
+                  </span>
+                </td>
+                <td style={styles.td}>
+                  <span style={{
+                    ...styles.amount,
+                    color: tx.amount.startsWith('-') ? '#EF4444' : '#18181B',
+                  }}>
+                    {tx.amount}
+                  </span>
+                </td>
+                <td style={styles.td}>
+                  <span style={{
+                    ...styles.status,
+                    color: tx.status === 'Completed' ? '#22C55E' : '#F59E0B',
+                  }}>
+                    <span style={{
+                      ...styles.statusDot,
+                      backgroundColor: tx.status === 'Completed' ? '#22C55E' : '#F59E0B',
+                    }} />
+                    {statusLabel(tx.status)}
+                  </span>
+                </td>
+                <td style={{ ...styles.td, paddingRight: '20px' }}>
+                  <span style={styles.date}>{tx.date}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  container: { maxWidth: '1200px' },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     marginBottom: '24px',
   },
   pageTitle: {
-    fontSize: '28px',
+    fontSize: '24px',
     fontWeight: '700',
-    color: '#1d1d1f',
+    color: '#18181B',
+    margin: 0,
+    fontFamily: "'Instrument Sans', sans-serif",
+    letterSpacing: '-0.02em',
   },
-  filters: {
-    display: 'flex',
-    gap: '12px',
+  pageSubtitle: {
+    fontSize: '13px',
+    color: '#71717A',
+    marginTop: '4px',
+    fontFamily: "'DM Sans', sans-serif",
   },
+  filters: { display: 'flex', gap: '8px' },
   select: {
-    padding: '10px 16px',
+    padding: '8px 28px 8px 12px',
     borderRadius: '8px',
-    border: '1px solid #e5e5e7',
-    fontSize: '14px',
-    backgroundColor: '#fff',
+    border: '1px solid #E7E5E4',
+    fontSize: '12px',
+    backgroundColor: '#FFFFFF',
+    fontFamily: "'DM Sans', sans-serif",
     cursor: 'pointer',
+    appearance: 'none',
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717A' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 8px center',
+    color: '#52525B',
   },
-  summary: {
+  summaryGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '20px',
+    gap: '14px',
     marginBottom: '24px',
   },
   summaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: '12px',
-    padding: '20px',
+    backgroundColor: '#FFFFFF',
+    borderRadius: '14px',
+    padding: '18px 20px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  summaryDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
   },
   summaryLabel: {
-    fontSize: '14px',
-    color: '#86868b',
-    marginBottom: '8px',
+    fontSize: '12px',
+    color: '#71717A',
+    fontFamily: "'DM Sans', sans-serif",
   },
   summaryValue: {
-    fontSize: '24px',
+    fontSize: '20px',
     fontWeight: '700',
-    color: '#1d1d1f',
+    color: '#18181B',
+    fontFamily: "'Instrument Sans', sans-serif",
+    letterSpacing: '-0.02em',
   },
-  table: {
-    backgroundColor: '#fff',
-    borderRadius: '12px',
+  tableCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: '14px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
     overflow: 'hidden',
   },
-  tableHeader: {
-    display: 'grid',
-    gridTemplateColumns: '2fr 1.5fr 1fr 1fr 1fr 1.5fr',
-    padding: '16px 20px',
-    backgroundColor: '#f5f5f7',
-    fontSize: '12px',
-    fontWeight: '600',
-    color: '#86868b',
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: {
+    padding: '12px 16px',
+    textAlign: 'left',
+    fontSize: '11px',
+    fontWeight: '500',
+    color: '#A1A1AA',
     textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    fontFamily: "'DM Sans', sans-serif",
+    borderBottom: '1px solid #F5F5F4',
   },
-  tableRow: {
-    display: 'grid',
-    gridTemplateColumns: '2fr 1.5fr 1fr 1fr 1fr 1.5fr',
-    padding: '16px 20px',
-    borderBottom: '1px solid #f5f5f7',
+  tr: {
+    borderBottom: '1px solid #F5F5F4',
+    transition: 'background 0.1s ease',
+  },
+  td: {
+    padding: '14px 16px',
+    fontSize: '13px',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  userCell: {
+    display: 'flex',
     alignItems: 'center',
+    gap: '10px',
   },
-  tableCell: {
-    fontSize: '14px',
-    color: '#1d1d1f',
+  userAvatar: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '8px',
+    backgroundColor: '#F5F5F4',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#71717A',
+    fontFamily: "'Instrument Sans', sans-serif",
+    flexShrink: 0,
   },
-  userEmail: {
+  email: {
     fontWeight: '500',
+    color: '#18181B',
   },
+  type: { color: '#71717A' },
   planBadge: {
-    backgroundColor: '#e8f5ef',
-    color: '#10a37f',
-    padding: '4px 8px',
-    borderRadius: '4px',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: '500',
+    padding: '3px 10px',
+    borderRadius: '9999px',
+    fontFamily: "'DM Sans', sans-serif",
   },
   amount: {
     fontWeight: '600',
-    color: '#16a34a',
+    fontSize: '13px',
+    fontFamily: "'DM Sans', sans-serif",
   },
-  amountNegative: {
-    color: '#dc2626',
-  },
-  statusBadge: {
-    padding: '4px 8px',
-    borderRadius: '4px',
+  status: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
     fontSize: '12px',
     fontWeight: '500',
+    fontFamily: "'DM Sans', sans-serif",
   },
-  statusCompleted: {
-    backgroundColor: '#dcfce7',
-    color: '#16a34a',
+  statusDot: {
+    width: '5px',
+    height: '5px',
+    borderRadius: '50%',
+    flexShrink: 0,
   },
-  statusRefunded: {
-    backgroundColor: '#fef3c7',
-    color: '#d97706',
+  date: {
+    color: '#A1A1AA',
+    fontSize: '12px',
   },
 };

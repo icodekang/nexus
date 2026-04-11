@@ -1,39 +1,35 @@
 # =============================================================================
-# Nexus Client - React Native Development Environment
+# Nexus Client — Vite + React (Production)
 # =============================================================================
-# Note: React Native mobile apps (iOS/Android) should be built using:
-#   - Expo EAS: https://expo.dev/eas
-#   - Or React Native CLI cloud builds
-#
-# This Dockerfile is for local development/testing only.
 
-FROM node:20-alpine
+# -----------------------------------------------------------------------------
+# Stage 1: Builder
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies for React Native
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    java \
-    ruby \
-    && rm -rf /var/cache/apk/*
-
-# Install Ruby gems for iOS builds (if needed)
-RUN gem install bundler --no-document
-
-# Copy package files
-COPY app/client/package*.json ./
-
-# Install npm dependencies
-RUN npm install
+# Copy package files first for dependency caching
+COPY package*.json ./
+RUN npm ci
 
 # Copy source
-COPY app/client/ ./
+COPY . ./
 
-# Expose development port
-EXPOSE 8081
+# Build production bundle
+RUN npm run build
 
-# Start Metro bundler for development
-CMD ["npm", "start"]
+# -----------------------------------------------------------------------------
+# Stage 2: Serve
+# -----------------------------------------------------------------------------
+FROM nginx:alpine AS runtime
+
+# Copy Vite build output (dist/)
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

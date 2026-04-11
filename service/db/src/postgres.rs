@@ -417,7 +417,7 @@ impl PostgresPool {
     pub async fn create_api_log(&self, log: &ApiLog) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO api_logs (id, user_id, api_key_id, provider_id, model_id, mode, 
+            INSERT INTO api_logs (id, user_id, api_key_id, provider_id, model_id, mode,
                                  input_tokens, output_tokens, latency_ms, status, error_message, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             "#,
@@ -436,7 +436,131 @@ impl PostgresPool {
         .bind(log.created_at)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
+    }
+
+    /// Get total tokens used by a user in the current billing cycle
+    /// Billing cycle starts at subscription_start
+    pub async fn get_user_token_usage_in_period(
+        &self,
+        user_id: Uuid,
+        period_start: DateTime<Utc>,
+        period_end: DateTime<Utc>,
+    ) -> Result<i64, DbError> {
+        let row = sqlx::query(
+            r#"
+            SELECT COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens
+            FROM api_logs
+            WHERE user_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+              AND status = 'success'
+            "#,
+        )
+        .bind(user_id)
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_one(self.inner())
+        .await?;
+
+        let total: i64 = row.get("total_tokens");
+        Ok(total)
+    }
+
+    /// Get usage statistics for a user in a period
+    pub async fn get_user_usage_stats(
+        &self,
+        user_id: Uuid,
+        period_start: DateTime<Utc>,
+        period_end: DateTime<Utc>,
+    ) -> Result<models::UsageStats, DbError> {
+        // Total stats
+        let row = sqlx::query(
+            r#"
+            SELECT
+                COUNT(*) as total_requests,
+                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                COALESCE(SUM(latency_ms), 0) as total_latency_ms
+            FROM api_logs
+            WHERE user_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+              AND status = 'success'
+            "#,
+        )
+        .bind(user_id)
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_one(self.inner())
+        .await?;
+
+        // Usage by provider
+        let provider_rows = sqlx::query(
+            r#"
+            SELECT provider_id,
+                   COUNT(*) as requests,
+                   COALESCE(SUM(input_tokens), 0) as input_tokens,
+                   COALESCE(SUM(output_tokens), 0) as output_tokens
+            FROM api_logs
+            WHERE user_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+              AND status = 'success'
+            GROUP BY provider_id
+            ORDER BY requests DESC
+            "#,
+        )
+        .bind(user_id)
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_all(self.inner())
+        .await?;
+
+        // Usage by model
+        let model_rows = sqlx::query(
+            r#"
+            SELECT model_id, provider_id,
+                   COUNT(*) as requests,
+                   COALESCE(SUM(input_tokens), 0) as input_tokens,
+                   COALESCE(SUM(output_tokens), 0) as output_tokens
+            FROM api_logs
+            WHERE user_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+              AND status = 'success'
+            GROUP BY model_id, provider_id
+            ORDER BY requests DESC
+            "#,
+        )
+        .bind(user_id)
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(models::UsageStats {
+            user_id,
+            period_start,
+            period_end,
+            total_requests: row.get("total_requests"),
+            total_input_tokens: row.get("total_input_tokens"),
+            total_output_tokens: row.get("total_output_tokens"),
+            total_latency_ms: row.get("total_latency_ms"),
+            usage_by_provider: provider_rows.iter().map(|r| models::ProviderUsage {
+                provider: r.get("provider_id"),
+                requests: r.get("requests"),
+                input_tokens: r.get("input_tokens"),
+                output_tokens: r.get("output_tokens"),
+            }).collect(),
+            usage_by_model: model_rows.iter().map(|r| models::ModelUsage {
+                model: r.get("model_id"),
+                provider: r.get("provider_id"),
+                requests: r.get("requests"),
+                input_tokens: r.get("input_tokens"),
+                output_tokens: r.get("output_tokens"),
+            }).collect(),
+        })
     }
 }

@@ -13,12 +13,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy workspace files
-COPY Cargo.toml Cargo.lock* ./
-COPY rust-toolchain.toml ./
+# Copy Cargo workspace files
+COPY service/Cargo.toml service/Cargo.lock* ./
+COPY service/rust-toolchain.toml ./
 
 # Create dummy source to cache dependencies
 RUN mkdir -p src && echo "fn main() {}" > src/main.rs
@@ -29,7 +28,6 @@ RUN rm -rf src
 
 # Copy actual source code
 COPY service/ ./service/
-COPY Cargo.toml Cargo.lock* ./
 
 # Rebuild with actual code
 RUN touch service/api/src/main.rs && \
@@ -46,6 +44,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -54,7 +53,6 @@ RUN groupadd --gid 1000 nexus && \
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/api /app/nexus-api
-COPY --from=builder /app/service/api/protos /app/protos
 
 # Set ownership
 RUN chown -R nexus:nexus /app
@@ -71,7 +69,6 @@ ENV PORT=8080
 ENV DATABASE_URL=postgres://nexus:password@localhost:5432/nexus
 ENV REDIS_URL=redis://localhost:6379
 ENV JWT_SECRET=change-me-in-production
-ENV ADAPTER_URL=http://localhost:50051
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

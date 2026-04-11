@@ -1,27 +1,34 @@
 version: "3.8"
 
 services:
-  # API Gateway (Rust)
-  api:
+  # ==========================================================================
+  # Nexus Service (Rust API Gateway)
+  # ==========================================================================
+  nexus-service:
+    image: nexus-service:latest
     build:
       context: ./service
       dockerfile: Dockerfile
+    container_name: nexus-service
     ports:
       - "8080:8080"
     environment:
       - DATABASE_URL=postgres://nexus:password@postgres:5432/nexus
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
-      - RUST_LOG=info
-      - ADAPTER_URL=http://adapter:50051
       - PORT=8080
+      # Provider API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      # Custom Providers (JSON array)
+      - CUSTOM_PROVIDERS=${CUSTOM_PROVIDERS:-}
+    env_file:
+      - .env
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      adapter:
-        condition: service_healthy
+      - postgres
+      - redis
     restart: unless-stopped
     networks:
       - nexus-network
@@ -32,32 +39,60 @@ services:
       retries: 3
       start_period: 10s
 
-  # Python Adapter Service
-  adapter:
+  # ==========================================================================
+  # Nexus Admin (React Dashboard)
+  # ==========================================================================
+  nexus-admin:
+    image: nexus-admin:latest
     build:
-      context: ./service/adapters
+      context: ./app/admin
       dockerfile: Dockerfile
+    container_name: nexus-admin
     ports:
-      - "50051:50051"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - PORT=50051
+      - "3000:80"
+    depends_on:
+      - nexus-service
     restart: unless-stopped
     networks:
       - nexus-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:50051/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 5s
 
-  # PostgreSQL Database
+  # ==========================================================================
+  # Nexus Client (React + Vite)
+  # ==========================================================================
+  nexus-client:
+    image: nexus-client:latest
+    build:
+      context: ./app/client
+      dockerfile: Dockerfile
+    container_name: nexus-client
+    ports:
+      - "3001:80"
+    environment:
+      - API_BASE_URL=http://nexus-service:8080
+    depends_on:
+      - nexus-service
+    restart: unless-stopped
+    networks:
+      - nexus-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ==========================================================================
+  # External Services (should be running separately or use cloud DB)
+  # ==========================================================================
   postgres:
     image: postgres:16-alpine
+    container_name: nexus-postgres
     environment:
       POSTGRES_DB: nexus
       POSTGRES_USER: nexus
@@ -77,9 +112,9 @@ services:
       retries: 5
       start_period: 10s
 
-  # Redis (for rate limiting and caching)
   redis:
     image: redis:7-alpine
+    container_name: nexus-redis
     command: redis-server --appendonly yes
     volumes:
       - redisdata:/data
@@ -93,23 +128,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
-
-  # Admin Dashboard
-  admin:
-    build:
-      context: ./app/admin
-      dockerfile: Dockerfile
-    ports:
-      - "3000:80"
-    restart: unless-stopped
-    networks:
-      - nexus-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
       start_period: 5s
 
 volumes:

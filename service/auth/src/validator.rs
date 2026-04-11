@@ -14,17 +14,17 @@ impl<'a> ApiKeyValidator<'a> {
         Self { db }
     }
 
-    /// Validate an API key and return the associated user
+    /// Validate an API key (plain text, no "Bearer " prefix) and return the associated user
     pub async fn validate(&self, key: &str) -> Result<(ApiKey, User), AuthError> {
         // Hash the provided key
         let key_hash = super::keygen::ApiKeyGenerator::hash_key(key);
-        
+
         // Look up the key in the database
         let api_key = self.db.get_api_key_by_hash(&key_hash)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::ApiKeyNotFound)?;
-        
+
         if !api_key.is_active {
             return Err(AuthError::ApiKeyInvalid);
         }
@@ -47,11 +47,12 @@ impl<'a> ApiKeyValidator<'a> {
     }
 
     /// Validate a Bearer token from Authorization header
+    /// Strips "Bearer " prefix before validation
     pub async fn validate_bearer(&self, auth_header: &str) -> Result<(ApiKey, User), AuthError> {
         if !auth_header.starts_with("Bearer ") {
             return Err(AuthError::ApiKeyInvalid);
         }
-        
+
         let key = &auth_header[7..];
         self.validate(key).await
     }
@@ -72,18 +73,18 @@ impl<'a> BearerValidator<'a> {
         if !auth_header.starts_with("Bearer ") {
             return Err(AuthError::ApiKeyInvalid);
         }
-        
+
         let key = &auth_header[7..];
-        
-        // Hash the provided key
+
+        // Hash the provided key (without "Bearer " prefix)
         let key_hash = super::keygen::ApiKeyGenerator::hash_key(key);
-        
+
         // Look up the key in the database
         let api_key = self.db.get_api_key_by_hash(&key_hash)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::ApiKeyNotFound)?;
-        
+
         if !api_key.is_active {
             return Err(AuthError::ApiKeyInvalid);
         }

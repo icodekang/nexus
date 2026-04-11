@@ -1,92 +1,46 @@
 import { create } from 'zustand';
-
-export interface Model {
-  id: string;
-  name: string;
-  provider: string;
-  providerName: string;
-  contextWindow: number;
-  capabilities: string[];
-}
+import { fetchModels, type Model } from '../api/client';
 
 interface ModelState {
   models: Model[];
-  selectedModel: Model | null;
-  selectedProvider: string | null;
   isLoading: boolean;
-  error: string | null;
-  
-  // Actions
-  setModels: (models: Model[]) => void;
-  selectModel: (model: Model) => void;
-  selectProvider: (provider: string | null) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
-  getFilteredModels: () => Model[];
+  loaded: boolean;
+  loadModels: () => Promise<void>;
+  getModelsByProvider: () => Record<string, Model[]>;
 }
 
-export const useModelStore = create<ModelState>((set, get) => ({
-  models: [],
-  selectedModel: null,
-  selectedProvider: null,
-  isLoading: false,
-  error: null,
+const PROVIDER_ORDER = ['openai', 'anthropic', 'google', 'deepseek'];
 
-  setModels: (models: Model[]) => {
-    // Sort models: recommended first, then by name
-    const sorted = [...models].sort((a, b) => {
-      // Provider order for "recommended"
-      const providerOrder = ['openai', 'anthropic', 'google', 'deepseek'];
-      const aIndex = providerOrder.indexOf(a.provider);
-      const bIndex = providerOrder.indexOf(b.provider);
-      
-      if (aIndex !== -1 && bIndex !== -1) {
-        return aIndex - bIndex;
-      }
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
-      return a.name.localeCompare(b.name);
-    });
-    
-    set({ models: sorted });
-    
-    // Auto-select first model if none selected
-    if (!get().selectedModel && sorted.length > 0) {
-      set({ selectedModel: sorted[0] });
+export const useModelState = create<ModelState>((set, get) => ({
+  models: [],
+  isLoading: false,
+  loaded: false,
+
+  loadModels: async () => {
+    if (get().isLoading) return;
+    set({ isLoading: true });
+    try {
+      const res = await fetchModels();
+      const sorted = res.data.sort((a, b) => {
+        const ai = PROVIDER_ORDER.indexOf(a.provider);
+        const bi = PROVIDER_ORDER.indexOf(b.provider);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+      set({ models: sorted, loaded: true });
+    } catch (e) {
+      console.error('Failed to load models:', e);
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  selectModel: (model: Model) => {
-    set({ selectedModel: model });
-  },
-
-  selectProvider: (provider: string | null) => {
-    set({ selectedProvider: provider });
-  },
-
-  setLoading: (loading: boolean) => {
-    set({ isLoading: loading });
-  },
-
-  setError: (error: string | null) => {
-    set({ error });
-  },
-
-  getFilteredModels: () => {
-    const { models, selectedProvider } = get();
-    if (!selectedProvider) return models;
-    return models.filter((m) => m.provider === selectedProvider);
+  getModelsByProvider: () => {
+    const { models } = get();
+    const grouped: Record<string, Model[]> = {};
+    for (const m of models) {
+      if (!grouped[m.provider]) grouped[m.provider] = [];
+      grouped[m.provider].push(m);
+    }
+    return grouped;
   },
 }));
-
-// Provider metadata
-export const PROVIDERS = [
-  { id: 'openai', name: 'OpenAI', logo: '🤖', color: '#10A37F' },
-  { id: 'anthropic', name: 'Anthropic', logo: '🧠', color: '#FF6B35' },
-  { id: 'google', name: 'Google', logo: '🔵', color: '#4285F4' },
-  { id: 'deepseek', name: 'DeepSeek', logo: '🔴', color: '#DC2626' },
-];
-
-export const getProviderInfo = (providerId: string) => {
-  return PROVIDERS.find((p) => p.id === providerId) || PROVIDERS[0];
-};

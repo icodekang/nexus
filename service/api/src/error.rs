@@ -83,11 +83,14 @@ impl IntoResponse for ApiError {
                 "user_already_exists",
                 "User with this email already exists",
             ),
-            ApiError::Internal(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-                e.to_string(),
-            ),
+            ApiError::Internal(e) => {
+                tracing::error!("Internal error: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "An internal error occurred. Please try again later.".to_string(),
+                )
+            }
         };
 
         let body = Json(json!({

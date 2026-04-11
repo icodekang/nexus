@@ -19,12 +19,15 @@ chrono = { workspace = true }
 jsonwebtoken = { workspace = true }
 futures-util = "0.3"
 http = "1.1"
+reqwest = { workspace = true, features = ["json", "stream"] }
+tokio-stream = "0.1"
 
 models = { path = "../models" }
 db = { path = "../db" }
 auth = { path = "../auth" }
 router = { path = "../router" }
 billing = { path = "../billing" }
+provider_client = { path = "../adapters" }
 
 [dev-dependencies]
 tokio-test = "0.4"

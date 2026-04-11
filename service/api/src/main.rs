@@ -4,9 +4,9 @@ mod middleware;
 mod state;
 
 use std::sync::Arc;
-use axum::{Router};
+use axum::{Router, middleware::from_fn};
 use std::net::SocketAddr;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{Any, CorsLayer, AllowHeaders, AllowMethods};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use state::AppState;
@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    tracing::info!("Starting nexus API Gateway");
+    tracing::info!("Starting Nexus API Gateway");
 
     // Initialize database connections
     let db = db::PostgresPool::new(
@@ -46,12 +46,23 @@ async fn main() -> anyhow::Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Build application
-    let app = Router::new()
-        .nest("/v1", routes::v1::routes())
+    // Public routes (no auth required)
+    let public_routes = Router::new()
         .nest("/v1/auth", routes::auth::routes())
+        .route("/health", axum::routing::get(routes::health));
+
+    // Protected routes (auth middleware applied)
+    let protected_routes = Router::new()
+        .nest("/v1", routes::v1::routes())
         .nest("/v1/me", routes::me::routes())
-        .route("/health", axum::routing::get(routes::health))
+        .layer(from_fn(middleware::auth::validate_api_key));
+
+    // State injection middleware — puts Arc<AppState> into request extensions
+    // so the auth middleware can access it
+    let app = Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .layer(axum::middleware::from_fn(inject_state))
         .layer(cors)
         .with_state(state);
 
@@ -63,4 +74,16 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Middleware to inject AppState into request extensions
+async fn inject_state(
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let state = req.extensions().get::<Arc<AppState>>().cloned();
+    if let Some(state) = state {
+        req.extensions_mut().insert(state);
+    }
+    next.run(req).await
 }

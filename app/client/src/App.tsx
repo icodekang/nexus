@@ -1,100 +1,52 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuthStore } from './stores/authStore';
+import { I18nProvider } from './i18n';
+import Layout from './components/Layout';
+import LoginPage from './pages/LoginPage';
+import ChatPage from './pages/ChatPage';
+import ModelsPage from './pages/ModelsPage';
+import KeysPage from './pages/KeysPage';
+import SubscriptionPage from './pages/SubscriptionPage';
+import GuidePage from './pages/GuidePage';
 
-import ChatScreen from './screens/ChatScreen';
-import ModelSelectScreen from './screens/ModelSelectScreen';
-import ProfileScreen from './screens/ProfileScreen';
-import SettingsScreen from './screens/SettingsScreen';
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
 
-const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
 
-// Tab icon component
-const TabIcon = ({ name, focused }: { name: string; focused: boolean }) => {
-  const icons: Record<string, string> = {
-    Chat: '💬',
-    Models: '🤖',
-    Profile: '👤',
-  };
-  
+function AppContent() {
+  const { loadFromStorage } = useAuthStore();
+
+  useEffect(() => {
+    loadFromStorage();
+  }, [loadFromStorage]);
+
   return (
-    <View style={styles.tabIconContainer}>
-      <Text style={[styles.tabIcon, focused && styles.tabIconFocused]}>
-        {icons[name] || '📱'}
-      </Text>
-    </View>
-  );
-};
-
-// Main Tab Navigator
-function MainTabs() {
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarIcon: ({ focused }) => (
-          <TabIcon name={route.name} focused={focused} />
-        ),
-        tabBarActiveTintColor: '#10A37F',
-        tabBarInactiveTintColor: '#86868B',
-        tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabBarLabel,
-      })}
-    >
-      <Tab.Screen name="Chat" component={ChatScreen} />
-      <Tab.Screen name="Models" component={ModelSelectScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
-    </Tab.Navigator>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route index element={<Navigate to="/chat" replace />} />
+          <Route path="chat" element={<ChatPage />} />
+          <Route path="models" element={<ModelsPage />} />
+          <Route path="keys" element={<KeysPage />} />
+          <Route path="subscription" element={<SubscriptionPage />} />
+          <Route path="guide" element={<GuidePage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/chat" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
-// Root Navigator
-function App() {
+export default function App() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main" component={MainTabs} />
-        <Stack.Screen 
-          name="Settings" 
-          component={SettingsScreen}
-          options={{ 
-            headerShown: true,
-            headerTitle: 'Settings',
-            headerBackTitle: 'Back',
-          }} 
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5E5',
-    paddingTop: 8,
-    paddingBottom: 8,
-    height: 60,
-  },
-  tabBarLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  tabIconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabIcon: {
-    fontSize: 24,
-    opacity: 0.6,
-  },
-  tabIconFocused: {
-    opacity: 1,
-  },
-});
-
-export default App;

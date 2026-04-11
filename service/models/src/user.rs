@@ -91,6 +91,33 @@ impl SubscriptionPlan {
             _ => SubscriptionPlan::None,
         }
     }
+
+    /// Monthly token quota for this plan (input + output tokens combined)
+    pub fn monthly_token_quota(&self) -> i64 {
+        match self {
+            SubscriptionPlan::None => 10_000,           // Free: 10K tokens/month
+            SubscriptionPlan::Monthly => 2_000_000,     // $19.9/mo: 2M tokens/month
+            SubscriptionPlan::Yearly => 2_000_000,      // $199/yr: 2M tokens/month
+            SubscriptionPlan::Team => 10_000_000,       // $99/mo: 10M tokens/month
+            SubscriptionPlan::Enterprise => i64::MAX,   // Enterprise: unlimited
+        }
+    }
+
+    /// Whether this plan supports auto-renewal
+    pub fn supports_recurring(&self) -> bool {
+        matches!(self, SubscriptionPlan::Monthly | SubscriptionPlan::Team)
+    }
+
+    /// Duration in days for one billing cycle
+    pub fn billing_cycle_days(&self) -> i64 {
+        match self {
+            SubscriptionPlan::None => 30,
+            SubscriptionPlan::Monthly => 30,
+            SubscriptionPlan::Yearly => 365,
+            SubscriptionPlan::Team => 30,
+            SubscriptionPlan::Enterprise => 365,
+        }
+    }
 }
 
 /// API Key

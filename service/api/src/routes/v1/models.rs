@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::error::ApiError;
-use models::{ModelWithProvider, BuiltinModels, Provider, Providers};
+use models::{ModelWithProvider, LlmModel, Provider};
 
 #[derive(Debug, Deserialize)]
 pub struct ModelsQuery {
@@ -18,24 +18,33 @@ pub async fn list_models(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Try to get from cache first
     if let Ok(Some(cached)) = state.redis.get_cached_models().await {
-        if let Ok(models) = serde_json::from_str::<Vec<ModelWithProvider>>(&cached) {
+        if let Ok(all_models) = serde_json::from_str::<Vec<ModelWithProvider>>(&cached) {
+            let filtered = filter_models(all_models, &query.provider);
             return Ok(Json(serde_json::json!({
                 "object": "list",
-                "data": models.into_iter().map(|m| serde_json::to_value(&m).unwrap()).collect::<Vec<_>>()
+                "data": filtered
             })));
         }
     }
 
-    // Get all providers
-    let providers: Vec<Provider> = Providers::all();
-    let provider_map: std::collections::HashMap<String, Provider> = providers
-        .into_iter()
+    // Load providers from database
+    let providers = state.db.list_providers().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to load providers: {}", e)))?;
+
+    let provider_map: std::collections::HashMap<String, &Provider> = providers
+        .iter()
         .map(|p| (p.slug.clone(), p))
         .collect();
 
-    // Get all models
-    let all_models = BuiltinModels::all();
-    
+    // Load models from database
+    let all_models = if let Some(ref provider_slug) = query.provider {
+        state.db.list_models_by_provider(provider_slug).await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to load models: {}", e)))?
+    } else {
+        state.db.list_models().await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to load models: {}", e)))?
+    };
+
     // Convert to ModelWithProvider
     let models_with_providers: Vec<ModelWithProvider> = all_models
         .iter()
@@ -45,23 +54,22 @@ pub async fn list_models(
         })
         .collect();
 
-    // Filter by provider if specified
-    let filtered_models = if let Some(provider) = &query.provider {
-        models_with_providers
-            .into_iter()
-            .filter(|m| m.provider == *provider)
-            .collect()
-    } else {
-        models_with_providers
-    };
-
-    // Cache the result
-    if let Ok(json) = serde_json::to_string(&filtered_models) {
-        let _ = state.redis.cache_models(&json).await;
+    // Cache the unfiltered result (only if no provider filter)
+    if query.provider.is_none() {
+        if let Ok(json) = serde_json::to_string(&models_with_providers) {
+            let _ = state.redis.cache_models(&json).await;
+        }
     }
 
     Ok(Json(serde_json::json!({
         "object": "list",
-        "data": filtered_models.into_iter().map(|m| serde_json::to_value(&m).unwrap()).collect::<Vec<_>>()
+        "data": models_with_providers
     })))
+}
+
+fn filter_models(models: Vec<ModelWithProvider>, provider: &Option<String>) -> Vec<ModelWithProvider> {
+    match provider {
+        Some(p) => models.into_iter().filter(|m| m.provider == *p).collect(),
+        None => models,
+    }
 }

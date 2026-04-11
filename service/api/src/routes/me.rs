@@ -91,15 +91,51 @@ pub async fn usage(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // In a real implementation, we would query the api_logs table
-    // and aggregate usage statistics
-    
+    let user = &auth.user;
+
+    // Determine billing period
+    let now = chrono::Utc::now();
+    let period_start = user.subscription_start.unwrap_or(now);
+    let period_end = user.subscription_end.unwrap_or(
+        now + chrono::Duration::days(user.subscription_plan.billing_cycle_days())
+    );
+
+    let stats = state.db
+        .get_user_usage_stats(user.id, period_start, period_end)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get usage stats: {}", e)))?;
+
+    let quota = user.subscription_plan.monthly_token_quota();
+
     Ok(Json(serde_json::json!({
-        "total_requests": 0,
-        "total_input_tokens": 0,
-        "total_output_tokens": 0,
-        "usage_by_model": {},
-        "usage_by_provider": {},
+        "period_start": period_start,
+        "period_end": period_end,
+        "total_requests": stats.total_requests,
+        "total_input_tokens": stats.total_input_tokens,
+        "total_output_tokens": stats.total_output_tokens,
+        "total_tokens": stats.total_input_tokens + stats.total_output_tokens,
+        "token_quota": if quota == i64::MAX { serde_json::Value::Null } else { serde_json::json!(quota) },
+        "quota_used_percent": if quota == i64::MAX { 0.0 } else {
+            ((stats.total_input_tokens + stats.total_output_tokens) as f64 / quota as f64 * 100.0).min(100.0)
+        },
+        "avg_latency_ms": if stats.total_requests > 0 {
+            stats.total_latency_ms / stats.total_requests
+        } else {
+            0
+        },
+        "usage_by_provider": stats.usage_by_provider.iter().map(|u| serde_json::json!({
+            "provider": u.provider,
+            "requests": u.requests,
+            "input_tokens": u.input_tokens,
+            "output_tokens": u.output_tokens,
+        })).collect::<Vec<_>>(),
+        "usage_by_model": stats.usage_by_model.iter().map(|u| serde_json::json!({
+            "model": u.model,
+            "provider": u.provider,
+            "requests": u.requests,
+            "input_tokens": u.input_tokens,
+            "output_tokens": u.output_tokens,
+        })).collect::<Vec<_>>(),
     })))
 }
 
