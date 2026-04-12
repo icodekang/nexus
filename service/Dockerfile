@@ -5,7 +5,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Builder
 # -----------------------------------------------------------------------------
-FROM rust:1.75-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 WORKDIR /app
 
@@ -16,22 +16,30 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Cargo workspace files
-COPY service/Cargo.toml service/Cargo.lock* ./
-COPY service/rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock* ./
 
-# Create dummy source to cache dependencies
-RUN mkdir -p src && echo "fn main() {}" > src/main.rs
+# Create dummy workspace member crates for dependency caching
+RUN for member in models db auth api router billing adapters; do \
+        mkdir -p $member/src && \
+        echo '[package]' > $member/Cargo.toml && \
+        echo "name = \"$member\"" >> $member/Cargo.toml && \
+        echo 'version = "0.1.0"' >> $member/Cargo.toml && \
+        echo 'edition = "2021"' >> $member/Cargo.toml && \
+        echo "fn main() {}" > $member/src/main.rs && \
+        echo "pub fn dummy() {}" > $member/src/lib.rs; \
+    done && \
+    echo 'fn main() {}' > main.rs
 
 # Build dependencies only (cached)
-RUN cargo build --release --manifest-path ./Cargo.toml
-RUN rm -rf src
+RUN cargo build --release
+RUN for member in models db auth api router billing adapters; do rm -rf $member/src; done && rm -f main.rs
 
 # Copy actual source code
-COPY service/ ./service/
+COPY . ./
 
 # Rebuild with actual code
-RUN touch service/api/src/main.rs && \
-    cargo build --release --manifest-path ./Cargo.toml
+RUN touch main.rs && \
+    cargo build --release
 
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime
@@ -52,7 +60,7 @@ RUN groupadd --gid 1000 nexus && \
     useradd --uid 1000 --gid nexus --shell /bin/bash nexus
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/api /app/nexus-api
+COPY --from=builder /app/target/release/nexus-api /app/nexus-api
 
 # Set ownership
 RUN chown -R nexus:nexus /app

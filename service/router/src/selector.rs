@@ -28,14 +28,14 @@ pub fn select(
             // In a real system, this would use actual pricing data
             let mut sorted = active.clone();
             sorted.sort_by_key(|p| p.priority);
-            Ok(sorted.first().unwrap().clone())
+            Ok((*sorted.first().unwrap()).clone())
         }
         RouteStrategy::Fastest => {
             // Sort by priority as a proxy for latency
             // In a real system, this would use actual latency measurements
             let mut sorted = active.clone();
             sorted.sort_by_key(|p| p.priority);
-            Ok(sorted.first().unwrap().clone())
+            Ok((*sorted.first().unwrap()).clone())
         }
         RouteStrategy::Quality => {
             // Higher priority = higher quality (larger context window in our model)
@@ -44,14 +44,14 @@ pub fn select(
                 // Higher priority number = better quality
                 b.priority.cmp(&a.priority)
             });
-            Ok(sorted.first().unwrap().clone())
+            Ok((*sorted.first().unwrap()).clone())
         }
         RouteStrategy::Balanced => {
             // Balanced uses priority as a composite score
             // In a real system, this would combine price, latency, and quality
             let mut sorted = active.clone();
             sorted.sort_by_key(|p| p.priority);
-            Ok(sorted.first().unwrap().clone())
+            Ok((*sorted.first().unwrap()).clone())
         }
     }
 }

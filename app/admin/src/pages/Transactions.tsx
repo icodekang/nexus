@@ -1,62 +1,119 @@
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useI18n } from '../i18n';
+import Modal from '../components/Modal';
+import { fetchTransactions, type AdminTransaction } from '../api/admin';
+
+const planColors: Record<string, string> = {
+  yearly: '#6366F1',
+  monthly: '#3B82F6',
+  team: '#F59E0B',
+  enterprise: '#EC4899',
+};
 
 export default function Transactions() {
   const { t } = useI18n();
-  const transactions = [
-    { id: '1', user: 'user@company.com', type: 'Purchase', plan: 'Yearly', amount: '$199', status: 'Completed', date: '2024-01-15' },
-    { id: '2', user: 'john@company.com', type: 'Purchase', plan: 'Monthly', amount: '$19.9', status: 'Completed', date: '2024-01-14' },
-    { id: '3', user: 'jane@company.com', type: 'Purchase', plan: 'Team', amount: '$99', status: 'Completed', date: '2024-01-14' },
-    { id: '4', user: 'bob@company.com', type: 'Refund', plan: 'Monthly', amount: '-$19.9', status: 'Refunded', date: '2024-01-13' },
-    { id: '5', user: 'alice@company.com', type: 'Renewal', plan: 'Monthly', amount: '$19.9', status: 'Completed', date: '2024-01-12' },
-  ];
+  const [transactions, setTransactions] = useState<AdminTransaction[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [detailTx, setDetailTx] = useState<AdminTransaction | null>(null);
 
-  const planColors: Record<string, string> = {
-    Yearly: '#6366F1',
-    Monthly: '#3B82F6',
-    Team: '#F59E0B',
-    Enterprise: '#EC4899',
-  };
+  const loadTransactions = useCallback(() => {
+    setLoading(true);
+    fetchTransactions(1, 50, typeFilter, statusFilter)
+      .then((res) => {
+        setTransactions(res.data);
+        setTotal(res.total);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [typeFilter, statusFilter]);
+
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
+
+  const txTypes = ['purchase', 'refund', 'renewal'];
+  const txStatuses = ['completed', 'refunded', 'pending'];
 
   const statusLabel = (s: string) => {
-    if (s === 'Completed') return t('transactions.completed');
-    if (s === 'Refunded') return t('transactions.refunded');
+    if (s === 'completed') return t('transactions.completed');
+    if (s === 'refunded') return t('transactions.refunded');
+    if (s === 'pending') return t('transactions.pending');
     return s;
   };
 
   const typeLabel = (s: string) => {
-    if (s === 'Purchase') return t('transactions.purchase');
-    if (s === 'Refund') return t('transactions.refund');
-    if (s === 'Renewal') return t('transactions.renewal');
+    if (s === 'purchase') return t('transactions.purchase');
+    if (s === 'refund') return t('transactions.refund');
+    if (s === 'renewal') return t('transactions.renewal');
     return s;
   };
+
+  const statusColor = (s: string) => {
+    if (s === 'completed') return '#22C55E';
+    if (s === 'refunded') return '#F59E0B';
+    return '#A1A1AA';
+  };
+
+  const summaryData = useMemo(() => {
+    const revenueToday = transactions
+      .filter((tx) => tx.status === 'completed' && tx.created_at.slice(0, 10) === new Date().toISOString().slice(0, 10))
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    const avgOrder = transactions.length > 0
+      ? transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0) / Math.max(1, transactions.filter((tx) => tx.amount > 0).length)
+      : 0;
+    return {
+      revenueToday: `$${revenueToday.toFixed(2)}`,
+      count: transactions.length,
+      avgOrder: `$${avgOrder.toFixed(2)}`,
+    };
+  }, [transactions]);
 
   return (
     <div style={styles.container}>
       <header style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>{t('transactions.title')}</h1>
-          <p style={styles.pageSubtitle}>{t('transactions.subtitle')}</p>
+          <p style={styles.pageSubtitle}>
+            {loading ? 'Loading...' : t('transactions.subtitle')}
+          </p>
         </div>
         <div style={styles.filters}>
-          <select style={styles.select}>
-            <option>{t('transactions.allTypes')}</option>
+          <select
+            style={styles.select}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+          >
+            <option value="">{t('transactions.allTypes')}</option>
+            {txTypes.map((tp) => (
+              <option key={tp} value={tp}>{typeLabel(tp)}</option>
+            ))}
           </select>
-          <select style={styles.select}>
-            <option>{t('transactions.allStatus')}</option>
+          <select
+            style={styles.select}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">{t('transactions.allStatus')}</option>
+            {txStatuses.map((s) => (
+              <option key={s} value={s}>{statusLabel(s)}</option>
+            ))}
           </select>
         </div>
       </header>
 
       <div style={styles.summaryGrid}>
         {[
-          { label: t('transactions.revenueToday'), value: '$318', color: '#6366F1' },
-          { label: t('transactions.transactionsCount'), value: '1,234', color: '#22C55E' },
-          { label: t('transactions.avgOrder'), value: '$25.6', color: '#F59E0B' },
+          { label: t('transactions.revenueToday'), value: summaryData.revenueToday, color: '#6366F1' },
+          { label: t('transactions.transactionsCount'), value: String(total), color: '#22C55E' },
+          { label: t('transactions.avgOrder'), value: summaryData.avgOrder, color: '#F59E0B' },
         ].map((s, i) => (
           <div key={i} style={styles.summaryCard}>
             <div style={{ ...styles.summaryDot, backgroundColor: s.color }} />
             <span style={styles.summaryLabel}>{s.label}</span>
-            <span style={styles.summaryValue}>{s.value}</span>
+            <span style={styles.summaryValue}>{loading ? '-' : s.value}</span>
           </div>
         ))}
       </div>
@@ -70,7 +127,8 @@ export default function Transactions() {
               <th style={styles.th}>{t('transactions.thPlan')}</th>
               <th style={styles.th}>{t('transactions.thAmount')}</th>
               <th style={styles.th}>{t('transactions.thStatus')}</th>
-              <th style={{ ...styles.th, paddingRight: '20px' }}>{t('transactions.thDate')}</th>
+              <th style={styles.th}>{t('transactions.thDate')}</th>
+              <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -78,53 +136,138 @@ export default function Transactions() {
               <tr key={tx.id} style={styles.tr}>
                 <td style={{ ...styles.td, paddingLeft: '20px' }}>
                   <div style={styles.userCell}>
-                    <div style={styles.userAvatar}>{tx.user.charAt(0).toUpperCase()}</div>
-                    <span style={styles.email}>{tx.user}</span>
+                    <div style={styles.userAvatar}>{tx.user_email.charAt(0).toUpperCase()}</div>
+                    <span style={styles.email}>{tx.user_email}</span>
                   </div>
                 </td>
                 <td style={styles.td}>
-                  <span style={styles.type}>{typeLabel(tx.type)}</span>
+                  <span style={styles.type}>{typeLabel(tx.transaction_type)}</span>
                 </td>
                 <td style={styles.td}>
-                  <span style={{
-                    ...styles.planBadge,
-                    color: planColors[tx.plan] || '#A1A1AA',
-                    backgroundColor: `${planColors[tx.plan] || '#A1A1AA'}12`,
-                  }}>
-                    {tx.plan}
-                  </span>
+                  {tx.plan ? (
+                    <span style={{
+                      ...styles.planBadge,
+                      color: planColors[tx.plan] || '#A1A1AA',
+                      backgroundColor: `${planColors[tx.plan] || '#A1A1AA'}12`,
+                    }}>
+                      {tx.plan}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#A1A1AA' }}>-</span>
+                  )}
                 </td>
                 <td style={styles.td}>
                   <span style={{
                     ...styles.amount,
-                    color: tx.amount.startsWith('-') ? '#EF4444' : '#18181B',
+                    color: tx.amount < 0 ? '#EF4444' : '#18181B',
                   }}>
-                    {tx.amount}
+                    {tx.amount < 0 ? `-$${Math.abs(tx.amount)}` : `$${tx.amount}`}
                   </span>
                 </td>
                 <td style={styles.td}>
                   <span style={{
                     ...styles.status,
-                    color: tx.status === 'Completed' ? '#22C55E' : '#F59E0B',
+                    color: statusColor(tx.status),
                   }}>
                     <span style={{
                       ...styles.statusDot,
-                      backgroundColor: tx.status === 'Completed' ? '#22C55E' : '#F59E0B',
+                      backgroundColor: statusColor(tx.status),
                     }} />
                     {statusLabel(tx.status)}
                   </span>
                 </td>
-                <td style={{ ...styles.td, paddingRight: '20px' }}>
-                  <span style={styles.date}>{tx.date}</span>
+                <td style={styles.td}>
+                  <span style={styles.date}>{tx.created_at.slice(0, 10)}</span>
+                </td>
+                <td style={{ ...styles.td, paddingRight: '20px', textAlign: 'right' }}>
+                  <button style={styles.actionBtn} onClick={() => setDetailTx(tx)}>
+                    {t('common.viewDetails')}
+                  </button>
                 </td>
               </tr>
             ))}
+            {!loading && transactions.length === 0 && (
+              <tr>
+                <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: '#A1A1AA', padding: '40px' }}>
+                  No transactions found
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      <Modal open={!!detailTx} onClose={() => setDetailTx(null)} title={t('transactions.detailTitle')}>
+        {detailTx && (
+          <div style={detailStyles.grid}>
+            <DetailRow label={t('transactions.detailId')} value={detailTx.id} />
+            <DetailRow label={t('transactions.detailUser')} value={detailTx.user_email} />
+            <DetailRow label={t('transactions.detailType')} value={typeLabel(detailTx.transaction_type)} />
+            <DetailRow label={t('transactions.detailPlan')} value={detailTx.plan || '-'} />
+            <DetailRow label={t('transactions.detailAmount')} value={detailTx.amount < 0 ? `-$${Math.abs(detailTx.amount)}` : `$${detailTx.amount}`} />
+            <DetailRow label={t('transactions.detailStatus')} value={statusLabel(detailTx.status)} />
+            <DetailRow label={t('transactions.detailDate')} value={detailTx.created_at.slice(0, 10)} />
+            {detailTx.description && (
+              <DetailRow label="Description" value={detailTx.description} />
+            )}
+            <div style={detailStyles.actions}>
+              <button style={detailStyles.closeBtn} onClick={() => setDetailTx(null)}>
+                {t('common.close')}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={detailStyles.row}>
+      <span style={detailStyles.label}>{label}</span>
+      <span style={detailStyles.value}>{value}</span>
+    </div>
+  );
+}
+
+const detailStyles: Record<string, React.CSSProperties> = {
+  grid: { display: 'flex', flexDirection: 'column', gap: '12px' },
+  row: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 0',
+    borderBottom: '1px solid #F5F5F4',
+  },
+  label: {
+    fontSize: '12px',
+    color: '#71717A',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  value: {
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#18181B',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  actions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '8px',
+  },
+  closeBtn: {
+    padding: '8px 16px',
+    borderRadius: '8px',
+    border: '1px solid #E7E5E4',
+    backgroundColor: '#FFFFFF',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#71717A',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+};
 
 const styles: Record<string, React.CSSProperties> = {
   container: { maxWidth: '1200px' },
@@ -275,5 +418,17 @@ const styles: Record<string, React.CSSProperties> = {
   date: {
     color: '#A1A1AA',
     fontSize: '12px',
+  },
+  actions: { display: 'flex', gap: '8px', justifyContent: 'flex-end' },
+  actionBtn: {
+    padding: '5px 12px',
+    backgroundColor: 'transparent',
+    border: '1px solid #E7E5E4',
+    borderRadius: '8px',
+    fontSize: '11px',
+    color: '#71717A',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    transition: 'all 0.1s ease',
   },
 };

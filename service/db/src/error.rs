@@ -13,6 +13,9 @@ pub enum DbError {
     
     #[error("Invalid data: {0}")]
     InvalidData(String),
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
 }
 
 impl From<redis::RedisError> for DbError {

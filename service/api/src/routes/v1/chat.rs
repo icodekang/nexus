@@ -5,7 +5,7 @@ use axum::{
     Json, Extension,
 };
 use std::sync::Arc;
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio::sync::broadcast;
 use serde::Deserialize;
@@ -16,6 +16,7 @@ use crate::middleware::auth::AuthContext;
 use models::{ChatRequest, ChatResponse, Message, Usage, User, SubscriptionPlan};
 use provider_client::{
     ChatRequest as ProviderChatRequest,
+    Message as ProviderMessage,
     ProviderClient, ProviderClientFactory,
 };
 
@@ -68,7 +69,7 @@ pub async fn chat_completions(
     // 3. Look up the model
     let model = state.db.get_model_by_slug(&model_slug)
         .await
-        .map_err(ApiError::Internal)?
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?
         .ok_or_else(|| ApiError::ModelNotFound(request.model.clone()))?;
 
     // 4. Check subscription status
@@ -105,10 +106,17 @@ pub async fn chat_completions(
     }
 
     // Build request for provider client
+    let provider_messages: Vec<ProviderMessage> = request.messages.iter().map(|m| {
+        ProviderMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        }
+    }).collect();
+
     let provider_request = ProviderChatRequest {
         provider: provider_for_request.clone(),
         model: model.model_id.clone(),
-        messages: request.messages.clone(),
+        messages: provider_messages,
         temperature: request.temperature,
         max_tokens: request.max_tokens,
         stream: is_stream,
@@ -131,7 +139,9 @@ pub async fn chat_completions(
             let mut total_input_tokens: i32 = 0;
             let mut total_output_tokens: i32 = 0;
 
-            match provider_client.chat_stream(provider_request).await {
+            let client_result = ProviderClientFactory::create(&provider_clone);
+            match client_result {
+                Ok(client) => match client.chat_stream(provider_request).await {
                 Ok(chunks) => {
                     for chunk in chunks {
                         // Track tokens roughly (count from delta)
@@ -168,6 +178,12 @@ pub async fn chat_completions(
                     let _ = tx.send(Ok(Event::default()
                         .event("error")
                         .data(format!("{{\"error\": \"{}\"}}", e))));
+                }
+                }
+                Err(e) => {
+                    let _ = tx.send(Ok(Event::default()
+                        .event("error")
+                        .data(format!("{{\"error\": \"Failed to create provider client: {}\"}}", e))));
                 }
             }
 
@@ -232,10 +248,10 @@ pub async fn chat_completions(
         let latency_ms = start_time.elapsed().as_millis() as i32;
 
         // Convert provider response to OpenAI-compatible format
-        let prompt_tokens = provider_resp.usage.get("prompt_tokens").copied().unwrap_or(0) as i32;
-        let completion_tokens = provider_resp.usage.get("completion_tokens").copied().unwrap_or(0) as i32;
+        let prompt_tokens = provider_resp.usage.get("prompt_tokens").copied().unwrap_or(0);
+        let completion_tokens = provider_resp.usage.get("completion_tokens").copied().unwrap_or(0);
         let total_tokens = provider_resp.usage.get("total_tokens").copied()
-            .unwrap_or((prompt_tokens + completion_tokens) as u64) as i32;
+            .unwrap_or(prompt_tokens + completion_tokens);
 
         let response = ChatResponse {
             id: provider_resp.id,
@@ -373,7 +389,7 @@ pub async fn completions(
     Extension(_auth): Extension<AuthContext>,
     Json(_request): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    Err(ApiError::NotImplemented(
+    return Err::<axum::response::Response, _>(ApiError::NotImplemented(
         "Completions endpoint not implemented. Use /v1/chat/completions".to_string()
     ))
 }

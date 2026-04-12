@@ -128,7 +128,7 @@ impl HttpProviderClient {
         }
 
         // Apply provider-specific message transformation if needed
-        let registry = get_registry();
+        let registry = get_registry().await;
         if let Some(transformer) = registry.get_transformer(&self.config.id) {
             let transformed = transformer.transform_messages(&request.messages);
             if let Some(msgs) = transformed.get("messages") {
@@ -184,7 +184,7 @@ impl HttpProviderClient {
         }
 
         // Apply provider-specific message transformation if needed
-        let registry = get_registry();
+        let registry = get_registry().await;
         if let Some(transformer) = registry.get_transformer(&self.config.id) {
             let transformed = transformer.transform_messages(&request.messages);
             if let Some(msgs) = transformed.get("messages") {
@@ -224,7 +224,7 @@ impl HttpProviderClient {
                 .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
 
             for line in text.lines() {
-                if let Some(chunk) = stream_handler.parse_sse_line(line) {
+                if let Some(chunk) = stream_handler.parse_sse_event(line) {
                     chunks.push(ChatChunk {
                         delta: chunk.delta,
                         finished: chunk.finished,

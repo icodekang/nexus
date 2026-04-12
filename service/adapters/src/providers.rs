@@ -6,7 +6,8 @@
 use crate::error::ProviderError;
 use crate::types::Message;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::LazyLock;
+use tokio::sync::RwLock;
 
 /// Trait for provider-specific message transformation
 /// Only providers with non-standard message formats need to implement this
@@ -263,22 +264,22 @@ impl MessageTransformer for GoogleTransformer {
 }
 
 /// Global registry instance
-static REGISTRY: RwLock<ProviderAdapterRegistry> = RwLock::new(ProviderAdapterRegistry::new());
+static REGISTRY: LazyLock<RwLock<ProviderAdapterRegistry>> = LazyLock::new(|| RwLock::new(ProviderAdapterRegistry::new()));
 
-pub fn get_registry() -> &'static ProviderAdapterRegistry {
-    &REGISTRY
+pub async fn get_registry() -> tokio::sync::RwLockReadGuard<'static, ProviderAdapterRegistry> {
+    REGISTRY.read().await
 }
 
 /// Register a new provider transformer at runtime
-pub fn register_transformer(provider: &str, transformer: Box<dyn MessageTransformer>) -> Result<(), ProviderError> {
-    let mut registry = REGISTRY.write().map_err(|_| ProviderError::InvalidResponse("Registry lock error".to_string()))?;
+pub async fn register_transformer(provider: &str, transformer: Box<dyn MessageTransformer>) -> Result<(), ProviderError> {
+    let mut registry = REGISTRY.write().await;
     registry.register_transformer(provider, transformer);
     Ok(())
 }
 
 /// Register a new provider stream handler at runtime
-pub fn register_stream_handler(provider: &str, handler: Box<dyn StreamHandler>) -> Result<(), ProviderError> {
-    let mut registry = REGISTRY.write().map_err(|_| ProviderError::InvalidResponse("Registry lock error".to_string()))?;
+pub async fn register_stream_handler(provider: &str, handler: Box<dyn StreamHandler>) -> Result<(), ProviderError> {
+    let mut registry = REGISTRY.write().await;
     registry.register_stream_handler(provider, handler);
     Ok(())
 }

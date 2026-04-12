@@ -1,4 +1,4 @@
-use models::subscription::SubscriptionPlan;
+use models::SubscriptionPlan;
 
 /// Subscription plan details
 pub struct PlanDetails {

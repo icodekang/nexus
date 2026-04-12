@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import { login as apiLogin } from './api/admin';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -10,26 +11,20 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('nexus_admin_auth') === 'true';
+    return !!localStorage.getItem('nexus_admin_token');
   });
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
-    const validEmail = 'admin@nexus.io';
-    const validPassword = 'admin123';
-
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    if (email === validEmail && password === validPassword) {
-      localStorage.setItem('nexus_admin_auth', 'true');
-      setIsAuthenticated(true);
-      return true;
-    }
-    throw new Error('Invalid credentials');
+    const res = await apiLogin(email, password);
+    localStorage.setItem('nexus_admin_token', res.token);
+    localStorage.setItem('nexus_admin_user', JSON.stringify(res.user));
+    setIsAuthenticated(true);
+    return true;
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('nexus_admin_auth');
+    localStorage.removeItem('nexus_admin_token');
+    localStorage.removeItem('nexus_admin_user');
     setIsAuthenticated(false);
   }, []);
 

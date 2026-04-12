@@ -13,6 +13,10 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rust_decimal = { workspace = true }
+models = { path = "../models" }
 
 [dev-dependencies]
 tokio-test = "0.4"

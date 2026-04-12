@@ -4,6 +4,7 @@ pub mod context;
 pub mod error;
 
 pub use selector::*;
+pub use strategy::*;
 pub use context::*;
 pub use error::*;
 
@@ -49,7 +50,7 @@ impl RouterCore {
 
     /// Get all available models grouped by provider
     pub fn get_models_by_provider(&self) -> std::collections::HashMap<String, Vec<&LlmModel>> {
-        let mut result = std::collections::HashMap::new();
+        let mut result: std::collections::HashMap<String, Vec<&LlmModel>> = std::collections::HashMap::new();
         
         for model in &self.models {
             result

@@ -18,9 +18,19 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Skip API call — mock login for preview
-    saveAuth('preview-token', { id: '0', email: email || 'preview@nexus.io', subscription_plan: 'free' });
-    navigate('/chat');
+    setLoading(true);
+    setError('');
+    try {
+      const res = isRegister
+        ? await register(email, password)
+        : await login(email, password);
+      saveAuth(res.token, res.user);
+      navigate('/chat');
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

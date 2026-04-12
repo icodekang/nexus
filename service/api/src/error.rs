@@ -13,6 +13,9 @@ pub enum ApiError {
     #[error("Unauthorized")]
     Unauthorized,
 
+    #[error("Forbidden")]
+    Forbidden,
+
     #[error("Subscription expired")]
     SubscriptionExpired,
 
@@ -46,22 +49,27 @@ impl IntoResponse for ApiError {
             ApiError::InvalidApiKey => (
                 StatusCode::UNAUTHORIZED,
                 "invalid_api_key",
-                "Invalid API key",
+                "Invalid API key".to_string(),
             ),
             ApiError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
-                "Unauthorized",
+                "Unauthorized".to_string(),
+            ),
+            ApiError::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "Forbidden".to_string(),
             ),
             ApiError::SubscriptionExpired => (
                 StatusCode::FORBIDDEN,
                 "subscription_expired",
-                "Subscription expired. Please renew your subscription.",
+                "Subscription expired. Please renew your subscription.".to_string(),
             ),
             ApiError::RateLimitExceeded => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limit_exceeded",
-                "Rate limit exceeded. Please try again later.",
+                "Rate limit exceeded. Please try again later.".to_string(),
             ),
             ApiError::ProviderError(e) => (
                 StatusCode::BAD_GATEWAY,
@@ -81,7 +89,7 @@ impl IntoResponse for ApiError {
             ApiError::UserAlreadyExists => (
                 StatusCode::CONFLICT,
                 "user_already_exists",
-                "User with this email already exists",
+                "User with this email already exists".to_string(),
             ),
             ApiError::Internal(e) => {
                 tracing::error!("Internal error: {:?}", e);

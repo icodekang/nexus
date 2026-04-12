@@ -4,9 +4,11 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use rust_decimal::Decimal;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::DbError;
-use models::{User, ApiKey, Provider, LlmModel, Subscription, Transaction, ApiLog, subscription::SubscriptionPlan, subscription::TransactionType};
+use models::{User, ApiKey, Provider, LlmModel, Subscription, Transaction, ApiLog, SubscriptionPlan};
+use models::subscription::{TransactionType, TransactionStatus, SubscriptionStatus};
 
 /// PostgreSQL connection pool
 pub struct PostgresPool(PgPool);
@@ -335,7 +337,8 @@ impl PostgresPool {
     }
 
     fn row_to_subscription(&self, row: &PgRow) -> Subscription {
-        use models::subscription::{SubscriptionStatus, SubscriptionPlan};
+        use models::subscription::SubscriptionStatus;
+        use models::SubscriptionPlan;
         
         Subscription {
             id: row.get("id"),
@@ -364,8 +367,8 @@ impl PostgresPool {
         .bind(tx.id)
         .bind(tx.user_id)
         .bind(format!("{:?}", tx.transaction_type).to_lowercase())
-        .bind(tx.amount)
-        .bind(tx.plan.as_ref().map(|p| p.as_str()))
+        .bind(Decimal::from_f64_retain(tx.amount).unwrap_or_default())
+        .bind(tx.plan.as_ref().map(|p: &SubscriptionPlan| p.as_str()))
         .bind(format!("{:?}", tx.status).to_lowercase())
         .bind(&tx.description)
         .bind(tx.created_at)
@@ -388,7 +391,8 @@ impl PostgresPool {
     }
 
     fn row_to_transaction(&self, row: &PgRow) -> Transaction {
-        use models::subscription::{TransactionStatus, TransactionType, SubscriptionPlan};
+        use models::subscription::{TransactionStatus, TransactionType};
+        use models::SubscriptionPlan;
         
         Transaction {
             id: row.get("id"),
@@ -399,8 +403,8 @@ impl PostgresPool {
                 "subscription_cancellation" => TransactionType::SubscriptionCancellation,
                 _ => TransactionType::Refund,
             },
-            amount: row.get("amount"),
-            plan: row.get("plan").map(|p: String| SubscriptionPlan::from_str(&p)),
+            amount: rust_decimal::prelude::ToPrimitive::to_f64(&row.get::<Decimal, _>("amount")).unwrap_or(0.0),
+            plan: row.get::<Option<String>, _>("plan").map(|p| SubscriptionPlan::from_str(&p)),
             status: match row.get::<String, _>("status").as_str() {
                 "pending" => TransactionStatus::Pending,
                 "failed" => TransactionStatus::Failed,
@@ -563,4 +567,255 @@ impl PostgresPool {
             }).collect(),
         })
     }
+
+    // ============ Admin operations ============
+
+    pub async fn list_users(&self, offset: i64, limit: i64, search: &str) -> Result<Vec<User>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT * FROM users
+            WHERE ($1 = '' OR email ILIKE '%' || $1 || '%')
+            ORDER BY created_at DESC
+            OFFSET $2 LIMIT $3
+            "#,
+        )
+        .bind(search)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_user(r)).collect())
+    }
+
+    pub async fn count_users(&self, search: &str) -> Result<i64, DbError> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) as count FROM users
+            WHERE ($1 = '' OR email ILIKE '%' || $1 || '%')
+            "#,
+        )
+        .bind(search)
+        .fetch_one(self.inner())
+        .await?;
+
+        Ok(row.get("count"))
+    }
+
+    pub async fn update_user_admin(
+        &self,
+        user_id: Uuid,
+        phone: Option<&str>,
+        subscription_plan: Option<&str>,
+    ) -> Result<(), DbError> {
+        if let Some(phone) = phone {
+            sqlx::query("UPDATE users SET phone = $2, updated_at = NOW() WHERE id = $1")
+                .bind(user_id)
+                .bind(phone)
+                .execute(self.inner())
+                .await?;
+        }
+        if let Some(plan) = subscription_plan {
+            sqlx::query("UPDATE users SET subscription_plan = $2, updated_at = NOW() WHERE id = $1")
+                .bind(user_id)
+                .bind(plan)
+                .execute(self.inner())
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn list_all_providers(&self) -> Result<Vec<Provider>, DbError> {
+        let rows = sqlx::query("SELECT * FROM providers ORDER BY priority")
+            .fetch_all(self.inner())
+            .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_provider(r)).collect())
+    }
+
+    pub async fn update_provider(
+        &self,
+        id: Uuid,
+        name: Option<&str>,
+        slug: Option<&str>,
+        api_base_url: Option<&str>,
+        is_active: Option<bool>,
+        priority: Option<i32>,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            UPDATE providers SET
+                name = COALESCE($2, name),
+                slug = COALESCE($3, slug),
+                api_base_url = COALESCE($4, api_base_url),
+                is_active = COALESCE($5, is_active),
+                priority = COALESCE($6, priority)
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(name)
+        .bind(slug)
+        .bind(api_base_url)
+        .bind(is_active)
+        .bind(priority)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_provider_soft(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("UPDATE providers SET is_active = false WHERE id = $1")
+            .bind(id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_all_models(&self) -> Result<Vec<LlmModel>, DbError> {
+        let rows = sqlx::query("SELECT * FROM models ORDER BY name")
+            .fetch_all(self.inner())
+            .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_model(r)).collect())
+    }
+
+    pub async fn update_model(
+        &self,
+        id: Uuid,
+        name: Option<&str>,
+        slug: Option<&str>,
+        model_id: Option<&str>,
+        context_window: Option<i32>,
+        capabilities: Option<serde_json::Value>,
+        is_active: Option<bool>,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            UPDATE models SET
+                name = COALESCE($2, name),
+                slug = COALESCE($3, slug),
+                model_id = COALESCE($4, model_id),
+                context_window = COALESCE($5, context_window),
+                capabilities = COALESCE($6, capabilities),
+                is_active = COALESCE($7, is_active)
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(name)
+        .bind(slug)
+        .bind(model_id)
+        .bind(context_window)
+        .bind(capabilities)
+        .bind(is_active)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_model_soft(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("UPDATE models SET is_active = false WHERE id = $1")
+            .bind(id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_all_transactions(
+        &self,
+        offset: i64,
+        limit: i64,
+        tx_type: &str,
+        status: &str,
+    ) -> Result<Vec<(Transaction, String)>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT t.*, u.email as user_email
+            FROM transactions t
+            JOIN users u ON t.user_id = u.id
+            WHERE ($3 = '' OR t.transaction_type = $3)
+              AND ($4 = '' OR t.status = $4)
+            ORDER BY t.created_at DESC
+            OFFSET $1 LIMIT $2
+            "#,
+        )
+        .bind(offset)
+        .bind(limit)
+        .bind(tx_type)
+        .bind(status)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.iter().map(|r| {
+            let tx = self.row_to_transaction(r);
+            let email: String = r.get("user_email");
+            (tx, email)
+        }).collect())
+    }
+
+    pub async fn count_all_transactions(&self, tx_type: &str, status: &str) -> Result<i64, DbError> {
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*) as count FROM transactions
+            WHERE ($1 = '' OR transaction_type = $1)
+              AND ($2 = '' OR status = $2)
+            "#,
+        )
+        .bind(tx_type)
+        .bind(status)
+        .fetch_one(self.inner())
+        .await?;
+
+        Ok(row.get("count"))
+    }
+
+    pub async fn get_dashboard_stats(&self) -> Result<DashboardStats, DbError> {
+        let user_count: i64 = sqlx::query("SELECT COUNT(*) as count FROM users")
+            .fetch_one(self.inner())
+            .await?
+            .get("count");
+
+        let active_subs: i64 = sqlx::query(
+            "SELECT COUNT(*) as count FROM users WHERE subscription_plan != 'none' AND subscription_end > NOW()"
+        )
+        .fetch_one(self.inner())
+        .await?
+        .get("count");
+
+        let total_revenue: f64 = sqlx::query(
+            r#"SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE status = 'completed' AND amount > 0"#
+        )
+        .fetch_one(self.inner())
+        .await?
+        .get::<rust_decimal::Decimal, _>("total")
+        .to_string()
+        .parse::<f64>()
+        .unwrap_or(0.0);
+
+        let api_calls_today: i64 = sqlx::query(
+            "SELECT COUNT(*) as count FROM api_logs WHERE created_at >= CURRENT_DATE"
+        )
+        .fetch_one(self.inner())
+        .await?
+        .get("count");
+
+        Ok(DashboardStats {
+            total_users: user_count,
+            active_subscriptions: active_subs,
+            total_revenue,
+            api_calls_today,
+        })
+    }
+}
+
+/// Dashboard statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardStats {
+    pub total_users: i64,
+    pub active_subscriptions: i64,
+    pub total_revenue: f64,
+    pub api_calls_today: i64,
 }

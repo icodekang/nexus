@@ -1,11 +1,11 @@
-use axum::{routing::{get, post, delete}, Router, Json, Extension};
+use axum::{routing::{get, post, delete}, Router, Json, Extension, extract::State};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
-use models::{ApiKey, subscription::SubscriptionPlanInfo};
+use models::{ApiKey, SubscriptionPlan, subscription::SubscriptionPlanInfo};
 use auth::ApiKeyGenerator;
 
 pub fn routes() -> Router<Arc<AppState>> {

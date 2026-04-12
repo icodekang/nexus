@@ -5,7 +5,8 @@ pub use subscription::*;
 pub use error::*;
 
 use chrono::{DateTime, Utc};
-use models::{User, Subscription, Transaction, subscription::{SubscriptionPlan, SubscriptionStatus, TransactionType, TransactionStatus}};
+use models::{User, Subscription, Transaction, SubscriptionPlan};
+use models::subscription::{SubscriptionStatus, TransactionType, TransactionStatus};
 
 pub struct BillingService;
 

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Check, Sparkles, Zap } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { fetchSubscription, subscribeToPlan } from '../api/client';
 import './SubscriptionPage.css';
 
 interface Plan {
@@ -17,7 +18,39 @@ interface Plan {
 
 export default function SubscriptionPage() {
   const { t } = useI18n();
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [subscribing, setSubscribing] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchSubscription()
+      .then((sub) => {
+        if (sub.is_active && sub.subscription_plan) {
+          setCurrentPlan(sub.subscription_plan);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSubscribe = async (planKey: string) => {
+    const planMap: Record<string, string> = {
+      monthly: 'monthly',
+      autoRenew: 'monthly',
+      quarterly: 'monthly',
+      yearly: 'yearly',
+    };
+    const apiPlan = planMap[planKey] || planKey;
+    setSubscribing(planKey);
+    try {
+      const res = await subscribeToPlan(apiPlan);
+      setCurrentPlan(res.plan);
+    } catch {
+      // Error handling
+    } finally {
+      setSubscribing(null);
+    }
+  };
 
   const plans: Plan[] = [
     {
@@ -82,18 +115,37 @@ export default function SubscriptionPage() {
     },
   ];
 
+  const getButtonLabel = (planKey: string) => {
+    if (subscribing === planKey) return t('login.pleaseWait');
+    // Map plan keys to backend plan names for comparison
+    const isCurrentPlan = currentPlan === planKey ||
+      (planKey === 'autoRenew' && currentPlan === 'monthly') ||
+      (planKey === 'quarterly' && currentPlan === 'monthly');
+    if (isCurrentPlan) return t('subscription.currentPlan');
+    if (currentPlan) return t('subscription.switchPlan');
+    return t('subscription.subscribe');
+  };
+
+  const isCurrentPlan = (planKey: string) => {
+    return currentPlan === planKey ||
+      (planKey === 'autoRenew' && currentPlan === 'monthly') ||
+      (planKey === 'quarterly' && currentPlan === 'monthly');
+  };
+
   return (
     <div className="subscription-page">
       <header className="subscription-header">
         <h1 className="subscription-title">{t('subscription.title')}</h1>
-        <p className="subscription-subtitle">{t('subscription.subtitle')}</p>
+        <p className="subscription-subtitle">
+          {loading ? 'Loading...' : t('subscription.subtitle')}
+        </p>
       </header>
 
       <div className="subscription-grid">
         {plans.map((plan) => (
           <div
             key={plan.key}
-            className={`subscription-card ${plan.highlighted ? 'highlighted' : ''} ${selectedPlan === plan.key ? 'selected' : ''}`}
+            className={`subscription-card ${plan.highlighted ? 'highlighted' : ''} ${isCurrentPlan(plan.key) ? 'selected' : ''}`}
           >
             {plan.badge && (
               <div className={`subscription-badge ${plan.badgeType || ''}`}>
@@ -133,13 +185,10 @@ export default function SubscriptionPage() {
 
             <button
               className={`subscription-cta ${plan.highlighted ? 'cta-highlighted' : ''}`}
-              onClick={() => setSelectedPlan(plan.key)}
+              onClick={() => handleSubscribe(plan.key)}
+              disabled={subscribing !== null || isCurrentPlan(plan.key)}
             >
-              {selectedPlan === plan.key
-                ? t('subscription.currentPlan')
-                : selectedPlan
-                  ? t('subscription.switchPlan')
-                  : t('subscription.subscribe')}
+              {getButtonLabel(plan.key)}
             </button>
           </div>
         ))}

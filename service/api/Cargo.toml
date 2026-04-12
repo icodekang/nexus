@@ -3,6 +3,9 @@ name = "api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 tokio = { workspace = true }
 axum = { workspace = true }
@@ -20,7 +23,7 @@ jsonwebtoken = { workspace = true }
 futures-util = "0.3"
 http = "1.1"
 reqwest = { workspace = true, features = ["json", "stream"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 models = { path = "../models" }
 db = { path = "../db" }

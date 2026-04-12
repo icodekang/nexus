@@ -1,31 +1,66 @@
+import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
+import { fetchDashboardStats, type DashboardStats } from '../api/admin';
+
+type TimeRange = '30d' | '7d';
+
+const chartDataMap: Record<TimeRange, { label: string; value: number }[]> = {
+  '30d': [
+    { label: 'Jul', value: 28000 },
+    { label: 'Aug', value: 32000 },
+    { label: 'Sep', value: 35000 },
+    { label: 'Oct', value: 38000 },
+    { label: 'Nov', value: 42000 },
+    { label: 'Dec', value: 45678 },
+  ],
+  '7d': [
+    { label: 'Mon', value: 3200 },
+    { label: 'Tue', value: 2800 },
+    { label: 'Wed', value: 3600 },
+    { label: 'Thu', value: 4100 },
+    { label: 'Fri', value: 3900 },
+    { label: 'Sat', value: 2100 },
+    { label: 'Sun', value: 1880 },
+  ],
+};
+
+const activities = [
+  { user: 'user@company.com', actionKey: 'dashboard.purchasedPlan', actionParams: { plan: 'Yearly' }, time: '2m' },
+  { user: 'john@company.com', actionKey: 'dashboard.madeApiCall', time: '5m' },
+  { user: 'jane@company.com', actionKey: 'dashboard.upgradedTo', actionParams: { plan: 'Team' }, time: '12m' },
+  { user: 'bob@company.com', actionKey: 'dashboard.subscriptionExpired', time: '1h' },
+];
 
 export default function Dashboard() {
   const { t } = useI18n();
+  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const stats = [
-    { title: t('dashboard.totalUsers'), value: '1,234', change: '+12%', color: '#6366F1' },
-    { title: t('dashboard.activeSubscriptions'), value: '892', change: '+8%', color: '#22C55E' },
-    { title: t('dashboard.monthlyRevenue'), value: '$45,678', change: '+23%', color: '#F59E0B' },
-    { title: t('dashboard.apiCallsToday'), value: '89,234', change: '+5%', color: '#EC4899' },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchDashboardStats()
+      .then((data) => {
+        if (!cancelled) setStats(data);
+      })
+      .catch(() => {
+        // Keep defaults on error
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
-  const chartData = [
-    { month: 'Jul', value: 28000 },
-    { month: 'Aug', value: 32000 },
-    { month: 'Sep', value: 35000 },
-    { month: 'Oct', value: 38000 },
-    { month: 'Nov', value: 42000 },
-    { month: 'Dec', value: 45678 },
-  ];
-
+  const chartData = chartDataMap[timeRange];
   const maxValue = Math.max(...chartData.map((d) => d.value));
 
-  const activities = [
-    { user: 'user@company.com', action: t('dashboard.purchasedPlan', { plan: 'Yearly' }), time: '2m' },
-    { user: 'john@company.com', action: t('dashboard.madeApiCall'), time: '5m' },
-    { user: 'jane@company.com', action: t('dashboard.upgradedTo', { plan: 'Team' }), time: '12m' },
-    { user: 'bob@company.com', action: t('dashboard.subscriptionExpired'), time: '1h' },
+  const statMetas = [
+    { title: t('dashboard.totalUsers'), color: '#6366F1', value: stats ? String(stats.total_users) : '-', change: '' },
+    { title: t('dashboard.activeSubscriptions'), color: '#22C55E', value: stats ? String(stats.active_subscriptions) : '-', change: '' },
+    { title: t('dashboard.monthlyRevenue'), color: '#F59E0B', value: stats ? `$${stats.total_revenue.toLocaleString()}` : '-', change: '' },
+    { title: t('dashboard.apiCallsToday'), color: '#EC4899', value: stats ? String(stats.api_calls_today) : '-', change: '' },
   ];
 
   return (
@@ -33,16 +68,20 @@ export default function Dashboard() {
       <header style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>{t('dashboard.title')}</h1>
-          <p style={styles.pageSubtitle}>{t('dashboard.subtitle')}</p>
+          <p style={styles.pageSubtitle}>{loading ? 'Loading...' : t('dashboard.subtitle')}</p>
         </div>
-        <select style={styles.select}>
-          <option>{t('dashboard.last30Days')}</option>
-          <option>{t('dashboard.last7Days')}</option>
+        <select
+          style={styles.select}
+          value={timeRange}
+          onChange={(e) => setTimeRange(e.target.value as TimeRange)}
+        >
+          <option value="30d">{t('dashboard.last30Days')}</option>
+          <option value="7d">{t('dashboard.last7Days')}</option>
         </select>
       </header>
 
       <div style={styles.statsGrid}>
-        {stats.map((stat, i) => (
+        {statMetas.map((stat, i) => (
           <div key={i} style={styles.statCard}>
             <div style={styles.statTop}>
               <div style={{ ...styles.statDot, backgroundColor: stat.color }} />
@@ -50,7 +89,7 @@ export default function Dashboard() {
             </div>
             <div style={styles.statBottom}>
               <span style={styles.statValue}>{stat.value}</span>
-              <span style={styles.statChange}>{stat.change}</span>
+              {stat.change && <span style={styles.statChange}>{stat.change}</span>}
             </div>
           </div>
         ))}
@@ -60,7 +99,9 @@ export default function Dashboard() {
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>{t('dashboard.revenueOverview')}</h2>
-            <span style={styles.cardBadge}>2024</span>
+            <span style={styles.cardBadge}>
+              {timeRange === '30d' ? '2024' : t('dashboard.last7Days')}
+            </span>
           </div>
           <div style={styles.chart}>
             {chartData.map((d, i) => (
@@ -73,7 +114,7 @@ export default function Dashboard() {
                     }}
                   />
                 </div>
-                <span style={styles.chartLabel}>{d.month}</span>
+                <span style={styles.chartLabel}>{d.label}</span>
               </div>
             ))}
           </div>
@@ -90,7 +131,9 @@ export default function Dashboard() {
                   {item.user.charAt(0).toUpperCase()}
                 </div>
                 <div style={styles.activityContent}>
-                  <span style={styles.activityAction}>{item.action}</span>
+                  <span style={styles.activityAction}>
+                    {item.actionParams ? t(item.actionKey, item.actionParams) : t(item.actionKey)}
+                  </span>
                   <span style={styles.activityUser}>{item.user}</span>
                 </div>
                 <span style={styles.activityTime}>{t('dashboard.timeAgo', { time: item.time })}</span>

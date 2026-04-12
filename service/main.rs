@@ -1,15 +1,10 @@
-mod error;
-mod routes;
-mod middleware;
-mod state;
-
 use std::sync::Arc;
-use axum::{Router, middleware::from_fn};
 use std::net::SocketAddr;
-use tower_http::cors::{Any, CorsLayer, AllowHeaders, AllowMethods};
+use axum::{Router, middleware::from_fn, Extension};
+use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use state::AppState;
+use api::{routes, middleware, state::AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,12 +21,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize database connections
     let db = db::PostgresPool::new(
-        std::env::var("DATABASE_URL")
+        &std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://nexus:password@localhost:5432/nexus".to_string())
     ).await?;
 
     let redis = db::RedisPool::new(
-        std::env::var("REDIS_URL")
+        &std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string())
     ).await?;
 
@@ -51,18 +46,23 @@ async fn main() -> anyhow::Result<()> {
         .nest("/v1/auth", routes::auth::routes())
         .route("/health", axum::routing::get(routes::health));
 
-    // Protected routes (auth middleware applied)
+    // Protected routes — accepts both API keys and JWT tokens
     let protected_routes = Router::new()
         .nest("/v1", routes::v1::routes())
         .nest("/v1/me", routes::me::routes())
-        .layer(from_fn(middleware::auth::validate_api_key));
+        .layer(from_fn(middleware::auth::validate_jwt_or_api_key));
 
-    // State injection middleware — puts Arc<AppState> into request extensions
-    // so the auth middleware can access it
+    // Admin routes — requires JWT + admin role
+    let admin_routes = Router::new()
+        .nest("/admin", routes::admin::routes())
+        .layer(from_fn(middleware::auth::require_admin))
+        .layer(from_fn(middleware::auth::validate_jwt_or_api_key));
+
     let app = Router::new()
         .merge(public_routes)
         .merge(protected_routes)
-        .layer(axum::middleware::from_fn(inject_state))
+        .merge(admin_routes)
+        .layer(Extension(state.clone()))
         .layer(cors)
         .with_state(state);
 
@@ -74,16 +74,4 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-/// Middleware to inject AppState into request extensions
-async fn inject_state(
-    mut req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    let state = req.extensions().get::<Arc<AppState>>().cloned();
-    if let Some(state) = state {
-        req.extensions_mut().insert(state);
-    }
-    next.run(req).await
 }
