@@ -41,6 +41,14 @@ async fn main() -> anyhow::Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Debug logging middleware
+    async fn debug_logger(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+        tracing::info!("{} {} - Headers: {:?}", req.method(), req.uri(), req.headers());
+        let response = next.run(req).await;
+        tracing::info!("Response status: {}", response.status());
+        response
+    }
+
     // Public routes (no auth required)
     let public_routes = Router::new()
         .nest("/v1/auth", routes::auth::routes())
@@ -62,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(public_routes)
         .merge(protected_routes)
         .merge(admin_routes)
+        .layer(from_fn(debug_logger))
         .layer(Extension(state.clone()))
         .layer(cors)
         .with_state(state);

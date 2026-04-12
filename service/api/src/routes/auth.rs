@@ -12,6 +12,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+        .route("/admin-login", post(admin_login))
         .route("/logout", post(logout))
 }
 
@@ -36,6 +37,7 @@ pub struct UserResponse {
     pub email: String,
     pub phone: Option<String>,
     pub subscription_plan: String,
+    pub is_admin: bool,
 }
 
 /// POST /v1/auth/register
@@ -72,6 +74,7 @@ pub async fn register(
             email: user.email,
             phone: user.phone,
             subscription_plan: user.subscription_plan.as_str().to_string(),
+            is_admin: user.is_admin,
         },
         token,
     }))
@@ -93,17 +96,17 @@ pub async fn login(
     let user = state.db.get_user_by_email(&request.email)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Database error")))?
-        .ok_or(ApiError::InvalidApiKey)?;
+        .ok_or(ApiError::InvalidCredentials)?;
 
     // Verify password
     let password_hash = user.password_hash.as_ref()
-        .ok_or(ApiError::InvalidApiKey)?;
-    
+        .ok_or(ApiError::InvalidCredentials)?;
+
     let is_valid = verify_password(&request.password, password_hash)
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Password verification failed")))?;
-    
+
     if !is_valid {
-        return Err(ApiError::InvalidApiKey);
+        return Err(ApiError::InvalidCredentials);
     }
 
     // Generate token
@@ -116,6 +119,51 @@ pub async fn login(
             email: user.email,
             phone: user.phone,
             subscription_plan: user.subscription_plan.as_str().to_string(),
+            is_admin: user.is_admin,
+        },
+        token,
+    }))
+}
+
+/// POST /v1/auth/admin-login
+/// Admin-only login endpoint. Returns Forbidden if the user is not an admin.
+pub async fn admin_login(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<LoginRequest>,
+) -> Result<Json<AuthResponse>, ApiError> {
+    // Get user
+    let user = state.db.get_user_by_email(&request.email)
+        .await
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Database error")))?
+        .ok_or(ApiError::InvalidCredentials)?;
+
+    // Verify password
+    let password_hash = user.password_hash.as_ref()
+        .ok_or(ApiError::InvalidCredentials)?;
+
+    let is_valid = verify_password(&request.password, password_hash)
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Password verification failed")))?;
+
+    if !is_valid {
+        return Err(ApiError::InvalidCredentials);
+    }
+
+    // Check admin privilege
+    if !user.is_admin {
+        return Err(ApiError::Forbidden);
+    }
+
+    // Generate token
+    let token = JwtService::generate_token(user.id, &user.email)
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to generate token")))?;
+
+    Ok(Json(AuthResponse {
+        user: UserResponse {
+            id: user.id.to_string(),
+            email: user.email,
+            phone: user.phone,
+            subscription_plan: user.subscription_plan.as_str().to_string(),
+            is_admin: user.is_admin,
         },
         token,
     }))

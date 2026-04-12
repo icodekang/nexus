@@ -29,11 +29,12 @@ export interface AuthResponse {
     email: string;
     phone: string | null;
     subscription_plan: string;
+    is_admin: boolean;
   };
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {
-  return request<AuthResponse>('/v1/auth/login', {
+  return request<AuthResponse>('/v1/auth/admin-login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
@@ -166,6 +167,54 @@ export async function updateModel(id: string, data: { name?: string; slug?: stri
 export async function deleteModel(id: string): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(`/admin/models/${id}`, {
     method: 'DELETE',
+  });
+}
+
+// ============ Provider Keys ============
+
+export interface ProviderKey {
+  id: string;
+  provider_slug: string;
+  api_key_masked: string;
+  api_key_preview: string;
+  base_url: string;
+  is_active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderKeysResponse {
+  data: ProviderKey[];
+}
+
+export async function fetchProviderKeys(): Promise<ProviderKeysResponse> {
+  return request<ProviderKeysResponse>('/admin/provider-keys');
+}
+
+export async function createProviderKey(data: { provider_slug: string; api_key: string; base_url?: string; priority?: number }): Promise<ProviderKey> {
+  return request<ProviderKey>('/admin/provider-keys', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateProviderKey(id: string, data: { api_key?: string; base_url?: string; is_active?: boolean; priority?: number }): Promise<{ updated: boolean }> {
+  return request<{ updated: boolean }>(`/admin/provider-keys/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteProviderKey(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/provider-keys/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function testProviderKey(id: string): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(`/admin/provider-keys/${id}/test`, {
+    method: 'POST',
   });
 }
 

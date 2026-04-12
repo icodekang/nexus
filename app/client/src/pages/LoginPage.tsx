@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Zap, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
-import { login, register } from '../api/client';
+import { login, register, ApiError } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../i18n';
 import './LoginPage.css';
@@ -26,8 +26,18 @@ export default function LoginPage() {
         : await login(email, password);
       saveAuth(res.token, res.user);
       navigate('/chat');
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        switch (err.code) {
+          case 'invalid_credentials': setError(t('common.invalidCredentials')); break;
+          case 'user_already_exists': setError(t('common.userAlreadyExists')); break;
+          case 'network_error': setError(t('common.networkError')); break;
+          case 'internal_error': setError(t('common.serverError')); break;
+          default: setError(err.message || t('login.authFailed'));
+        }
+      } else {
+        setError(t('login.authFailed'));
+      }
     } finally {
       setLoading(false);
     }

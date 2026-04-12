@@ -27,8 +27,21 @@ export default function Login() {
       if (success) {
         navigate('/dashboard', { replace: true });
       }
-    } catch {
-      setError(t('login.invalidCredentials'));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('Invalid email or password') || message.includes('invalid_credentials')) {
+        setError(t('login.invalidCredentials'));
+      } else if (message.includes('Forbidden') || message.includes('forbidden')) {
+        setError(t('login.forbidden'));
+      } else if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
+        setError(t('login.networkError'));
+      } else if (message.includes('internal') || message.includes('Internal')) {
+        setError(t('login.serverError'));
+      } else if (message) {
+        setError(message);
+      } else {
+        setError(t('login.invalidCredentials'));
+      }
     } finally {
       setIsLoading(false);
     }

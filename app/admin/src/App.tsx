@@ -4,6 +4,7 @@ import { I18nProvider, useI18n } from './i18n';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Providers from './pages/Providers';
+import ProviderKeys from './pages/ProviderKeys';
 import Models from './pages/Models';
 import Transactions from './pages/Transactions';
 import Login from './pages/Login';
@@ -25,6 +26,7 @@ function Sidebar() {
     { path: '/dashboard', label: t('sidebar.dashboard'), icon: DashboardIcon },
     { path: '/users', label: t('sidebar.users'), icon: UsersIcon },
     { path: '/providers', label: t('sidebar.providers'), icon: ProvidersIcon },
+    { path: '/provider-keys', label: t('sidebar.providerKeys'), icon: ProviderKeysIcon },
     { path: '/models', label: t('sidebar.models'), icon: ModelsIcon },
     { path: '/transactions', label: t('sidebar.transactions'), icon: TransactionsIcon },
   ];
@@ -120,6 +122,14 @@ function ProvidersIcon(_props: { active: boolean }) {
   );
 }
 
+function ProviderKeysIcon(_props: { active: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  );
+}
+
 function ModelsIcon(_props: { active: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -158,6 +168,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
         <Route path="/providers" element={<ProtectedRoute><Providers /></ProtectedRoute>} />
+        <Route path="/provider-keys" element={<ProtectedRoute><ProviderKeys /></ProtectedRoute>} />
         <Route path="/models" element={<ProtectedRoute><Models /></ProtectedRoute>} />
         <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
       </Route>

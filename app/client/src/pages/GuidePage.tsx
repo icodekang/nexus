@@ -120,11 +120,11 @@ export default function GuidePage() {
         </h2>
         <div className="guide-plans">
           {[
-            { name: t('guide.free'), quota: '10K tokens/month', rate: '10 req/min', desc: t('guide.freeDesc') },
-            { name: t('guide.monthly'), quota: '2M tokens/month', rate: '60 req/min', desc: t('guide.monthlyDesc') },
-            { name: t('guide.yearly'), quota: '2M tokens/month', rate: '120 req/min', desc: t('guide.yearlyDesc') },
-            { name: t('guide.team'), quota: '10M tokens/month', rate: '300 req/min', desc: t('guide.teamDesc') },
-            { name: t('guide.enterprise'), quota: 'Unlimited', rate: '1000 req/min', desc: t('guide.enterpriseDesc') },
+            { name: t('guide.free'), quota: t('guide.freeQuota'), rate: t('guide.freeRate'), desc: t('guide.freeDesc') },
+            { name: t('guide.monthly'), quota: t('guide.monthlyQuota'), rate: t('guide.monthlyRate'), desc: t('guide.monthlyDesc') },
+            { name: t('guide.yearly'), quota: t('guide.yearlyQuota'), rate: t('guide.yearlyRate'), desc: t('guide.yearlyDesc') },
+            { name: t('guide.team'), quota: t('guide.teamQuota'), rate: t('guide.teamRate'), desc: t('guide.teamDesc') },
+            { name: t('guide.enterprise'), quota: t('guide.enterpriseQuota'), rate: t('guide.enterpriseRate'), desc: t('guide.enterpriseDesc') },
           ].map((plan) => (
             <div key={plan.name} className="guide-plan">
               <h4 className="guide-plan-name">{plan.name}</h4>

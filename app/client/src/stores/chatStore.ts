@@ -23,7 +23,7 @@ interface ChatState {
   showHistory: boolean;
 
   setSelectedModel: (model: string) => void;
-  createConversation: (model: string) => string;
+  createConversation: (model: string, title?: string) => string;
   deleteConversation: (id: string) => void;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
@@ -44,11 +44,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setSelectedModel: (model) => set({ selectedModel: model }),
 
-  createConversation: (model) => {
+  createConversation: (model, title) => {
     const id = `conv_${Date.now()}`;
     const conversation: Conversation = {
       id,
-      title: 'New Chat',
+      title: title || 'New Chat',
       model,
       messages: [],
       createdAt: Date.now(),

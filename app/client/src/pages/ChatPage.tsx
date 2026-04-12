@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Plus, Trash2, ChevronDown, Sparkles, Check, Search, History } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 import { useModelState } from '../stores/modelStore';
-import { sendChat, streamChat } from '../api/client';
+import { sendChat, streamChat, ApiError } from '../api/client';
 import { useI18n } from '../i18n';
 import './ChatPage.css';
 
@@ -56,7 +56,7 @@ export default function ChatPage() {
 
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation(selectedModel);
+      convId = createConversation(selectedModel, t('chat.newChat'));
     }
 
     addMessage(convId!, { role: 'user', content: text });
@@ -86,10 +86,22 @@ export default function ChatPage() {
         const assistantContent = resp.choices[0]?.message?.content || t('chat.noResponse');
         useChatStore.getState().updateLastAssistantMessage(convId!, assistantContent);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      let message: string;
+      if (err instanceof ApiError) {
+        switch (err.code) {
+          case 'network_error': message = t('common.networkError'); break;
+          case 'stream_failed': message = t('common.streamFailed'); break;
+          case 'rate_limit_exceeded': message = err.message; break;
+          case 'internal_error': message = t('common.serverError'); break;
+          default: message = err.message || t('chat.failedResponse');
+        }
+      } else {
+        message = t('chat.failedResponse');
+      }
       useChatStore.getState().updateLastAssistantMessage(
         convId!,
-        t('chat.errorPrefix', { message: err.message || t('chat.failedResponse') })
+        t('chat.errorPrefix', { message })
       );
     } finally {
       setLoading(false);
@@ -104,7 +116,7 @@ export default function ChatPage() {
   };
 
   const handleNewChat = () => {
-    createConversation(selectedModel);
+    createConversation(selectedModel, t('chat.newChat'));
     setShowHistory(false);
     inputRef.current?.focus();
   };

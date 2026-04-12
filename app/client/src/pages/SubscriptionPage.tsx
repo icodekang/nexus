@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Check, Sparkles, Zap } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { fetchSubscription, subscribeToPlan } from '../api/client';
+import { fetchSubscription, subscribeToPlan, ApiError } from '../api/client';
 import './SubscriptionPage.css';
 
 interface Plan {
@@ -21,6 +21,7 @@ export default function SubscriptionPage() {
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchSubscription()
@@ -42,11 +43,18 @@ export default function SubscriptionPage() {
     };
     const apiPlan = planMap[planKey] || planKey;
     setSubscribing(planKey);
+    setError('');
     try {
       const res = await subscribeToPlan(apiPlan);
       setCurrentPlan(res.plan);
-    } catch {
-      // Error handling
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.code === 'network_error') {
+        setError(t('common.networkError'));
+      } else if (err instanceof ApiError && err.code === 'internal_error') {
+        setError(t('common.serverError'));
+      } else {
+        setError(t('subscription.subscribeFailed'));
+      }
     } finally {
       setSubscribing(null);
     }
@@ -137,8 +145,11 @@ export default function SubscriptionPage() {
       <header className="subscription-header">
         <h1 className="subscription-title">{t('subscription.title')}</h1>
         <p className="subscription-subtitle">
-          {loading ? 'Loading...' : t('subscription.subtitle')}
+          {loading ? t('common.loading') : t('subscription.subtitle')}
         </p>
+        {error && (
+          <p style={{ color: '#EF4444', fontSize: '14px', marginTop: '8px' }}>{error}</p>
+        )}
       </header>
 
       <div className="subscription-grid">

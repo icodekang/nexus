@@ -1,4 +1,13 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
+const API_BASE: string = import.meta.env.VITE_API_BASE ?? '';
+
+export class ApiError extends Error {
+  code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('nexus_token');
@@ -10,11 +19,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new ApiError('Network error', 'network_error');
+  }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: { message: 'Request failed' } }));
-    throw new Error(err.error?.message || 'Request failed');
+    const err = await res.json().catch(() => ({ error: { message: 'Request failed', code: 'request_failed' } }));
+    const message = err.error?.message || 'Request failed';
+    const code = err.error?.code || 'request_failed';
+    throw new ApiError(message, code);
   }
 
   return res.json();
@@ -107,7 +123,7 @@ export async function* streamChat(model: string, messages: ChatMessage[]): Async
   });
 
   if (!res.ok || !res.body) {
-    throw new Error('Stream request failed');
+    throw new ApiError('Stream request failed', 'stream_failed');
   }
 
   const reader = res.body.getReader();

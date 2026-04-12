@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::DbError;
-use models::{User, ApiKey, Provider, LlmModel, Subscription, Transaction, ApiLog, SubscriptionPlan};
+use models::{User, ApiKey, Provider, ProviderKey, LlmModel, Subscription, Transaction, ApiLog, SubscriptionPlan};
 use models::subscription::{TransactionType, TransactionStatus, SubscriptionStatus};
 
 /// PostgreSQL connection pool
@@ -671,6 +671,112 @@ impl PostgresPool {
             .execute(self.inner())
             .await?;
         Ok(())
+    }
+
+    // ============ Provider Key operations ============
+
+    pub async fn create_provider_key(&self, key: &ProviderKey) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO provider_keys (id, provider_slug, api_key_encrypted, api_key_prefix,
+                                       base_url, is_active, priority, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind(key.id)
+        .bind(&key.provider_slug)
+        .bind(&key.api_key_encrypted)
+        .bind(&key.api_key_prefix)
+        .bind(&key.base_url)
+        .bind(key.is_active)
+        .bind(key.priority)
+        .bind(key.created_at)
+        .bind(key.updated_at)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn list_provider_keys(&self) -> Result<Vec<ProviderKey>, DbError> {
+        let rows = sqlx::query("SELECT * FROM provider_keys ORDER BY priority")
+            .fetch_all(self.inner())
+            .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_provider_key(r)).collect())
+    }
+
+    pub async fn get_provider_key_by_id(&self, id: Uuid) -> Result<Option<ProviderKey>, DbError> {
+        let row = sqlx::query("SELECT * FROM provider_keys WHERE id = $1")
+            .bind(id)
+            .fetch_optional(self.inner())
+            .await?;
+
+        Ok(row.map(|r| self.row_to_provider_key(&r)))
+    }
+
+    pub async fn get_provider_key_by_slug(&self, slug: &str) -> Result<Option<ProviderKey>, DbError> {
+        let row = sqlx::query("SELECT * FROM provider_keys WHERE provider_slug = $1 AND is_active = true")
+            .bind(slug)
+            .fetch_optional(self.inner())
+            .await?;
+
+        Ok(row.map(|r| self.row_to_provider_key(&r)))
+    }
+
+    pub async fn update_provider_key(
+        &self,
+        id: Uuid,
+        api_key_encrypted: Option<&str>,
+        api_key_prefix: Option<&str>,
+        base_url: Option<&str>,
+        is_active: Option<bool>,
+        priority: Option<i32>,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            UPDATE provider_keys SET
+                api_key_encrypted = COALESCE($2, api_key_encrypted),
+                api_key_prefix = COALESCE($3, api_key_prefix),
+                base_url = COALESCE($4, base_url),
+                is_active = COALESCE($5, is_active),
+                priority = COALESCE($6, priority),
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(api_key_encrypted)
+        .bind(api_key_prefix)
+        .bind(base_url)
+        .bind(is_active)
+        .bind(priority)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_provider_key(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM provider_keys WHERE id = $1")
+            .bind(id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
+    fn row_to_provider_key(&self, row: &PgRow) -> ProviderKey {
+        ProviderKey {
+            id: row.get("id"),
+            provider_slug: row.get("provider_slug"),
+            api_key_encrypted: row.get("api_key_encrypted"),
+            api_key_prefix: row.get("api_key_prefix"),
+            base_url: row.get("base_url"),
+            is_active: row.get("is_active"),
+            priority: row.get("priority"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        }
     }
 
     pub async fn list_all_models(&self) -> Result<Vec<LlmModel>, DbError> {

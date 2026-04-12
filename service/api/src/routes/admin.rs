@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
-use models::{Provider, LlmModel, ModelMode};
+use models::{Provider, ProviderKey, LlmModel, ModelMode};
 use db::postgres::DashboardStats;
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -20,6 +20,9 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/users/:id", put(update_user))
         .route("/providers", get(list_providers).post(create_provider))
         .route("/providers/:id", put(update_provider).delete(delete_provider))
+        .route("/provider-keys", get(list_provider_keys).post(create_provider_key))
+        .route("/provider-keys/:id", put(update_provider_key).delete(delete_provider_key))
+        .route("/provider-keys/:id/test", post(test_provider_key))
         .route("/models", get(list_models).post(create_model))
         .route("/models/:id", put(update_model).delete(delete_model))
         .route("/transactions", get(list_transactions))
@@ -363,6 +366,207 @@ async fn delete_model(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete model: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+// ============ Provider Keys ============
+
+/// Simple reversible encoding for API keys at rest.
+/// In production, use AES-256-GCM or a KMS service instead.
+fn encode_api_key(key: &str) -> String {
+    // Simple hex encoding as placeholder — replace with real encryption
+    key.bytes().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn decode_api_key(encoded: &str) -> Result<String, ApiError> {
+    let bytes: Vec<u8> = (0..encoded.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&encoded[i..i + 2], 16))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key")))?;
+    String::from_utf8(bytes)
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key")))
+}
+
+fn extract_key_prefix(key: &str) -> String {
+    if key.len() <= 12 {
+        key.to_string()
+    } else {
+        key[..12].to_string()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateProviderKeyRequest {
+    provider_slug: String,
+    api_key: String,
+    base_url: Option<String>,
+    priority: Option<i32>,
+}
+
+async fn list_provider_keys(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let keys = state.db.list_provider_keys().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list provider keys: {}", e)))?;
+
+    let data: Vec<serde_json::Value> = keys.iter().map(|k| {
+        let preview = decode_api_key(&k.api_key_encrypted)
+            .unwrap_or_default();
+        serde_json::json!({
+            "id": k.id.to_string(),
+            "provider_slug": k.provider_slug,
+            "api_key_masked": k.masked_key(),
+            "api_key_preview": if preview.len() > 8 {
+                format!("{}...{}", &preview[..4], &preview[preview.len()-4..])
+            } else {
+                preview
+            },
+            "base_url": k.base_url,
+            "is_active": k.is_active,
+            "priority": k.priority,
+            "created_at": k.created_at.to_rfc3339(),
+            "updated_at": k.updated_at.to_rfc3339(),
+        })
+    }).collect();
+
+    Ok(Json(serde_json::json!({ "data": data })))
+}
+
+async fn create_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Json(body): Json<CreateProviderKeyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let encrypted = encode_api_key(&body.api_key);
+    let prefix = extract_key_prefix(&body.api_key);
+
+    let mut key = ProviderKey::new(
+        body.provider_slug,
+        encrypted,
+        prefix,
+        body.base_url.unwrap_or_default(),
+    );
+    if let Some(p) = body.priority {
+        key = key.with_priority(p);
+    }
+
+    state.db.create_provider_key(&key).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create provider key: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "id": key.id.to_string(),
+        "provider_slug": key.provider_slug,
+        "api_key_masked": key.masked_key(),
+        "api_key_preview": "",
+        "base_url": key.base_url,
+        "is_active": key.is_active,
+        "priority": key.priority,
+        "created_at": key.created_at.to_rfc3339(),
+        "updated_at": key.updated_at.to_rfc3339(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateProviderKeyRequest {
+    api_key: Option<String>,
+    base_url: Option<String>,
+    is_active: Option<bool>,
+    priority: Option<i32>,
+}
+
+async fn update_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateProviderKeyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let key_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid provider key ID".to_string()))?;
+
+    let (encrypted, prefix) = match &body.api_key {
+        Some(k) => (Some(encode_api_key(k)), Some(extract_key_prefix(k))),
+        None => (None, None),
+    };
+
+    state.db.update_provider_key(
+        key_id,
+        encrypted.as_deref(),
+        prefix.as_deref(),
+        body.base_url.as_deref(),
+        body.is_active,
+        body.priority,
+    ).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update provider key: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "updated": true })))
+}
+
+async fn delete_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let key_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid provider key ID".to_string()))?;
+
+    state.db.delete_provider_key(key_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete provider key: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+async fn test_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let key_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid provider key ID".to_string()))?;
+
+    let provider_key = state.db.get_provider_key_by_id(key_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+        .ok_or(ApiError::InvalidRequest("Provider key not found".to_string()))?;
+
+    let api_key = decode_api_key(&provider_key.api_key_encrypted)?;
+
+    // Test by making a minimal request to the provider's /models endpoint
+    let client = reqwest::Client::new();
+    let test_url = if provider_key.base_url.is_empty() {
+        format!("https://api.example.com/v1/models")
+    } else {
+        format!("{}/models", provider_key.base_url.trim_end_matches('/'))
+    };
+
+    let result = client.get(&test_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
+
+    match result {
+        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 401 || resp.status().as_u16() == 403 => {
+            // 401/403 means the key was recognized (just may lack permissions for /models)
+            // This still proves the key is valid and the endpoint is reachable
+            let success = resp.status().is_success() || resp.status().as_u16() == 403;
+            Ok(Json(serde_json::json!({
+                "success": success,
+                "message": if success { "Connection successful" } else { "Invalid API key" }
+            })))
+        }
+        Ok(resp) => {
+            Ok(Json(serde_json::json!({
+                "success": false,
+                "message": format!("Unexpected response: {}", resp.status())
+            })))
+        }
+        Err(e) => {
+            Ok(Json(serde_json::json!({
+                "success": false,
+                "message": format!("Connection failed: {}", e)
+            })))
+        }
+    }
 }
 
 // ============ Transactions ============

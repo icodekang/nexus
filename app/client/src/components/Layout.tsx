@@ -120,19 +120,19 @@ export default function Layout() {
               {user?.email?.charAt(0).toUpperCase() || 'U'}
             </div>
             <div className="sidebar-user-info">
-              <span className="sidebar-user-email">{user?.email || 'User'}</span>
-              <span className="sidebar-user-plan">{user?.subscription_plan || 'free'}</span>
+              <span className="sidebar-user-email">{user?.email || t('common.user')}</span>
+              <span className="sidebar-user-plan">{user?.subscription_plan || t('common.free')}</span>
             </div>
           </div>
           <div className="sidebar-footer-actions">
             <button
               className="sidebar-lang-btn"
               onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
-              title={locale === 'en' ? '切换到中文' : 'Switch to English'}
+              title={t('common.switchLang')}
             >
               {locale === 'en' ? '中文' : 'EN'}
             </button>
-            <button className="sidebar-logout" onClick={logout} title={t('common.signOut')}>
+            <button className="sidebar-logout" onClick={() => { logout(); navigate('/login'); }} title={t('common.signOut')}>
               <LogOut size={16} />
             </button>
           </div>
@@ -148,12 +148,12 @@ export default function Layout() {
           </button>
           <div className="mobile-topbar-brand">
             <Zap size={14} strokeWidth={2.5} />
-            <span>Nexus</span>
+            <span>{t('common.brandName')}</span>
           </div>
           <button
             className="mobile-new-chat-btn"
             onClick={() => {
-              createConversation(selectedModel);
+              createConversation(selectedModel, t('chat.newChat'));
               navigate('/chat');
             }}
           >

@@ -10,6 +10,9 @@ pub enum ApiError {
     #[error("Invalid API key")]
     InvalidApiKey,
 
+    #[error("Invalid email or password")]
+    InvalidCredentials,
+
     #[error("Unauthorized")]
     Unauthorized,
 
@@ -50,6 +53,11 @@ impl IntoResponse for ApiError {
                 StatusCode::UNAUTHORIZED,
                 "invalid_api_key",
                 "Invalid API key".to_string(),
+            ),
+            ApiError::InvalidCredentials => (
+                StatusCode::UNAUTHORIZED,
+                "invalid_credentials",
+                "Invalid email or password".to_string(),
             ),
             ApiError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,

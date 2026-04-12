@@ -11,10 +11,18 @@ import SubscriptionPage from './pages/SubscriptionPage';
 import GuidePage from './pages/GuidePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
+  if (isAuthenticated) {
+    return <Navigate to="/chat" replace />;
+  }
   return <>{children}</>;
 }
 
