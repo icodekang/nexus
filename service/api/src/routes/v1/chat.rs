@@ -1,6 +1,6 @@
 use axum::{
     extract::{Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderName},
     response::{IntoResponse, Response, sse::{Event, Sse}},
     Json, Extension,
 };
@@ -17,8 +17,12 @@ use models::{ChatRequest, ChatResponse, Message, Usage, User, SubscriptionPlan};
 use provider_client::{
     ChatRequest as ProviderChatRequest,
     Message as ProviderMessage,
-    ProviderClient, ProviderClientFactory,
+    ProviderClient, ProviderClientFactory, HttpProviderClient,
 };
+use router::key_scheduler::SelectedKey;
+
+// HTTP header name for session affinity
+const SESSION_HEADER: &str = "x-session-id";
 
 // Rate limit defaults per plan (requests per minute)
 const FREE_RPM: i64 = 10;
@@ -37,9 +41,75 @@ fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     }
 }
 
+/// Select an API key for a provider, optionally bound to a session for affinity.
+/// If `session_id` is provided, the scheduler reuses the same key for that session
+/// (same session → same API key) as long as the key remains healthy.
+async fn select_provider_key(
+    state: &Arc<AppState>,
+    provider_slug: &str,
+    session_id: Option<&str>,
+) -> Result<Option<SelectedKey>, ApiError> {
+    let mut scheduler = state.key_scheduler.write().await;
+    scheduler.tick();
+    match session_id {
+        Some(sid) => Ok(scheduler.select_key_for_session(provider_slug, sid)),
+        None => Ok(scheduler.select_key_no_session(provider_slug)),
+    }
+}
+
+/// Create a provider client from the selected key result.
+/// Also returns the key_id so the caller can record success/failure.
+fn create_client_with_key(
+    provider_slug: &str,
+    selected: Option<SelectedKey>,
+) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
+    match selected {
+        Some(sk) => {
+            let client = HttpProviderClient::new_with_key(provider_slug, &sk.key)
+                .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
+            Ok((Arc::new(client), Some(sk.key.id)))
+        }
+        None => {
+            // Fallback to env-based key (legacy mode — no load balancing)
+            let client = HttpProviderClient::new(provider_slug)
+                .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
+            Ok((Arc::new(client), None))
+        }
+    }
+}
+
+/// Record request result (success or failure) in the scheduler.
+/// This updates key pressure, failure counts, and session binding state.
+async fn record_key_result(
+    state: &Arc<AppState>,
+    provider_slug: &str,
+    key_id: Option<uuid::Uuid>,
+    latency_ms: i32,
+    success: bool,
+) {
+    if let Some(key_id) = key_id {
+        let mut scheduler = state.key_scheduler.write().await;
+        if success {
+            scheduler.record_success(provider_slug, key_id, latency_ms as f64);
+        } else {
+            scheduler.record_failure(provider_slug, key_id);
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ChatQuery {
     pub stream: Option<bool>,
+}
+
+/// Extract the session ID from request headers.
+/// Returns the value of `x-session-id` header if present and non-empty.
+fn extract_session_id(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(SESSION_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 /// POST /v1/chat/completions
@@ -47,6 +117,7 @@ pub async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
     Query(query): Query<ChatQuery>,
+    headers: HeaderMap,
     Json(request): Json<ChatRequest>,
 ) -> Result<Response, ApiError> {
     let is_stream = query.stream.unwrap_or(request.stream);
@@ -62,6 +133,12 @@ pub async fn chat_completions(
     if !allowed {
         return Err(ApiError::RateLimitExceeded);
     }
+
+    // Extract session ID for key affinity.
+    // Priority: x-session-id header > user_id (for API-key callers without browser session).
+    // This ensures every authenticated user gets stable key binding even without frontend session tracking.
+    let session_id = extract_session_id(&headers)
+        .or_else(|| Some(auth.user.id.to_string()));
 
     // 2. Parse model string to get provider and model
     let (provider_slug, model_slug) = parse_model_string(&request.model);
@@ -96,7 +173,6 @@ pub async fn chat_completions(
 
     // 6. Build provider list for fallback (primary + alternates)
     let mut providers_to_try: Vec<String> = vec![provider_for_request.clone()];
-    // Add other active providers as fallback
     if let Ok(all_providers) = state.db.list_providers().await {
         for p in &all_providers {
             if p.is_active && p.slug != provider_for_request {
@@ -126,7 +202,9 @@ pub async fn chat_completions(
     let start_time = std::time::Instant::now();
 
     if is_stream {
-        // Handle streaming response
+        // =============================================================
+        // STREAMING PATH — now uses session-aware key scheduling
+        // =============================================================
         let (tx, rx) = broadcast::channel::<Result<Event, std::convert::Infallible>>(1024);
 
         let model_name = request.model.clone();
@@ -134,57 +212,80 @@ pub async fn chat_completions(
         let auth_clone = auth.clone();
         let provider_clone = provider_for_request.clone();
         let model_slug_clone = model.slug.clone();
+        let session_id_clone = session_id.clone();
 
         tokio::spawn(async move {
             let mut total_input_tokens: i32 = 0;
             let mut total_output_tokens: i32 = 0;
+            let mut used_key_id: Option<uuid::Uuid> = None;
 
-            let client_result = ProviderClientFactory::create(&provider_clone);
+            // Select key with session affinity
+            let selected_key = {
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.tick();
+                session_id_clone.as_ref().map(|sid| {
+                    scheduler.select_key_for_session(&provider_clone, sid)
+                }).flatten()
+            };
+
+            let client_result = match &selected_key {
+                Some(sk) => {
+                    used_key_id = Some(sk.key.id);
+                    HttpProviderClient::new_with_key(&provider_clone, &sk.key)
+                }
+                None => HttpProviderClient::new(&provider_clone),
+            };
+
             match client_result {
-                Ok(client) => match client.chat_stream(provider_request).await {
-                Ok(chunks) => {
-                    for chunk in chunks {
-                        // Track tokens roughly (count from delta)
-                        if !chunk.delta.is_empty() {
-                            total_output_tokens += 1; // rough estimate
-                        }
+                Ok(client) => {
+                    match client.chat_stream(provider_request).await {
+                        Ok(chunks) => {
+                            for chunk in chunks {
+                                if !chunk.delta.is_empty() {
+                                    total_output_tokens += 1;
+                                }
 
-                        let event = if chunk.finished {
-                            let chat_chunk = models::ChatChunk::new(
-                                &model_name,
-                                "",
-                                true,
-                            );
-                            Event::default()
-                                .event("message")
-                                .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
-                        } else {
-                            let chat_chunk = models::ChatChunk::new(
-                                &model_name,
-                                &chunk.delta,
-                                false,
-                            );
-                            Event::default()
-                                .event("message")
-                                .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
-                        };
-                        let _ = tx.send(Ok(event));
-                        if chunk.finished {
-                            break;
+                                let event = if chunk.finished {
+                                    let chat_chunk = models::ChatChunk::new(&model_name, "", true);
+                                    Event::default()
+                                        .event("message")
+                                        .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
+                                } else {
+                                    let chat_chunk = models::ChatChunk::new(&model_name, &chunk.delta, false);
+                                    Event::default()
+                                        .event("message")
+                                        .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
+                                };
+                                let _ = tx.send(Ok(event));
+                                if chunk.finished {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // Record failure and evict session binding
+                            if let Some(kid) = used_key_id {
+                                let mut scheduler = state_clone.key_scheduler.write().await;
+                                scheduler.record_failure(&provider_clone, kid);
+                            }
+                            let _ = tx.send(Ok(Event::default()
+                                .event("error")
+                                .data(format!("{{\"error\": \"{}\"}}", e))));
                         }
                     }
                 }
                 Err(e) => {
                     let _ = tx.send(Ok(Event::default()
                         .event("error")
-                        .data(format!("{{\"error\": \"{}\"}}", e))));
-                }
-                }
-                Err(e) => {
-                    let _ = tx.send(Ok(Event::default()
-                        .event("error")
                         .data(format!("{{\"error\": \"Failed to create provider client: {}\"}}", e))));
                 }
+            }
+
+            // Record success for the key
+            if let Some(kid) = used_key_id {
+                let latency_ms = start_time.elapsed().as_millis() as i32;
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.record_success(&provider_clone, kid, latency_ms as f64);
             }
 
             // Log streaming API call
@@ -212,31 +313,62 @@ pub async fn chat_completions(
         add_rate_limit_headers(&mut response, rpm, remaining, reset_time);
         Ok(response)
     } else {
-        // Handle non-streaming response with fallback
+        // =============================================================
+        // NON-STREAMING PATH — session-aware key scheduling
+        // =============================================================
         let mut last_error = None;
         let mut provider_resp = None;
         let mut used_provider = provider_for_request.clone();
+        let mut used_key_id: Option<uuid::Uuid> = None;
 
-        for try_provider in &providers_to_try {
-            match ProviderClientFactory::create(try_provider) {
-                Ok(client) => {
-                    let mut req = provider_request.clone();
-                    req.provider = try_provider.clone();
-                    match client.chat(req).await {
-                        Ok(resp) => {
-                            provider_resp = Some(resp);
-                            used_provider = try_provider.clone();
-                            break;
-                        }
-                        Err(e) => {
-                            tracing::warn!("Provider {} failed: {}", try_provider, e);
-                            last_error = Some(e);
-                        }
-                    }
+        // Try primary provider with session-aware key selection
+        let selected_key = select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
+        let (client, key_id) = create_client_with_key(&provider_for_request, selected_key)?;
+
+        // client is Arc<dyn ProviderClient> (already unwrapped from Result)
+        let mut req = provider_request.clone();
+        req.provider = provider_for_request.clone();
+        match client.chat(req).await {
+            Ok(resp) => {
+                provider_resp = Some(resp);
+                used_key_id = key_id;
+                let latency_ms = start_time.elapsed().as_millis() as i32;
+                record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+            }
+            Err(e) => {
+                tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
+                last_error = Some(e);
+                record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+            }
+        }
+
+        // Fallback to other providers if primary failed
+        if provider_resp.is_none() {
+            for try_provider in &providers_to_try {
+                if *try_provider == provider_for_request {
+                    continue; // Already tried
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to create client for {}: {}", try_provider, e);
-                    last_error = Some(e);
+
+                // Fallback providers don't have session context — use pressure-only selection
+                let selected_key = select_provider_key(&state, try_provider, None).await?;
+                let (client, key_id) = create_client_with_key(try_provider, selected_key)?;
+
+                let mut req = provider_request.clone();
+                req.provider = try_provider.clone();
+                match client.chat(req).await {
+                    Ok(resp) => {
+                        provider_resp = Some(resp);
+                        used_provider = try_provider.clone();
+                        used_key_id = key_id;
+                        let latency_ms = start_time.elapsed().as_millis() as i32;
+                        record_key_result(&state, try_provider, key_id, latency_ms, true).await;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Fallback provider {} failed: {}", try_provider, e);
+                        last_error = Some(e);
+                        record_key_result(&state, try_provider, key_id, 0, false).await;
+                    }
                 }
             }
         }
@@ -247,7 +379,6 @@ pub async fn chat_completions(
 
         let latency_ms = start_time.elapsed().as_millis() as i32;
 
-        // Convert provider response to OpenAI-compatible format
         let prompt_tokens = provider_resp.usage.get("prompt_tokens").copied().unwrap_or(0);
         let completion_tokens = provider_resp.usage.get("completion_tokens").copied().unwrap_or(0);
         let total_tokens = provider_resp.usage.get("total_tokens").copied()
@@ -274,7 +405,6 @@ pub async fn chat_completions(
             },
         };
 
-        // Log the API call
         log_api_call(
             &state,
             &auth,
@@ -327,20 +457,16 @@ async fn check_token_quota(state: &AppState, user: &User) -> Result<(), ApiError
         return Ok(()); // Enterprise: unlimited
     }
 
-    // Determine billing period
     let now = chrono::Utc::now();
     let period_start = user.subscription_start.unwrap_or(now);
     let period_end = user.subscription_end.unwrap_or(
         now + chrono::Duration::days(user.subscription_plan.billing_cycle_days())
     );
 
-    // If current time is past the period end, the period has expired
-    // (subscription check should have caught this, but handle edge case)
     if now > period_end {
         return Err(ApiError::SubscriptionExpired);
     }
 
-    // Query current period usage
     let used = state.db
         .get_user_token_usage_in_period(user.id, period_start, period_end)
         .await
@@ -400,10 +526,8 @@ pub async fn embeddings(
     Extension(auth): Extension<AuthContext>,
     Json(request): Json<models::EmbeddingsRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Check subscription
     check_subscription(&auth.user)?;
 
-    // Rate limiting
     let user_id = auth.user.id.to_string();
     let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
     let (allowed, remaining, reset_time) = state.redis
@@ -415,7 +539,6 @@ pub async fn embeddings(
         return Err(ApiError::RateLimitExceeded);
     }
 
-    // Get provider from model name
     let provider_id = &request.model;
 
     let provider_client = ProviderClientFactory::create(provider_id)
@@ -436,7 +559,6 @@ pub async fn embeddings(
     let latency_ms = start_time.elapsed().as_millis() as i32;
     let total_tokens = provider_resp.embeddings.iter().map(|e| e.len() as i32).sum::<i32>();
 
-    // Log the API call
     log_api_call(
         &state,
         &auth,
@@ -469,14 +591,12 @@ fn parse_model_string(model_str: &str) -> (String, String) {
 
 /// Validate chat request parameters
 fn validate_chat_request(request: &ChatRequest, context_window: i32) -> Result<(), ApiError> {
-    // Validate temperature (0.0 - 2.0)
     if request.temperature < 0.0 || request.temperature > 2.0 {
         return Err(ApiError::InvalidRequest(
             "temperature must be between 0.0 and 2.0".to_string()
         ));
     }
 
-    // Validate max_tokens
     if let Some(max_tokens) = request.max_tokens {
         if max_tokens <= 0 {
             return Err(ApiError::InvalidRequest(
@@ -490,7 +610,6 @@ fn validate_chat_request(request: &ChatRequest, context_window: i32) -> Result<(
         }
     }
 
-    // Validate top_p
     if let Some(top_p) = request.top_p {
         if top_p < 0.0 || top_p > 1.0 {
             return Err(ApiError::InvalidRequest(
@@ -499,14 +618,12 @@ fn validate_chat_request(request: &ChatRequest, context_window: i32) -> Result<(
         }
     }
 
-    // Validate messages are not empty
     if request.messages.is_empty() {
         return Err(ApiError::InvalidRequest(
             "messages must not be empty".to_string()
         ));
     }
 
-    // Validate message roles
     for msg in &request.messages {
         match msg.role.as_str() {
             "system" | "user" | "assistant" | "tool" => {}

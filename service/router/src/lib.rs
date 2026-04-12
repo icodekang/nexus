@@ -2,11 +2,13 @@ pub mod selector;
 pub mod strategy;
 pub mod context;
 pub mod error;
+pub mod key_scheduler;
 
 pub use selector::*;
 pub use strategy::*;
 pub use context::*;
 pub use error::*;
+pub use key_scheduler::*;
 
 use models::{Provider, LlmModel, BuiltinModels, Providers};
 

@@ -67,7 +67,16 @@ impl PostgresPool {
             .bind(email)
             .fetch_optional(self.inner())
             .await?;
-        
+
+        Ok(row.map(|r| self.row_to_user(&r)))
+    }
+
+    pub async fn get_user_by_phone(&self, phone: &str) -> Result<Option<User>, DbError> {
+        let row: Option<PgRow> = sqlx::query("SELECT * FROM users WHERE phone = $1")
+            .bind(phone)
+            .fetch_optional(self.inner())
+            .await?;
+
         Ok(row.map(|r| self.row_to_user(&r)))
     }
 

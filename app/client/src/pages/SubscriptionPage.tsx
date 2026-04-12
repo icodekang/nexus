@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Check, Sparkles, Zap } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { fetchSubscription, subscribeToPlan, ApiError } from '../api/client';
+import { fetchSubscription, subscribeToPlan } from '../api/client';
+import { getErrorMessage } from '../utils/errors';
 import './SubscriptionPage.css';
 
 interface Plan {
@@ -48,13 +49,7 @@ export default function SubscriptionPage() {
       const res = await subscribeToPlan(apiPlan);
       setCurrentPlan(res.plan);
     } catch (err: unknown) {
-      if (err instanceof ApiError && err.code === 'network_error') {
-        setError(t('common.networkError'));
-      } else if (err instanceof ApiError && err.code === 'internal_error') {
-        setError(t('common.serverError'));
-      } else {
-        setError(t('subscription.subscribeFailed'));
-      }
+      setError(getErrorMessage(err, t));
     } finally {
       setSubscribing(null);
     }

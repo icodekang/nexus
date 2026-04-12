@@ -2,10 +2,10 @@ import { create } from 'zustand';
 
 interface AuthState {
   token: string | null;
-  user: { id: string; email: string; subscription_plan: string } | null;
+  user: { id: string; phone?: string; email?: string; subscription_plan: string } | null;
   isAuthenticated: boolean;
 
-  login: (token: string, user: { id: string; email: string; subscription_plan: string }) => void;
+  login: (token: string, user: { id: string; phone?: string; email?: string; subscription_plan: string }) => void;
   logout: () => void;
   loadFromStorage: () => void;
 }

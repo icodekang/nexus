@@ -16,12 +16,14 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use models::ProviderKey;
 
 /// Trait for LLM provider clients
 #[async_trait]
 pub trait ProviderClient: Send + Sync {
     fn provider_type(&self) -> ProviderType;
     fn provider_id(&self) -> &str;
+    fn key_id(&self) -> Option<uuid::Uuid>;
     async fn chat(&self, request: ProviderChatRequest) -> Result<ChatResponse, ProviderError>;
     async fn chat_stream(
         &self,
@@ -45,27 +47,51 @@ pub struct ChatChunk {
 pub struct HttpProviderClient {
     config: ProviderConfig,
     api_key: String,
+    key_id: Option<uuid::Uuid>,
     client: Client,
 }
 
 impl HttpProviderClient {
+    /// Create client using environment variable (legacy/standalone mode)
     pub fn new(provider_id: &str) -> Result<Self, ProviderError> {
+        Self::new_with_key_id(provider_id, None)
+    }
+
+    /// Create client using a specific provider key (from database)
+    pub fn new_with_key(provider_id: &str, key: &ProviderKey) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::new();
         let config = registry
             .get(provider_id)
             .ok_or_else(|| ProviderError::ProviderNotFound(provider_id.to_string()))?
             .clone();
 
-        let api_key = Self::load_api_key(provider_id, &config)?;
-
         Ok(Self {
             config,
-            api_key,
+            api_key: key.api_key_encrypted.clone(),
+            key_id: Some(key.id),
             client: Client::new(),
         })
     }
 
-    fn load_api_key(provider_id: &str, config: &ProviderConfig) -> Result<String, ProviderError> {
+    /// Create client with key ID (key will be selected by caller)
+    pub fn new_with_key_id(provider_id: &str, key_id: Option<uuid::Uuid>) -> Result<Self, ProviderError> {
+        let registry = ProviderRegistry::new();
+        let config = registry
+            .get(provider_id)
+            .ok_or_else(|| ProviderError::ProviderNotFound(provider_id.to_string()))?
+            .clone();
+
+        let api_key = Self::load_api_key_from_env(provider_id, &config)?;
+
+        Ok(Self {
+            config,
+            api_key,
+            key_id,
+            client: Client::new(),
+        })
+    }
+
+    fn load_api_key_from_env(provider_id: &str, config: &ProviderConfig) -> Result<String, ProviderError> {
         // For built-in providers, use well-known env vars
         // For custom providers, try CUSTOM_<ID>_API_KEY or just any available key
         let env_var = match provider_id {
@@ -374,6 +400,10 @@ impl ProviderClient for HttpProviderClient {
 
     fn provider_id(&self) -> &str {
         &self.config.id
+    }
+
+    fn key_id(&self) -> Option<uuid::Uuid> {
+        self.key_id
     }
 
     async fn chat(&self, request: ProviderChatRequest) -> Result<ChatResponse, ProviderError> {

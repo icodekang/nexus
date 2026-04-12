@@ -2,8 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Plus, Trash2, ChevronDown, Sparkles, Check, Search, History } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
 import { useModelState } from '../stores/modelStore';
-import { sendChat, streamChat, ApiError } from '../api/client';
+import { sendChat, streamChat } from '../api/client';
 import { useI18n } from '../i18n';
+import { getErrorMessage } from '../utils/errors';
 import './ChatPage.css';
 
 const PROVIDER_META: Record<string, { color: string; label: string }> = {
@@ -72,9 +73,9 @@ export default function ChatPage() {
 
       messages.push({ role: 'user', content: text });
 
-      // Use streaming
+      // Use streaming — pass conversationId as x-session-id for key affinity
       let fullContent = '';
-      const stream = streamChat(selectedModel, messages);
+      const stream = streamChat(selectedModel, messages, convId);
       for await (const chunk of stream) {
         fullContent += chunk;
         useChatStore.getState().updateLastAssistantMessage(convId!, fullContent);
@@ -82,23 +83,12 @@ export default function ChatPage() {
 
       // Fallback to non-streaming if no content received
       if (!fullContent) {
-        const resp = await sendChat(selectedModel, messages);
+        const resp = await sendChat(selectedModel, messages, convId);
         const assistantContent = resp.choices[0]?.message?.content || t('chat.noResponse');
         useChatStore.getState().updateLastAssistantMessage(convId!, assistantContent);
       }
     } catch (err: unknown) {
-      let message: string;
-      if (err instanceof ApiError) {
-        switch (err.code) {
-          case 'network_error': message = t('common.networkError'); break;
-          case 'stream_failed': message = t('common.streamFailed'); break;
-          case 'rate_limit_exceeded': message = err.message; break;
-          case 'internal_error': message = t('common.serverError'); break;
-          default: message = err.message || t('chat.failedResponse');
-        }
-      } else {
-        message = t('chat.failedResponse');
-      }
+      const message = getErrorMessage(err, t);
       useChatStore.getState().updateLastAssistantMessage(
         convId!,
         t('chat.errorPrefix', { message })

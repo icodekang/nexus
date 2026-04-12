@@ -2,6 +2,7 @@ pub mod v1;
 pub mod auth;
 pub mod me;
 pub mod admin;
+pub mod openai;
 
 use axum::{http::StatusCode, Json};
 

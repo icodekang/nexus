@@ -26,8 +26,8 @@ function Sidebar() {
     { path: '/dashboard', label: t('sidebar.dashboard'), icon: DashboardIcon },
     { path: '/users', label: t('sidebar.users'), icon: UsersIcon },
     { path: '/providers', label: t('sidebar.providers'), icon: ProvidersIcon },
-    { path: '/provider-keys', label: t('sidebar.providerKeys'), icon: ProviderKeysIcon },
     { path: '/models', label: t('sidebar.models'), icon: ModelsIcon },
+    { path: '/provider-keys', label: t('sidebar.providerKeys'), icon: ProviderKeysIcon },
     { path: '/transactions', label: t('sidebar.transactions'), icon: TransactionsIcon },
   ];
 

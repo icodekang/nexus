@@ -5,6 +5,21 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use api::{routes, middleware, state::AppState};
+use api::routes::openai;
+
+// ─── Route factories ───────────────────────────────────────────────────────
+
+fn openai_routes() -> axum::Router<Arc<AppState>> {
+    use api::routes::openai::openai_chat_completions;
+    axum::Router::new()
+        .route("/chat/completions", axum::routing::post(openai_chat_completions))
+}
+
+fn anthropic_routes() -> axum::Router<Arc<AppState>> {
+    use api::routes::openai::anthropic_messages;
+    axum::Router::new()
+        .route("/messages", axum::routing::post(anthropic_messages))
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -35,6 +50,11 @@ async fn main() -> anyhow::Result<()> {
     // Create application state
     let state = Arc::new(AppState::new(db, redis));
 
+    // Initialize the API key load balancer scheduler
+    if let Err(e) = state.init_key_scheduler().await {
+        tracing::warn!("Failed to initialize key scheduler: {}. Using fallback mode.", e);
+    }
+
     // CORS layer
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -58,6 +78,8 @@ async fn main() -> anyhow::Result<()> {
     let protected_routes = Router::new()
         .nest("/v1", routes::v1::routes())
         .nest("/v1/me", routes::me::routes())
+        .nest("/v1/openai", openai_routes())
+        .nest("/v1/anthropic", anthropic_routes())
         .layer(from_fn(middleware::auth::validate_jwt_or_api_key));
 
     // Admin routes — requires JWT + admin role

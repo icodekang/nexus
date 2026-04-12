@@ -1,22 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { fetchApiKeys, createApiKey, deleteApiKey, ApiError, type ApiKey } from '../api/client';
+import { fetchApiKeys, createApiKey, deleteApiKey, type ApiKey } from '../api/client';
 import { useI18n } from '../i18n';
+import { getErrorMessage } from '../utils/errors';
 import './KeysPage.css';
 
 export default function KeysPage() {
   const { t, locale } = useI18n();
-
-  const errorMessage = (err: unknown): string => {
-    if (err instanceof ApiError) {
-      switch (err.code) {
-        case 'network_error': return t('common.networkError');
-        case 'internal_error': return t('common.serverError');
-        default: return err.message;
-      }
-    }
-    return t('common.requestFailed');
-  };
 
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +23,7 @@ export default function KeysPage() {
       const res = await fetchApiKeys();
       setKeys(res.data);
     } catch (err: unknown) {
-      setError(errorMessage(err));
+      setError(getErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
@@ -54,7 +44,7 @@ export default function KeysPage() {
       setShowCreate(false);
       loadKeys();
     } catch (err: unknown) {
-      setError(errorMessage(err));
+      setError(getErrorMessage(err, t));
     } finally {
       setCreating(false);
     }
@@ -65,7 +55,7 @@ export default function KeysPage() {
       await deleteApiKey(keyId);
       setKeys((prev) => prev.filter((k) => k.id !== keyId));
     } catch (err: unknown) {
-      setError(errorMessage(err));
+      setError(getErrorMessage(err, t));
     }
   };
 

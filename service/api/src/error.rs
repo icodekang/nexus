@@ -37,6 +37,21 @@ pub enum ApiError {
     #[error("User already exists")]
     UserAlreadyExists,
 
+    #[error("SMS send failed")]
+    SmsSendFailed,
+
+    #[error("SMS rate limit exceeded")]
+    SmsRateLimitExceeded,
+
+    #[error("Invalid SMS code")]
+    InvalidSmsCode,
+
+    #[error("Phone number already registered")]
+    PhoneAlreadyRegistered,
+
+    #[error("User not found")]
+    UserNotFound,
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -98,6 +113,31 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "user_already_exists",
                 "User with this email already exists".to_string(),
+            ),
+            ApiError::SmsSendFailed => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "sms_send_failed",
+                "Failed to send SMS. Please try again later.".to_string(),
+            ),
+            ApiError::SmsRateLimitExceeded => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "sms_rate_limit_exceeded",
+                "Too many SMS requests. Please try again later.".to_string(),
+            ),
+            ApiError::InvalidSmsCode => (
+                StatusCode::UNAUTHORIZED,
+                "invalid_sms_code",
+                "Invalid or expired verification code.".to_string(),
+            ),
+            ApiError::PhoneAlreadyRegistered => (
+                StatusCode::CONFLICT,
+                "phone_already_registered",
+                "This phone number is already registered.".to_string(),
+            ),
+            ApiError::UserNotFound => (
+                StatusCode::NOT_FOUND,
+                "user_not_found",
+                "User not found.".to_string(),
             ),
             ApiError::Internal(e) => {
                 tracing::error!("Internal error: {:?}", e);

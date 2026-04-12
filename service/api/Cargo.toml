@@ -24,6 +24,7 @@ futures-util = "0.3"
 http = "1.1"
 reqwest = { workspace = true, features = ["json", "stream"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+rand = { workspace = true }
 
 models = { path = "../models" }
 db = { path = "../db" }

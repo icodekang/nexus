@@ -93,28 +93,46 @@ export async function register(email: string, password: string) {
   });
 }
 
+export async function sendSmsCode(phone: string) {
+  return request<{ message: string; seconds_valid: number }>('/v1/auth/send-sms', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function verifySmsCode(phone: string, code: string) {
+  return request<{ token: string; user: { id: string; phone: string; subscription_plan: string } }>('/v1/auth/verify-sms', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  });
+}
+
 export async function fetchModels(provider?: string) {
   const query = provider ? `?provider=${provider}` : '';
   return request<{ data: Model[] }>(`/v1/models${query}`);
 }
 
-export async function sendChat(model: string, messages: ChatMessage[]) {
+export async function sendChat(model: string, messages: ChatMessage[], sessionId?: string) {
+  const headers: Record<string, string> = {};
+  if (sessionId) headers['x-session-id'] = sessionId;
   return request<{
     id: string;
     choices: Array<{ message: { role: string; content: string } }>;
     usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   }>('/v1/chat/completions', {
     method: 'POST',
+    headers,
     body: JSON.stringify({ model, messages, stream: false }),
   });
 }
 
-export async function* streamChat(model: string, messages: ChatMessage[]): AsyncGenerator<string> {
+export async function* streamChat(model: string, messages: ChatMessage[], sessionId?: string): AsyncGenerator<string> {
   const token = localStorage.getItem('nexus_token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (sessionId) headers['x-session-id'] = sessionId;
 
   const res = await fetch(`${API_BASE}/v1/chat/completions?stream=true`, {
     method: 'POST',

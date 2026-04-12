@@ -120,4 +120,54 @@ impl RedisPool {
         let result: Option<String> = conn.get("models:all").await?;
         Ok(result)
     }
+
+    // ============ SMS Code Verification ============
+
+    /// Store SMS verification code with TTL (5 minutes)
+    pub async fn store_sms_code(&self, phone: &str, code: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("sms_code:{}", phone);
+        let _: () = conn.set_ex(&key, code, 300).await?; // 5 minutes TTL
+        Ok(())
+    }
+
+    /// Get SMS verification code
+    pub async fn get_sms_code(&self, phone: &str) -> Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let key = format!("sms_code:{}", phone);
+        let result: Option<String> = conn.get(&key).await?;
+        Ok(result)
+    }
+
+    /// Delete SMS verification code (after successful verification)
+    pub async fn delete_sms_code(&self, phone: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("sms_code:{}", phone);
+        let _: () = conn.del(&key).await?;
+        Ok(())
+    }
+
+    /// Check rate limit for SMS sending (max 5 per hour per phone)
+    pub async fn check_sms_rate_limit(&self, phone: &str) -> Result<(bool, i64)> {
+        let mut conn = self.conn().await?;
+        let key = format!("sms_rate:{}", phone);
+        let now = chrono::Utc::now().timestamp();
+        let window_start = now - 3600; // 1 hour window
+
+        // Remove old entries
+        let _: () = conn.zrembyscore(&key, 0, window_start).await?;
+
+        // Count current SMS sent
+        let count: i64 = conn.zcard(&key).await?;
+
+        if count >= 5 {
+            return Ok((false, 3600 - (now - window_start)));
+        }
+
+        // Add new entry
+        let _: () = conn.zadd(&key, format!("{}", now), now).await?;
+        let _: () = conn.expire(&key, 3600).await?;
+
+        Ok((true, 0))
+    }
 }
