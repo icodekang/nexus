@@ -79,7 +79,7 @@ nexus/
 ## Documentation
 
 - [Architecture Documentation](./docs/ARCHITECTURE.md)
-- [API Reference](./docs/API.md) (TODO)
+- [API Reference](./docs/API.md) — full endpoint reference + Python examples
 - [Deployment Guide](./docs/DEPLOYMENT.md) (TODO)
 
 ## License

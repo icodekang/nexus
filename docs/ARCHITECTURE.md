@@ -261,7 +261,7 @@ nexus/
 │
 ├── docs/                           # 文档
 │   ├── ARCHITECTURE.md             # 本文档
-│   ├── API.md                      # API 参考
+│   ├── API.md                      # API 参考（含 Python 示例）
 │   └── DEPLOYMENT.md               # 部署指南
 │
 ├── infra/                          # Kubernetes 部署配置

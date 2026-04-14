@@ -67,23 +67,37 @@ pub async fn validate_api_key(
     Ok(next.run(req).await)
 }
 
+/// Extract the raw token from either:
+///   - `Authorization: Bearer <token>`  (OpenAI SDK)
+///   - `x-api-key: <token>`             (Anthropic SDK, LiteLLM, curl, etc.)
+fn extract_token(req: &Request) -> Option<String> {
+    // Authorization: Bearer <token>
+    let bearer = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .filter(|h| h.starts_with("Bearer "))
+        .map(|h| h[7..].to_string());
+
+    if bearer.is_some() {
+        return bearer;
+    }
+
+    // x-api-key: <token>  (Anthropic SDK)
+    req.headers()
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 /// Validate either an API key or a JWT token from the Authorization header.
 /// Tries API key format first; if not an API key, falls back to JWT validation.
+/// Supports both `Authorization: Bearer <key>` and `x-api-key: <key>` headers.
 pub async fn validate_jwt_or_api_key(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let auth_header = req
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .ok_or(ApiError::Unauthorized)?;
-
-    if !auth_header.starts_with("Bearer ") {
-        return Err(ApiError::Unauthorized);
-    }
-
-    let token = &auth_header[7..];
+    let token = extract_token(&req).ok_or(ApiError::Unauthorized)?;
 
     // Get app state
     let state = req.extensions().get::<Arc<AppState>>()
@@ -91,9 +105,9 @@ pub async fn validate_jwt_or_api_key(
         .ok_or(ApiError::Internal(anyhow::anyhow!("Missing app state")))?;
 
     // Try API key path first
-    if ApiKeyGenerator::validate_format(token) {
+    if ApiKeyGenerator::validate_format(&token) {
         let validator = ApiKeyValidator::new(&state.db);
-        match validator.validate(token).await {
+        match validator.validate(&token).await {
             Ok((api_key, user)) => {
                 req.extensions_mut().insert(AuthContext {
                     user,
@@ -112,7 +126,7 @@ pub async fn validate_jwt_or_api_key(
     }
 
     // JWT path
-    let claims = JwtService::validate_token(token)
+    let claims = JwtService::validate_token(&token)
         .map_err(|_| ApiError::Unauthorized)?;
 
     let user_id = claims.user_id()
