@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-admin
+  namespace: nexus
+  labels:
+    app: nexus-admin
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nexus-admin
+  template:
+    metadata:
+      labels:
+        app: nexus-admin
+    spec:
+      containers:
+        - name: nexus-admin
+          # Build with: docker build -t nexus-admin:latest ./app/admin/
+          image: nexus-admin:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-admin
+  namespace: nexus
+spec:
+  type: ClusterIP
+  selector:
+    app: nexus-admin
+  ports:
+    - port: 80
+      targetPort: 80

@@ -1,0 +1,67 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nexus-ingress
+  namespace: nexus
+  annotations:
+    # Choose one based on your Ingress controller:
+    #   nginx: "nginx.ingress.kubernetes.io/..."
+    #   aws-alb: "alb.ingress.kubernetes.io/..."
+    #   cloudflare: "kubernetes.io/ingress.class: traefik"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: nexus.example.com
+      http:
+        paths:
+          # API Gateway — all /v1/* calls
+          - path: /v1/
+            pathType: Prefix
+            backend:
+              service:
+                name: nexus-service
+                port:
+                  number: 8080
+          # Admin SPA — served at /admin/*
+          - path: /admin/
+            pathType: Prefix
+            backend:
+              service:
+                name: nexus-admin
+                port:
+                  number: 80
+          # Client SPA — served at root
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nexus-client
+                port:
+                  number: 80
+---
+# Separate ingress for admin subdomain (alternative setup)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nexus-admin-ingress
+  namespace: nexus
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: admin.nexus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nexus-admin
+                port:
+                  number: 80

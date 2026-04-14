@@ -1,0 +1,93 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus
+
+resources:
+  - ../../base
+
+images:
+  - name: nexus-service
+    newName: ghcr.io/icodekang/nexus-service
+    newTag: latest
+  - name: nexus-client
+    newName: ghcr.io/icodekang/nexus-client
+    newTag: latest
+  - name: nexus-admin
+    newName: ghcr.io/icodekang/nexus-admin
+    newTag: latest
+
+patches:
+  # Increase replicas for production
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: nexus-service
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: nexus-client
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: nexus-admin
+
+  # Always pull images in prod
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+    target:
+      kind: Deployment
+
+  # Stricter resource limits
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
+    target:
+      kind: Deployment
+      name: nexus-service
+
+  # Production domain
+  - patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: nexus.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: admin.nexus.example.com
+    target:
+      kind: Ingress
+
+  # Disable health check on frontends (handled by ingress-nginx)
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/containers/0/livenessProbe
+      - op: remove
+        path: /spec/template/spec/containers/0/readinessProbe
+    target:
+      kind: Deployment
+      name: nexus-client
+  - patch: |-
+      - op: remove
+        path: /spec/template/spec/containers/0/livenessProbe
+      - op: remove
+        path: /spec/template/spec/containers/0/readinessProbe
+    target:
+      kind: Deployment
+      name: nexus-admin

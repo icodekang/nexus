@@ -1,0 +1,79 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus-dev
+
+resources:
+  - ../../base
+
+images:
+  - name: nexus-service
+    newName: nexus-service
+    newTag: latest
+    newTag: dev
+  - name: nexus-client
+    newName: nexus-client
+    newTag: dev
+  - name: nexus-admin
+    newName: nexus-admin
+    newTag: dev
+
+namePrefix: dev-
+
+patches:
+  # Dev: use local images, lower replicas
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+
+  # Dev: imagePullPolicy for local images
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+    target:
+      kind: Deployment
+
+  # Dev namespace for resources
+  - patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-postgres
+    target:
+      kind: StatefulSet
+      name: postgres
+
+  - patch: |-
+      - op: replace
+        path: /spec/serviceName
+        value: dev-postgres
+    target:
+      kind: StatefulSet
+      name: postgres
+
+  # Dev domain
+  - patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: dev.nexus.local
+    target:
+      kind: Ingress
+      name: nexus-ingress
+
+  - patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: dev-admin.nexus.local
+    target:
+      kind: Ingress
+      name: nexus-admin-ingress
+
+  # Disable TLS in dev
+  - patch: |-
+      - op: remove
+        path: /spec/tls
+    target:
+      kind: Ingress
