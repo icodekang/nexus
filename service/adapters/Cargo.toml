@@ -17,3 +17,5 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 models = { path = "../models" }
 urlencoding = "2.1"
+headless_chrome = "1.0"
+log = "0.4"

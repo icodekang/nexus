@@ -8,12 +8,13 @@ import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import QrCodeModal from '../components/QrCodeModal';
 import {
-  fetchBrowserAccounts, createBrowserAccount, deleteBrowserAccount,
+  fetchBrowserAccounts, createBrowserAccount, deleteBrowserAccount, startLogin,
   type BrowserAccount, type QrCodeData,
 } from '../api/admin';
 
 // 提供商颜色映射
 const providerColors: Record<string, string> = {
+  deepseek: '#0068FF',
   claude: '#D97706',
   chatgpt: '#10A37F',
 };
@@ -68,8 +69,22 @@ export default function BrowserAccounts() {
     }
   };
 
-  const handleQrGenerated = (account: BrowserAccount, qrData: QrCodeData) => {
-    setQrModalData({ account, qrData });
+  // 启动登录流程
+  const handleQrGenerated = async (account: BrowserAccount) => {
+    try {
+      const loginData = await startLogin(account.id);
+      // 转换为 QrCodeData 格式以保持兼容性
+      const qrData: QrCodeData = {
+        session_id: account.id,
+        qr_code_data: '',  // 前端不再需要 base64 图片，直接用 URL
+        code: loginData.code || '',
+        expires_at: loginData.expires_at || '',
+        auth_url: loginData.login_url,
+      };
+      setQrModalData({ account, qrData });
+    } catch (err) {
+      console.error('Failed to start login:', err);
+    }
   };
 
   const handleAuthSuccess = () => {
@@ -104,6 +119,15 @@ export default function BrowserAccounts() {
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             {t('browserAccounts.addChatGPT')}
+          </button>
+          <button
+            style={{ ...styles.addBtn, backgroundColor: '#0068FF' }}
+            onClick={() => handleAddAccount('deepseek')}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            DeepSeek
           </button>
         </div>
       </header>
@@ -161,16 +185,7 @@ export default function BrowserAccounts() {
                 {isPending && (
                   <button
                     style={{ ...styles.actionBtn, backgroundColor: '#6366F1', color: '#fff' }}
-                    onClick={() => {
-                      // Generate QR code - this will be handled by the parent
-                      handleQrGenerated(account, {
-                        session_id: account.id,
-                        qr_code_data: '',
-                        code: '',
-                        expires_at: '',
-                        auth_url: '',
-                      });
-                    }}
+                    onClick={() => handleQrGenerated(account)}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />

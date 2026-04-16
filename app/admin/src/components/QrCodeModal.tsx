@@ -6,42 +6,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { useI18n } from '../i18n';
 import { QRCodeSVG } from 'qrcode.react';
-import { generateQrCode, type BrowserAccount } from '../api/admin';
+import { type BrowserAccount, type QrCodeData } from '../api/admin';
 
 interface QrCodeModalProps {
   account: BrowserAccount;  // 需要认证的浏览器账号
-  onClose: () => void;     // 关闭弹窗回调
-  onSuccess: () => void;   // 认证成功回调
+  qrData: QrCodeData;      // 登录 URL 数据（由父组件从 startLogin 获取）
+  onClose: () => void;    // 关闭弹窗回调
+  onSuccess: () => void;  // 认证成功回调
 }
 
 /**
  * QrCodeModal - 二维码认证弹窗
- * @description 生成登录二维码，通过 SSE 实时监听认证状态变化
+ * @description 显示登录二维码，通过 SSE 实时监听认证状态变化
+ * 新流程：后端启动无头浏览器，前端通过 SSE 监听登录完成
  */
-export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModalProps) {
+export default function QrCodeModal({ account, qrData, onClose, onSuccess }: QrCodeModalProps) {
   const { t } = useI18n();
-  const [qrData, setQrData] = useState<{ code: string; expires_at: string; auth_url: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // 组件挂载时请求生成二维码
-  useEffect(() => {
-    generateQrCode(account.id)
-      .then((data) => {
-        setQrData(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || 'Failed to generate QR code');
-        setLoading(false);
-      });
-  }, [account.id]);
-
   // 连接 SSE 获取实时认证状态
   useEffect(() => {
-    if (!qrData) return;
-
     // 连接 SSE 监听账号认证状态变化
     const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
     const sse = new EventSource(`${API_BASE}/admin/accounts/${account.id}/status`);
@@ -54,8 +40,10 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
         if (data.status === 'active') {
           onSuccess();
         } else if (data.status === 'error') {
-          setError('Authentication failed. Please try again.');
+          setError(data.message || 'Authentication failed. Please try again.');
           sse.close();
+        } else if (data.status === 'waiting') {
+          // 等待中
         }
       } catch {
         // 忽略解析错误
@@ -69,10 +57,10 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
     return () => {
       sse.close();
     };
-  }, [qrData, account.id, onSuccess]);
+  }, [account.id, onSuccess]);
 
   // 计算过期时间显示
-  const expiresTime = qrData
+  const expiresTime = qrData.expires_at
     ? new Date(qrData.expires_at).toLocaleTimeString()
     : '';
 
@@ -89,13 +77,6 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
         </div>
 
         <div style={styles.body}>
-          {loading && (
-            <div style={styles.loading}>
-              <div style={styles.spinner} />
-              <p>{t('qrModal.generating')}</p>
-            </div>
-          )}
-
           {error && (
             <div style={styles.error}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -105,59 +86,65 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
             </div>
           )}
 
-          {qrData && !loading && !error && (
-            <>
-              <div style={styles.providerBadge}>
-                {account.provider === 'claude' ? (
-                  <span style={{ ...styles.badgeText, color: '#D97706' }}>Claude.ai</span>
-                ) : (
-                  <span style={{ ...styles.badgeText, color: '#10A37F' }}>ChatGPT</span>
-                )}
-              </div>
+          <div style={styles.providerBadge}>
+            {account.provider === 'claude' ? (
+              <span style={{ ...styles.badgeText, color: '#D97706' }}>Claude.ai</span>
+            ) : account.provider === 'chatgpt' ? (
+              <span style={{ ...styles.badgeText, color: '#10A37F' }}>ChatGPT</span>
+            ) : account.provider === 'deepseek' ? (
+              <span style={{ ...styles.badgeText, color: '#0068FF' }}>DeepSeek</span>
+            ) : (
+              <span style={{ ...styles.badgeText, color: '#A1A1AA' }}>{account.provider}</span>
+            )}
+          </div>
 
-              <div style={styles.qrContainer}>
-                {qrData.auth_url ? (
-                  <QRCodeSVG
-                    value={qrData.auth_url}
-                    size={200}
-                    level="M"
-                    includeMargin={true}
-                    style={styles.qrImage}
-                  />
-                ) : (
-                  <div style={styles.qrPlaceholder}>
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
-                      <rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
-                    </svg>
-                  </div>
-                )}
+          <div style={styles.qrContainer}>
+            {qrData.auth_url ? (
+              <QRCodeSVG
+                value={qrData.auth_url}
+                size={200}
+                level="M"
+                includeMargin={true}
+                style={styles.qrImage}
+              />
+            ) : (
+              <div style={styles.qrPlaceholder}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
+                </svg>
               </div>
+            )}
+          </div>
 
-              <div style={styles.instructions}>
-                <p style={styles.step}>
-                  <span style={styles.stepNum}>1</span>
-                  {t('qrModal.step1')}
-                </p>
-                <div style={styles.urlBox}>
-                  <a href={qrData.auth_url} target="_blank" rel="noopener noreferrer" style={styles.authUrl}>
-                    {qrData.auth_url}
-                  </a>
-                </div>
+          <div style={styles.instructions}>
+            <p style={styles.step}>
+              <span style={styles.stepNum}>1</span>
+              {t('qrModal.step1')}
+            </p>
+            <div style={styles.urlBox}>
+              <a href={qrData.auth_url} target="_blank" rel="noopener noreferrer" style={styles.authUrl}>
+                {qrData.auth_url}
+              </a>
+            </div>
+            {qrData.code && (
+              <>
                 <p style={styles.orText}>{t('qrModal.or')}</p>
                 <p style={styles.step}>
                   <span style={styles.stepNum}>2</span>
                   {t('qrModal.step2')} <strong style={styles.codeHighlight}>{qrData.code}</strong>
                 </p>
-                <p style={styles.expiry}>{t('qrModal.expiresAt', { time: expiresTime })}</p>
-              </div>
+              </>
+            )}
+            {expiresTime && (
+              <p style={styles.expiry}>{t('qrModal.expiresAt', { time: expiresTime })}</p>
+            )}
+          </div>
 
-              <div style={styles.waiting}>
-                <div style={styles.waitingDot} />
-                <span>{t('qrModal.waitingAuth')}</span>
-              </div>
-            </>
-          )}
+          <div style={styles.waiting}>
+            <div style={styles.waitingDot} />
+            <span>{t('qrModal.waitingAuth')}</span>
+          </div>
         </div>
       </div>
 

@@ -33,6 +33,7 @@ pub mod error;
 pub mod providers;
 pub mod types;
 pub mod account_pool;
+pub mod headless_browser;
 
 pub use browser_emulator::*;
 pub use client::*;
@@ -40,3 +41,4 @@ pub use config::*;
 pub use error::*;
 pub use types::*;
 pub use account_pool::*;
+pub use headless_browser::*;

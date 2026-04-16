@@ -11,7 +11,7 @@ use std::sync::Arc;
 use db::{PostgresPool, RedisPool};
 use router::GlobalKeyScheduler;
 use tokio::sync::RwLock;
-use provider_client::AccountPool;
+use provider_client::{AccountPool, HeadlessBrowserManager};
 
 /// 应用状态
 ///
@@ -23,6 +23,7 @@ use provider_client::AccountPool;
 /// - `redis`: Redis 连接池
 /// - `key_scheduler`: 全局 Key 调度器，用于 API Key 的负载均衡
 /// - `account_pool`: 浏览器账户池（ZeroToken 用户使用）
+/// - `headless_browser`: 无头浏览器管理器（用于 ZeroToken 登录）
 #[derive(Clone)]
 pub struct AppState {
     /// PostgreSQL 数据库连接池
@@ -33,6 +34,8 @@ pub struct AppState {
     pub key_scheduler: Arc<RwLock<GlobalKeyScheduler>>,
     /// 浏览器账户池（ZeroToken 用户使用）
     pub account_pool: Arc<AccountPool>,
+    /// 无头浏览器管理器（用于 ZeroToken 登录）
+    pub headless_browser: Arc<HeadlessBrowserManager>,
 }
 
 impl AppState {
@@ -47,6 +50,7 @@ impl AppState {
             redis: Arc::new(redis),
             key_scheduler: Arc::new(RwLock::new(GlobalKeyScheduler::new())),
             account_pool: Arc::new(AccountPool::new()),
+            headless_browser: Arc::new(HeadlessBrowserManager::new()),
         }
     }
 

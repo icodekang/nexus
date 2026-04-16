@@ -40,4 +40,8 @@ pub enum ProviderError {
     /// 认证失败
     #[error("认证失败: {0}")]
     AuthenticationError(String),
+
+    /// 内部错误（用于非 HTTP 错误）
+    #[error("内部错误: {0}")]
+    InternalError(String),
 }

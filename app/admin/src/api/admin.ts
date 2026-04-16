@@ -429,6 +429,18 @@ export interface QrCodeData {
 }
 
 /**
+ * LoginUrlResponse - 登录 URL 响应
+ * @description 无头浏览器登录流程返回的 URL 信息
+ */
+export interface LoginUrlResponse {
+  account_id: string;
+  login_url: string;
+  code: string | null;
+  expires_at: string | null;
+  waiting: boolean;
+}
+
+/**
  * fetchBrowserAccounts - 获取所有浏览器账号列表
  * @returns 浏览器账号列表
  */
@@ -466,6 +478,27 @@ export async function deleteBrowserAccount(id: string): Promise<{ deleted: boole
  */
 export async function generateQrCode(accountId: string): Promise<QrCodeData> {
   return request<QrCodeData>(`/admin/accounts/${accountId}/qrcode`);
+}
+
+/**
+ * startLogin - 启动无头浏览器登录流程
+ * @param accountId - 账号 ID
+ * @returns 登录 URL 和会话信息
+ */
+export async function startLogin(accountId: string): Promise<LoginUrlResponse> {
+  return request<LoginUrlResponse>(`/admin/accounts/${accountId}/start-login`, {
+    method: 'POST',
+    body: JSON.stringify({ use_headless: true }),
+  });
+}
+
+/**
+ * getLoginUrl - 获取当前登录页面 URL
+ * @param accountId - 账号 ID
+ * @returns 当前登录 URL 和状态
+ */
+export async function getLoginUrl(accountId: string): Promise<LoginUrlResponse> {
+  return request<LoginUrlResponse>(`/admin/accounts/${accountId}/login-url`);
 }
 
 /**

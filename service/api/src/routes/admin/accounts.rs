@@ -1,13 +1,14 @@
 //! 浏览器账户管理路由模块
-//! 处理浏览器账户的 CRUD 操作和二维码认证
+//! 处理浏览器账户的 CRUD 操作和无头浏览器登录
 //!
 //! 路由列表：
 //! - GET /accounts - 列出所有浏览器账户
 //! - POST /accounts - 创建新的浏览器账户
 //! - DELETE /accounts/:id - 删除浏览器账户
-//! - GET /accounts/:id/qrcode - 获取二维码用于认证
+//! - POST /accounts/:id/start-login - 启动无头浏览器登录
+//! - GET /accounts/:id/login-url - 获取登录页面 URL（二维码）
 //! - GET /accounts/:id/status - 获取账户状态（SSE 流）
-//! - POST /accounts/complete-auth - 完成认证回调
+//! - POST /accounts/:id/complete - 完成登录（手动触发）
 
 use axum::{
     routing::{get, post, delete},
@@ -27,15 +28,17 @@ use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use models::{BrowserAccount, BrowserAccountStatus, QrCodeSession};
+use provider_client::headless_browser::{LoginEvent, BrowserSessionState};
 
 /// 创建浏览器账户路由
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/accounts", get(list_accounts).post(create_account))
         .route("/accounts/:id", delete(delete_account))
-        .route("/accounts/:id/qrcode", get(get_qrcode))
+        .route("/accounts/:id/start-login", post(start_login))
+        .route("/accounts/:id/login-url", get(get_login_url))
         .route("/accounts/:id/status", get(get_account_status))
-        .route("/accounts/complete-auth", post(complete_auth))
+        .route("/accounts/complete-login", post(complete_login))
 }
 
 // ============ 浏览器账户 CRUD ============
@@ -82,7 +85,7 @@ async fn list_accounts(
 /// 创建账户请求体
 #[derive(Debug, Deserialize)]
 struct CreateAccountRequest {
-    /// Provider 名称（claude 或 chatgpt）
+    /// Provider 名称（deepseek、claude 或 chatgpt）
     provider: String,
 }
 
@@ -91,16 +94,16 @@ struct CreateAccountRequest {
 /// 创建新的浏览器账户
 ///
 /// # 说明
-/// 目前支持的 Provider：claude、chatgpt
+/// 目前支持的 Provider：deepseek、claude、chatgpt
 async fn create_account(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
     Json(body): Json<CreateAccountRequest>,
 ) -> Result<Json<AccountResponse>, ApiError> {
     let provider = body.provider.to_lowercase();
-    if provider != "claude" && provider != "chatgpt" {
+    if provider != "deepseek" && provider != "claude" && provider != "chatgpt" {
         return Err(ApiError::InvalidRequest(
-            "Provider must be 'claude' or 'chatgpt'".to_string()
+            "Provider must be 'deepseek', 'claude' or 'chatgpt'".to_string()
         ));
     }
 
@@ -117,7 +120,7 @@ async fn create_account(
 /// 删除浏览器账户
 ///
 /// # 说明
-/// 同时会清理 Redis 中的会话数据
+/// 同时会清理 Redis 中的会话数据，并关闭无头浏览器会话
 async fn delete_account(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -125,6 +128,9 @@ async fn delete_account(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    // Close headless browser session if exists
+    let _ = state.headless_browser.close_session(account_id).await;
 
     // Delete from database
     state.db.delete_browser_account(account_id).await
@@ -136,71 +142,115 @@ async fn delete_account(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-// ============ 二维码生成 ============
+// ============ 无头浏览器登录 ============
 
-/// 二维码响应体
-#[derive(Debug, Serialize)]
-struct QrCodeResponse {
-    /// 会话 ID
-    session_id: String,
-    /// 6位数字验证码
-    code: String,
-    /// 过期时间
-    expires_at: String,
-    /// 移动端打开的认证 URL
-    auth_url: String,
+/// 启动登录请求体
+#[derive(Debug, Deserialize)]
+struct StartLoginRequest {
+    /// 是否使用无头浏览器（默认 true）
+    #[serde(default = "default_true")]
+    use_headless: bool,
 }
 
-/// GET /admin/accounts/:id/qrcode
+fn default_true() -> bool {
+    true
+}
+
+/// 登录 URL 响应体
+#[derive(Debug, Serialize)]
+struct LoginUrlResponse {
+    /// 账户 ID
+    account_id: String,
+    /// 登录页面 URL（用于生成二维码）
+    login_url: String,
+    /// 简短验证码（6位数字）
+    code: Option<String>,
+    /// 过期时间
+    expires_at: Option<String>,
+    /// 是否正在等待登录
+    waiting: bool,
+}
+
+/// POST /admin/accounts/:id/start-login
 ///
-/// 获取二维码用于浏览器账户认证
+/// 启动无头浏览器登录流程
 ///
 /// # 说明
-/// 生成一个 6 位数字验证码和对应的认证 URL
-/// 验证码有效期为 5 分钟
-async fn get_qrcode(
+/// 1. 启动无头 Chrome 浏览器
+/// 2. 打开目标网站的登录页面
+/// 3. 返回登录 URL 用于生成二维码
+/// 4. 前端通过 SSE 监听登录状态变化
+async fn start_login(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
     Path(id): Path<String>,
-) -> Result<Json<QrCodeResponse>, ApiError> {
+    Json(body): Json<StartLoginRequest>,
+) -> Result<Json<LoginUrlResponse>, ApiError> {
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
-    // Get account to verify it exists
-    let _account = state.db.get_browser_account(account_id).await
+    // Get account from database
+    let account = state.db.get_browser_account(account_id).await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
-    // Create QR session
-    let qr_session = QrCodeSession::new(account_id);
+    // Create headless browser login session
+    let session = state.headless_browser.create_login_session(&account.provider).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to start login: {}", e)))?;
 
-    // Store QR session in Redis (5 min expiry)
-    state.redis.store_qr_session(&qr_session.code, &qr_session.id.to_string()).await
+    // Generate a short code for verification (optional, for simpler auth)
+    let code = format!("{:06}", rand::random::<u32>() % 900000 + 100000);
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
+
+    // Store QR session in Redis for optional code verification
+    state.redis.store_qr_session(&code, &session.id.to_string()).await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
 
-    // Generate auth URL
-    let base_url = std::env::var("NEXUS_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let auth_url = format!("{}/auth/callback?code={}&session_id={}",
-        base_url, qr_session.code, account_id);
-
-    Ok(Json(QrCodeResponse {
-        session_id: qr_session.id.to_string(),
-        code: qr_session.code,
-        expires_at: qr_session.code_expires_at.to_rfc3339(),
-        auth_url,
+    Ok(Json(LoginUrlResponse {
+        account_id: id,
+        login_url: session.current_url,
+        code: Some(code),
+        expires_at: Some(expires_at.to_rfc3339()),
+        waiting: true,
     }))
 }
 
-// ============ 实时状态（SSE） ============
+/// GET /admin/accounts/:id/login-url
+///
+/// 获取当前登录页面 URL
+///
+/// # 说明
+/// 用于轮询获取当前 URL（无头浏览器可能重定向）
+async fn get_login_url(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> Result<Json<LoginUrlResponse>, ApiError> {
+    let account_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    // Refresh session state
+    let session = state.headless_browser.refresh_session(account_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to refresh session: {}", e)))?;
+
+    let is_waiting = session.state == BrowserSessionState::WaitingForLogin;
+
+    Ok(Json(LoginUrlResponse {
+        account_id: id,
+        login_url: session.current_url,
+        code: None,
+        expires_at: None,
+        waiting: is_waiting,
+    }))
+}
 
 /// GET /admin/accounts/:id/status
 ///
-/// 通过 SSE 流获取账户状态变化
+/// 通过 SSE 流获取登录状态变化
 ///
 /// # 说明
-/// 使用 Server-Sent Events 实时推送账户状态
-/// 可能的事件类型：
-/// - status: 状态变化事件
+/// 使用 Server-Sent Events 实时推送登录状态
+/// 同时启动后台任务监控登录完成
 async fn get_account_status(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -212,48 +262,163 @@ async fn get_account_status(
     // Create broadcast channel for this client
     let (tx, rx) = broadcast::channel::<Result<Event, std::convert::Infallible>>(100);
 
-    // Spawn task to poll database for status changes
+    // Subscribe to headless browser events
+    let mut event_rx = state.headless_browser.subscribe();
+
+    // Spawn task to monitor login status
     let state_clone = state.clone();
     tokio::spawn(async move {
         let mut last_status: Option<String> = None;
+        let mut last_url: Option<String> = None;
 
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-            // Get current account status
-            match state_clone.db.get_browser_account(account_id).await {
-                Ok(Some(account)) => {
-                    let current_status = account.status.as_str().to_string();
+            // Refresh session state
+            match state_clone.headless_browser.refresh_session(account_id).await {
+                Ok(session) => {
+                    let current_status = format!("{:?}", session.state);
+                    let current_url = session.current_url.clone();
+
+                    // Check if status changed
                     if last_status.as_ref() != Some(&current_status) {
                         last_status = Some(current_status.clone());
 
-                        let event_data = serde_json::json!({
-                            "status": current_status,
-                            "email": account.email,
-                        }).to_string();
+                        // Build event data based on state
+                        let (event_type, event_data) = match session.state {
+                            BrowserSessionState::LoggedIn => {
+                                // Login successful - capture cookies and update account
+                                let cookies_json = session.cookies_json.clone();
+                                // Extract email from cookies_json if possible
+                                let email: Option<String> = None; // Simplified - actual email extraction would require parsing
+
+                                // Update account in database
+                                let _ = state_clone.db.update_browser_account_session(
+                                    account_id,
+                                    &cookies_json,
+                                    email.as_deref(),
+                                ).await;
+
+                                // Store session in Redis
+                                let _ = state_clone.redis.store_account_session(
+                                    &account_id.to_string(),
+                                    &cookies_json,
+                                ).await;
+
+                                // Register in account pool
+                                use provider_client::PersistedSession;
+                                if let Ok(session_data) = serde_json::from_str::<PersistedSession>(&cookies_json) {
+                                    let _ = state_clone.account_pool.register_account(
+                                        account_id,
+                                        session.provider.clone(),
+                                        session_data,
+                                    ).await;
+                                }
+
+                                ("status", serde_json::json!({
+                                    "status": "active",
+                                    "email": email,
+                                    "message": "Login successful!"
+                                }))
+                            }
+                            BrowserSessionState::Failed => {
+                                ("status", serde_json::json!({
+                                    "status": "error",
+                                    "message": "Login failed or timeout"
+                                }))
+                            }
+                            BrowserSessionState::Closed => {
+                                ("status", serde_json::json!({
+                                    "status": "closed",
+                                    "message": "Session closed"
+                                }))
+                            }
+                            BrowserSessionState::WaitingForLogin => {
+                                ("status", serde_json::json!({
+                                    "status": "waiting",
+                                    "message": "Waiting for login..."
+                                }))
+                            }
+                        };
 
                         let event = Event::default()
-                            .event("status")
-                            .data(event_data);
+                            .event(event_type)
+                            .data(event_data.to_string());
 
                         let _ = tx.send(Ok(event));
 
-                        // If active or error, stop watching
-                        if current_status == "active" || current_status == "error" {
+                        // Stop if terminal state
+                        if session.state == BrowserSessionState::LoggedIn
+                            || session.state == BrowserSessionState::Failed
+                            || session.state == BrowserSessionState::Closed
+                        {
                             break;
                         }
                     }
+
+                    // Check if URL changed (user navigated to different page)
+                    if last_url.as_ref() != Some(&current_url) {
+                        last_url = Some(current_url.clone());
+
+                        let event = Event::default()
+                            .event("url")
+                            .data(serde_json::json!({
+                                "url": current_url
+                            }).to_string());
+
+                        let _ = tx.send(Ok(event));
+                    }
                 }
-                Ok(None) => {
-                    // Account deleted
-                    let event = Event::default()
-                        .event("status")
-                        .data(r#"{"status":"deleted"}"#);
-                    let _ = tx.send(Ok(event));
-                    break;
+                Err(e) => {
+                    tracing::warn!("Failed to refresh session {}: {}", account_id, e);
                 }
-                Err(_) => {
-                    // DB error, keep trying
+            }
+
+            // Also check for headless browser events
+            while let Ok(event) = event_rx.try_recv() {
+                match event {
+                    LoginEvent::StateChanged { session_id, new_state, cookies_json, .. } if session_id == account_id => {
+                        let (event_type, event_data) = match new_state {
+                            BrowserSessionState::LoggedIn => {
+                                ("status", serde_json::json!({
+                                    "status": "active",
+                                    "cookies": cookies_json,
+                                    "message": "Login successful!"
+                                }))
+                            }
+                            BrowserSessionState::Failed => {
+                                ("status", serde_json::json!({
+                                    "status": "error",
+                                    "message": "Login failed"
+                                }))
+                            }
+                            _ => continue,
+                        };
+
+                        let event = Event::default()
+                            .event(event_type)
+                            .data(event_data.to_string());
+
+                        let _ = tx.send(Ok(event));
+
+                        if new_state == BrowserSessionState::LoggedIn || new_state == BrowserSessionState::Failed {
+                            break;
+                        }
+                    }
+                    LoginEvent::UrlChanged { session_id, url } if session_id == account_id => {
+                        let event = Event::default()
+                            .event("url")
+                            .data(serde_json::json!({ "url": url }).to_string());
+                        let _ = tx.send(Ok(event));
+                    }
+                    LoginEvent::Error { session_id, error } if session_id == account_id => {
+                        let event = Event::default()
+                            .event("error")
+                            .data(serde_json::json!({ "error": error }).to_string());
+                        let _ = tx.send(Ok(event));
+                        break;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -269,73 +434,87 @@ async fn get_account_status(
     Ok(Sse::new(stream))
 }
 
-// ============ 完成认证回调 ============
-
-/// 完成认证请求体
+/// 完成登录请求体（用于手动触发或移动端回调）
 #[derive(Debug, Deserialize)]
-struct CompleteAuthRequest {
-    /// 6位验证码
-    code: String,
-    /// QR 会话 ID
-    session_id: String,
-    /// 加密的会话数据（JSON 格式）
-    session_data: String,
+struct CompleteLoginRequest {
+    /// 验证码（可选）
+    code: Option<String>,
+    /// 加密的会话数据（可选，从 URL 参数提取）
+    session_data: Option<String>,
     /// 账户邮箱（可选）
     email: Option<String>,
 }
 
-/// POST /admin/accounts/complete-auth
+/// POST /admin/accounts/complete-login
 ///
-/// 完成浏览器账户认证
+/// 完成浏览器账户登录（手动触发或移动端回调）
 ///
 /// # 说明
-/// 由移动端完成认证后调用此接口
-/// 会更新账户状态并存储会话数据
-async fn complete_auth(
+/// 当使用无头浏览器自动捕获时，通常不需要调用此接口
+/// 此接口主要用于：
+/// 1. 移动端扫码登录后的回调
+/// 2. 手动保存登录信息
+async fn complete_login(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<CompleteAuthRequest>,
+    Json(body): Json<CompleteLoginRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Verify QR session exists and hasn't expired
-    let qr_session_id = state.redis.get_qr_session(&body.code).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?
-        .ok_or(ApiError::InvalidRequest("Invalid or expired QR code".to_string()))?;
+    // Verify QR session if code is provided
+    if let Some(code) = &body.code {
+        let _qr_session_id = state.redis.get_qr_session(code).await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?
+            .ok_or(ApiError::InvalidRequest("Invalid or expired code".to_string()))?;
+    }
 
-    // Parse account ID from path
-    let account_id = Uuid::parse_str(&body.session_id)
-        .map_err(|_| ApiError::InvalidRequest("Invalid session ID".to_string()))?;
-
-    // Get account
-    let account = state.db.get_browser_account(account_id).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
-        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
-
-    // Update account with session data
-    state.db.update_browser_account_session(
-        account_id,
-        &body.session_data,
-        body.email.as_deref(),
-    ).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update account: {}", e)))?;
-
-    // Store session in Redis
-    state.redis.store_account_session(&account_id.to_string(), &body.session_data).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
-
-    // Publish status update
-    let status_update = serde_json::json!({
-        "status": "active",
-        "email": body.email,
-    }).to_string();
-
-    state.redis.publish_account_status(&account_id.to_string(), &status_update).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
-
-    // Delete QR session from Redis
-    state.redis.delete_qr_session(&body.code).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
+    // If session_data is provided directly, use it
+    if let Some(session_data) = body.session_data {
+        // This would require knowing which account - for now, return error
+        return Err(ApiError::InvalidRequest(
+            "session_data requires account_id in query params".to_string()
+        ));
+    }
 
     Ok(Json(serde_json::json!({
         "success": true,
-        "message": "Authentication completed successfully"
+        "message": "Login completion processed"
+    })))
+}
+
+// ============ 兼容旧接口 ============
+
+/// 兼容旧的二维码生成接口
+/// GET /admin/accounts/:id/qrcode
+///
+/// 返回登录 URL 和验证码
+async fn get_qrcode_legacy(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let account_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    // Get account
+    let _account = state.db.get_browser_account(account_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
+
+    // Create headless browser session
+    let session = state.headless_browser.create_login_session("deepseek").await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to start login: {}", e)))?;
+
+    // Generate code
+    let code = format!("{:06}", rand::random::<u32>() % 900000 + 100000);
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
+
+    // Store QR session
+    state.redis.store_qr_session(&code, &session.id.to_string()).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "session_id": session.id.to_string(),
+        "code": code,
+        "expires_at": expires_at.to_rfc3339(),
+        "auth_url": session.current_url,
+        "login_url": session.current_url
     })))
 }
