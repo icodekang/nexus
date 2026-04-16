@@ -65,6 +65,9 @@ credentials/
 # OpenCode
 .opencode/
 
+# claude
+.claude
+
 # Terraform
 *.tfstate
 *.tfstate.*
