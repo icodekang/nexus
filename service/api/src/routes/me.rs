@@ -67,6 +67,7 @@ pub async fn subscribe(
         SubscriptionPlan::Yearly => 365,
         SubscriptionPlan::Team => 30,
         SubscriptionPlan::Enterprise => 365,
+        SubscriptionPlan::ZeroToken => 30,
         SubscriptionPlan::None => return Err(ApiError::InvalidRequest("Invalid plan".to_string())),
     };
 

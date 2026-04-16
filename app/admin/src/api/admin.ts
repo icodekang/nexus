@@ -245,3 +245,51 @@ export async function fetchTransactions(page = 1, perPage = 20, type = '', statu
   if (status) params.set('status', status);
   return request<TransactionsResponse>(`/admin/transactions?${params}`);
 }
+
+// ============ Browser Accounts (ZeroToken) ============
+
+export interface BrowserAccount {
+  id: string;
+  provider: string;
+  email: string | null;
+  status: 'pending' | 'active' | 'expired' | 'error';
+  request_count: number;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export interface QrCodeData {
+  session_id: string;
+  qr_code_data: string;  // base64 PNG
+  code: string;
+  expires_at: string;
+  auth_url: string;
+}
+
+export async function fetchBrowserAccounts(): Promise<{ data: BrowserAccount[] }> {
+  return request<{ data: BrowserAccount[] }>('/admin/accounts');
+}
+
+export async function createBrowserAccount(provider: string): Promise<BrowserAccount> {
+  return request<BrowserAccount>('/admin/accounts', {
+    method: 'POST',
+    body: JSON.stringify({ provider }),
+  });
+}
+
+export async function deleteBrowserAccount(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/accounts/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function generateQrCode(accountId: string): Promise<QrCodeData> {
+  return request<QrCodeData>(`/admin/accounts/${accountId}/qrcode`);
+}
+
+export async function completeBrowserAuth(code: string, sessionId: string, sessionData: string, email?: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/admin/accounts/complete-auth', {
+    method: 'POST',
+    body: JSON.stringify({ code, session_id: sessionId, session_data: sessionData, email }),
+  });
+}

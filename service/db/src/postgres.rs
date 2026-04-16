@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::DbError;
 use models::{User, ApiKey, Provider, ProviderKey, LlmModel, Subscription, Transaction, ApiLog, SubscriptionPlan};
 use models::subscription::{TransactionType, TransactionStatus, SubscriptionStatus};
+use models::{BrowserAccount, BrowserAccountStatus};
 
 /// PostgreSQL connection pool
 pub struct PostgresPool(PgPool);
@@ -923,6 +924,124 @@ impl PostgresPool {
             total_revenue,
             api_calls_today,
         })
+    }
+
+    // ============ Browser Account operations (ZeroToken) ============
+
+    pub async fn create_browser_account(&self, account: &BrowserAccount) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO browser_accounts (id, provider, email, session_data_encrypted, status,
+                                          request_count, last_used_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind(account.id)
+        .bind(&account.provider)
+        .bind(&account.email)
+        .bind(&account.session_data_encrypted)
+        .bind(account.status.as_str())
+        .bind(account.request_count)
+        .bind(account.last_used_at)
+        .bind(account.created_at)
+        .bind(account.updated_at)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn list_browser_accounts(&self) -> Result<Vec<BrowserAccount>, DbError> {
+        let rows = sqlx::query("SELECT * FROM browser_accounts ORDER BY created_at DESC")
+            .fetch_all(self.inner())
+            .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_browser_account(r)).collect())
+    }
+
+    pub async fn get_browser_account(&self, id: Uuid) -> Result<Option<BrowserAccount>, DbError> {
+        let row: Option<PgRow> = sqlx::query("SELECT * FROM browser_accounts WHERE id = $1")
+            .bind(id)
+            .fetch_optional(self.inner())
+            .await?;
+
+        Ok(row.map(|r| self.row_to_browser_account(&r)))
+    }
+
+    pub async fn update_browser_account_session(
+        &self,
+        id: Uuid,
+        session_data: &str,
+        email: Option<&str>,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            UPDATE browser_accounts
+            SET session_data_encrypted = $2,
+                email = COALESCE($3, email),
+                status = 'active',
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(session_data)
+        .bind(email)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn increment_browser_account_request_count(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            UPDATE browser_accounts
+            SET request_count = request_count + 1,
+                last_used_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn update_browser_account_status(&self, id: Uuid, status: BrowserAccountStatus) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE browser_accounts SET status = $2, updated_at = NOW() WHERE id = $1"
+        )
+        .bind(id)
+        .bind(status.as_str())
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_browser_account(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM browser_accounts WHERE id = $1")
+            .bind(id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
+    fn row_to_browser_account(&self, row: &PgRow) -> BrowserAccount {
+        BrowserAccount {
+            id: row.get("id"),
+            provider: row.get("provider"),
+            email: row.get("email"),
+            session_data_encrypted: row.get("session_data_encrypted"),
+            status: BrowserAccountStatus::from_str(&row.get::<String, _>("status")),
+            request_count: row.get("request_count"),
+            last_used_at: row.get("last_used_at"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        }
     }
 }
 

@@ -7,6 +7,7 @@
 //!
 //! - **Built-in**: OpenAI, Anthropic, Google, DeepSeek
 //! - **Custom**: Define via CUSTOM_PROVIDERS environment variable
+//! - **Browser Emulator**: Simulates browser sessions for zero-token access (Claude.ai, ChatGPT)
 //!
 //! # Adding Custom Providers
 //!
@@ -25,13 +26,17 @@
 //! ]
 //! ```
 
+pub mod browser_emulator;
 pub mod client;
 pub mod config;
 pub mod error;
 pub mod providers;
 pub mod types;
+pub mod account_pool;
 
+pub use browser_emulator::*;
 pub use client::*;
 pub use config::*;
 pub use error::*;
 pub use types::*;
+pub use account_pool::*;

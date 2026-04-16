@@ -13,6 +13,8 @@ use crate::middleware::auth::AuthContext;
 use models::{Provider, ProviderKey, LlmModel, ModelMode};
 use db::postgres::DashboardStats;
 
+pub mod accounts;
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/dashboard/stats", get(dashboard_stats))
@@ -26,6 +28,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/models", get(list_models).post(create_model))
         .route("/models/:id", put(update_model).delete(delete_model))
         .route("/transactions", get(list_transactions))
+        .merge(accounts::routes())
 }
 
 // ============ Dashboard ============

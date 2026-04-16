@@ -170,4 +170,66 @@ impl RedisPool {
 
         Ok((true, 0))
     }
+
+    // ============ QR Code Session (for ZeroToken auth) ============
+
+    /// Store QR session with 5 minute TTL
+    pub async fn store_qr_session(&self, code: &str, session_id: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("qr:code:{}", code);
+        let _: () = conn.set_ex(&key, session_id, 300).await?; // 5 minutes TTL
+        Ok(())
+    }
+
+    /// Get QR session by code
+    pub async fn get_qr_session(&self, code: &str) -> Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let key = format!("qr:code:{}", code);
+        let result: Option<String> = conn.get(&key).await?;
+        Ok(result)
+    }
+
+    /// Delete QR session
+    pub async fn delete_qr_session(&self, code: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("qr:code:{}", code);
+        let _: () = conn.del(&key).await?;
+        Ok(())
+    }
+
+    // ============ Account Session (for ZeroToken browser sessions) ============
+
+    /// Store account session data with 24 hour TTL
+    pub async fn store_account_session(&self, account_id: &str, session_data: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("account:session:{}", account_id);
+        let _: () = conn.set_ex(&key, session_data, 86400).await?; // 24 hours TTL
+        Ok(())
+    }
+
+    /// Get account session data
+    pub async fn get_account_session(&self, account_id: &str) -> Result<Option<String>> {
+        let mut conn = self.conn().await?;
+        let key = format!("account:session:{}", account_id);
+        let result: Option<String> = conn.get(&key).await?;
+        Ok(result)
+    }
+
+    /// Delete account session
+    pub async fn delete_account_session(&self, account_id: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("account:session:{}", account_id);
+        let _: () = conn.del(&key).await?;
+        Ok(())
+    }
+
+    // ============ Pub/Sub for real-time status updates ============
+
+    /// Publish account status update (for SSE notifications)
+    pub async fn publish_account_status(&self, account_id: &str, status: &str) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let channel = format!("account:{}", account_id);
+        let _: () = conn.publish(&channel, status).await?;
+        Ok(())
+    }
 }

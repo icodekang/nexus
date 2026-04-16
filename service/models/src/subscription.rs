@@ -62,6 +62,20 @@ impl SubscriptionPlanInfo {
     pub fn all() -> Vec<Self> {
         vec![
             Self {
+                plan: SubscriptionPlan::ZeroToken,
+                name: "零Token".to_string(),
+                price_monthly: 10.0,
+                price_yearly: 0.0,
+                price_team_monthly: 0.0,
+                features: vec![
+                    "浏览器模拟访问大模型".to_string(),
+                    "无需 API Key".to_string(),
+                    "10万 tokens/月".to_string(),
+                    "支持 Claude.ai".to_string(),
+                    "支持 ChatGPT".to_string(),
+                ],
+            },
+            Self {
                 plan: SubscriptionPlan::Monthly,
                 name: "月付".to_string(),
                 price_monthly: 19.9,

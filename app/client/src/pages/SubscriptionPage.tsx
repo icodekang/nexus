@@ -37,6 +37,7 @@ export default function SubscriptionPage() {
 
   const handleSubscribe = async (planKey: string) => {
     const planMap: Record<string, string> = {
+      zeroToken: 'zero_token',
       monthly: 'monthly',
       autoRenew: 'monthly',
       quarterly: 'monthly',
@@ -56,6 +57,21 @@ export default function SubscriptionPage() {
   };
 
   const plans: Plan[] = [
+    {
+      key: 'zeroToken',
+      price: '¥10',
+      period: t('subscription.perMonth'),
+      badge: t('subscription.freeToken'),
+      badgeType: 'recommended',
+      billedLabel: t('subscription.billedMonthly'),
+      features: [
+        t('subscription.featBrowserAccess'),
+        t('subscription.featNoApiKey'),
+        t('subscription.feat100kTokens'),
+        t('subscription.featClaudeSupport'),
+        t('subscription.featChatGPTSupport'),
+      ],
+    },
     {
       key: 'monthly',
       price: '$19',
@@ -122,6 +138,7 @@ export default function SubscriptionPage() {
     if (subscribing === planKey) return t('login.pleaseWait');
     // Map plan keys to backend plan names for comparison
     const isCurrentPlan = currentPlan === planKey ||
+      (planKey === 'zeroToken' && currentPlan === 'zero_token') ||
       (planKey === 'autoRenew' && currentPlan === 'monthly') ||
       (planKey === 'quarterly' && currentPlan === 'monthly');
     if (isCurrentPlan) return t('subscription.currentPlan');
@@ -131,6 +148,7 @@ export default function SubscriptionPage() {
 
   const isCurrentPlan = (planKey: string) => {
     return currentPlan === planKey ||
+      (planKey === 'zeroToken' && currentPlan === 'zero_token') ||
       (planKey === 'autoRenew' && currentPlan === 'monthly') ||
       (planKey === 'quarterly' && currentPlan === 'monthly');
   };

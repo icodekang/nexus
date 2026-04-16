@@ -18,6 +18,7 @@ use provider_client::{
     ChatRequest as ProviderChatRequest,
     Message as ProviderMessage,
     ProviderClient, ProviderClientFactory, HttpProviderClient,
+    BrowserEmulatorFactory, AccountPool, PersistedSession,
 };
 use router::key_scheduler::SelectedKey;
 
@@ -26,6 +27,7 @@ const SESSION_HEADER: &str = "x-session-id";
 
 // Rate limit defaults per plan (requests per minute)
 const FREE_RPM: i64 = 10;
+const ZEROTOKEN_RPM: i64 = 30;
 const MONTHLY_RPM: i64 = 60;
 const YEARLY_RPM: i64 = 120;
 const TEAM_RPM: i64 = 300;
@@ -34,6 +36,7 @@ const ENTERPRISE_RPM: i64 = 1000;
 fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     match plan {
         SubscriptionPlan::None => FREE_RPM,
+        SubscriptionPlan::ZeroToken => ZEROTOKEN_RPM,
         SubscriptionPlan::Monthly => MONTHLY_RPM,
         SubscriptionPlan::Yearly => YEARLY_RPM,
         SubscriptionPlan::Team => TEAM_RPM,
@@ -75,6 +78,46 @@ fn create_client_with_key(
                 .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
             Ok((Arc::new(client), None))
         }
+    }
+}
+
+/// Create a browser emulator client for ZeroToken subscribers
+fn create_zero_token_client(
+    provider: &str,
+) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
+    let client = BrowserEmulatorFactory::create(provider)
+        .map_err(|e| ApiError::ProviderError(format!("Failed to create browser emulator: {}", e)))?;
+    Ok((client, None)) // Browser emulator doesn't use API keys
+}
+
+/// Get a browser emulator client from the account pool
+async fn get_zero_token_client_from_pool(
+    state: &Arc<AppState>,
+    provider: &str,
+) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
+    // Try to get an available account from the pool
+    if let Some(client) = state.account_pool.get_client(provider).await {
+        return Ok((client, None));
+    }
+
+    // Fallback to creating a new client if no accounts available
+    tracing::warn!("No authenticated accounts in pool for provider {}, creating new client", provider);
+    create_zero_token_client(provider)
+}
+
+/// Determine if user should use zero-token (browser emulator) access
+fn is_zero_token_user(subscription_plan: SubscriptionPlan) -> bool {
+    subscription_plan.is_zero_token()
+}
+
+/// Get the browser emulator provider for zero-token users based on model
+fn get_zero_token_provider(model_provider: &str) -> &'static str {
+    // Map model providers to browser emulator providers
+    match model_provider {
+        "openai" | "chatgpt" => "chatgpt",
+        "anthropic" | "claude" => "claude",
+        // Default to claude for unknown providers
+        _ => "claude",
     }
 }
 
@@ -181,6 +224,14 @@ pub async fn chat_completions(
         }
     }
 
+    // 7. Check if user is ZeroToken subscriber (browser-based access)
+    let is_zero_token = is_zero_token_user(auth.user.subscription_plan);
+    let zero_token_provider = if is_zero_token {
+        Some(get_zero_token_provider(&provider_for_request))
+    } else {
+        None
+    };
+
     // Build request for provider client
     let provider_messages: Vec<ProviderMessage> = request.messages.iter().map(|m| {
         ProviderMessage {
@@ -213,31 +264,49 @@ pub async fn chat_completions(
         let provider_clone = provider_for_request.clone();
         let model_slug_clone = model.slug.clone();
         let session_id_clone = session_id.clone();
+        let is_zero_token_stream = is_zero_token;
+        let zero_token_provider_stream = zero_token_provider;
 
         tokio::spawn(async move {
             let mut total_input_tokens: i32 = 0;
             let mut total_output_tokens: i32 = 0;
             let mut used_key_id: Option<uuid::Uuid> = None;
 
-            // Select key with session affinity
-            let selected_key = {
-                let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.tick();
-                session_id_clone.as_ref().map(|sid| {
-                    scheduler.select_key_for_session(&provider_clone, sid)
-                }).flatten()
-            };
-
-            let client_result = match &selected_key {
-                Some(sk) => {
-                    used_key_id = Some(sk.key.id);
-                    HttpProviderClient::new_with_key(&provider_clone, &sk.key)
+            // ZeroToken users use browser emulator instead of API keys
+            let client_result = if is_zero_token_stream {
+                if let Some(zt_provider) = zero_token_provider_stream {
+                    get_zero_token_client_from_pool(&state_clone, zt_provider).await
+                } else {
+                    // Fallback to HTTP client if no zero-token provider
+                    HttpProviderClient::new(&provider_clone)
+                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e)))
                 }
-                None => HttpProviderClient::new(&provider_clone),
+            } else {
+                // Select key with session affinity
+                let selected_key = {
+                    let mut scheduler = state_clone.key_scheduler.write().await;
+                    scheduler.tick();
+                    session_id_clone.as_ref().map(|sid| {
+                        scheduler.select_key_for_session(&provider_clone, sid)
+                    }).flatten()
+                };
+
+                match &selected_key {
+                    Some(sk) => {
+                        used_key_id = Some(sk.key.id);
+                        HttpProviderClient::new_with_key(&provider_clone, &sk.key)
+                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e)))
+                    }
+                    None => HttpProviderClient::new(&provider_clone)
+                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))),
+                }
             };
 
             match client_result {
-                Ok(client) => {
+                Ok((client, _)) => {
                     match client.chat_stream(provider_request).await {
                         Ok(chunks) => {
                             for chunk in chunks {
@@ -263,10 +332,12 @@ pub async fn chat_completions(
                             }
                         }
                         Err(e) => {
-                            // Record failure and evict session binding
-                            if let Some(kid) = used_key_id {
-                                let mut scheduler = state_clone.key_scheduler.write().await;
-                                scheduler.record_failure(&provider_clone, kid);
+                            // Record failure and evict session binding (only for API key users)
+                            if !is_zero_token_stream {
+                                if let Some(kid) = used_key_id {
+                                    let mut scheduler = state_clone.key_scheduler.write().await;
+                                    scheduler.record_failure(&provider_clone, kid);
+                                }
                             }
                             let _ = tx.send(Ok(Event::default()
                                 .event("error")
@@ -281,11 +352,13 @@ pub async fn chat_completions(
                 }
             }
 
-            // Record success for the key
-            if let Some(kid) = used_key_id {
-                let latency_ms = start_time.elapsed().as_millis() as i32;
-                let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.record_success(&provider_clone, kid, latency_ms as f64);
+            // Record success for the key (only for API key users, not ZeroToken)
+            if !is_zero_token_stream {
+                if let Some(kid) = used_key_id {
+                    let latency_ms = start_time.elapsed().as_millis() as i32;
+                    let mut scheduler = state_clone.key_scheduler.write().await;
+                    scheduler.record_success(&provider_clone, kid, latency_ms as f64);
+                }
             }
 
             // Log streaming API call
@@ -321,29 +394,42 @@ pub async fn chat_completions(
         let mut used_provider = provider_for_request.clone();
         let mut used_key_id: Option<uuid::Uuid> = None;
 
-        // Try primary provider with session-aware key selection
-        let selected_key = select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
-        let (client, key_id) = create_client_with_key(&provider_for_request, selected_key)?;
+        // ZeroToken users use browser emulator instead of API keys
+        let (client, key_id) = if let Some(zt_provider) = zero_token_provider {
+            used_provider = zt_provider.to_string();
+            get_zero_token_client_from_pool(&state, zt_provider).await?
+        } else {
+            // Try primary provider with session-aware key selection
+            let selected_key = select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
+            create_client_with_key(&provider_for_request, selected_key)?
+        };
 
         // client is Arc<dyn ProviderClient> (already unwrapped from Result)
         let mut req = provider_request.clone();
-        req.provider = provider_for_request.clone();
+        req.provider = used_provider.clone();
         match client.chat(req).await {
             Ok(resp) => {
                 provider_resp = Some(resp);
                 used_key_id = key_id;
                 let latency_ms = start_time.elapsed().as_millis() as i32;
-                record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+                // Only record key result for non-ZeroToken (API key) requests
+                if !is_zero_token {
+                    record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+                }
             }
             Err(e) => {
                 tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
                 last_error = Some(e);
-                record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+                // Only record key result for non-ZeroToken (API key) requests
+                if !is_zero_token {
+                    record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+                }
             }
         }
 
         // Fallback to other providers if primary failed
-        if provider_resp.is_none() {
+        // ZeroToken users fallback to other browser emulator providers
+        if provider_resp.is_none() && !is_zero_token {
             for try_provider in &providers_to_try {
                 if *try_provider == provider_for_request {
                     continue; // Already tried
@@ -368,6 +454,30 @@ pub async fn chat_completions(
                         tracing::warn!("Fallback provider {} failed: {}", try_provider, e);
                         last_error = Some(e);
                         record_key_result(&state, try_provider, key_id, 0, false).await;
+                    }
+                }
+            }
+        } else if provider_resp.is_none() && is_zero_token {
+            // ZeroToken fallback: try other browser emulator providers
+            let fallback_providers = vec!["claude", "chatgpt"];
+            for zt_provider in fallback_providers {
+                if zt_provider == zero_token_provider.unwrap_or("") {
+                    continue;
+                }
+
+                let (client, key_id) = get_zero_token_client_from_pool(&state, zt_provider).await?;
+                let mut req = provider_request.clone();
+                req.provider = zt_provider.to_string();
+                match client.chat(req).await {
+                    Ok(resp) => {
+                        provider_resp = Some(resp);
+                        used_provider = zt_provider.to_string();
+                        used_key_id = key_id;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!("ZeroToken fallback provider {} failed: {}", zt_provider, e);
+                        last_error = Some(e);
                     }
                 }
             }
@@ -436,7 +546,7 @@ fn check_subscription(user: &User) -> Result<(), ApiError> {
         SubscriptionPlan::None => {
             // Free tier is always "active" but has limited quota
         }
-        SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team | SubscriptionPlan::Enterprise => {
+        SubscriptionPlan::ZeroToken | SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team | SubscriptionPlan::Enterprise => {
             if let (Some(start), Some(end)) = (user.subscription_start, user.subscription_end) {
                 let now = chrono::Utc::now();
                 if now < start || now > end {

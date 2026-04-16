@@ -24,6 +24,7 @@ use router::key_scheduler::SelectedKey;
 // ─── Rate-limit constants ────────────────────────────────────────────────────
 
 const FREE_RPM: i64 = 10;
+const ZEROTOKEN_RPM: i64 = 30;
 const MONTHLY_RPM: i64 = 60;
 const YEARLY_RPM: i64 = 120;
 const TEAM_RPM: i64 = 300;
@@ -34,6 +35,7 @@ pub const SESSION_HEADER: &str = "x-session-id";
 pub fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     match plan {
         SubscriptionPlan::None => FREE_RPM,
+        SubscriptionPlan::ZeroToken => ZEROTOKEN_RPM,
         SubscriptionPlan::Monthly => MONTHLY_RPM,
         SubscriptionPlan::Yearly => YEARLY_RPM,
         SubscriptionPlan::Team => TEAM_RPM,
@@ -111,7 +113,7 @@ pub fn check_subscription(user: &User) -> Result<(), ApiError> {
     match user.subscription_plan {
         SubscriptionPlan::None => {}
         SubscriptionPlan::Monthly | SubscriptionPlan::Yearly |
-        SubscriptionPlan::Team | SubscriptionPlan::Enterprise => {
+        SubscriptionPlan::Team | SubscriptionPlan::Enterprise | SubscriptionPlan::ZeroToken => {
             if let (Some(start), Some(end)) = (user.subscription_start, user.subscription_end) {
                 let now = chrono::Utc::now();
                 if now < start || now > end {

@@ -65,6 +65,7 @@ impl User {
 #[serde(rename_all = "lowercase")]
 pub enum SubscriptionPlan {
     None,
+    ZeroToken,  // 10 yuan/month - browser-based free access
     Monthly,
     Yearly,
     Team,
@@ -75,6 +76,7 @@ impl SubscriptionPlan {
     pub fn as_str(&self) -> &'static str {
         match self {
             SubscriptionPlan::None => "none",
+            SubscriptionPlan::ZeroToken => "zero_token",
             SubscriptionPlan::Monthly => "monthly",
             SubscriptionPlan::Yearly => "yearly",
             SubscriptionPlan::Team => "team",
@@ -84,6 +86,7 @@ impl SubscriptionPlan {
 
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
+            "zero_token" | "zerotoken" => SubscriptionPlan::ZeroToken,
             "monthly" => SubscriptionPlan::Monthly,
             "yearly" => SubscriptionPlan::Yearly,
             "team" => SubscriptionPlan::Team,
@@ -96,6 +99,7 @@ impl SubscriptionPlan {
     pub fn monthly_token_quota(&self) -> i64 {
         match self {
             SubscriptionPlan::None => 10_000,           // Free: 10K tokens/month
+            SubscriptionPlan::ZeroToken => 100_000,     // 10 yuan/mo: 100K tokens/month (browser-based)
             SubscriptionPlan::Monthly => 2_000_000,     // $19.9/mo: 2M tokens/month
             SubscriptionPlan::Yearly => 2_000_000,      // $199/yr: 2M tokens/month
             SubscriptionPlan::Team => 10_000_000,       // $99/mo: 10M tokens/month
@@ -105,18 +109,24 @@ impl SubscriptionPlan {
 
     /// Whether this plan supports auto-renewal
     pub fn supports_recurring(&self) -> bool {
-        matches!(self, SubscriptionPlan::Monthly | SubscriptionPlan::Team)
+        matches!(self, SubscriptionPlan::ZeroToken | SubscriptionPlan::Monthly | SubscriptionPlan::Team)
     }
 
     /// Duration in days for one billing cycle
     pub fn billing_cycle_days(&self) -> i64 {
         match self {
             SubscriptionPlan::None => 30,
+            SubscriptionPlan::ZeroToken => 30,
             SubscriptionPlan::Monthly => 30,
             SubscriptionPlan::Yearly => 365,
             SubscriptionPlan::Team => 30,
             SubscriptionPlan::Enterprise => 365,
         }
+    }
+
+    /// Whether this plan uses browser-based (zero-token) access
+    pub fn is_zero_token(&self) -> bool {
+        matches!(self, SubscriptionPlan::ZeroToken)
     }
 }
 

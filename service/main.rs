@@ -42,6 +42,13 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    if let Err(e) = state.init_account_pool().await {
+        tracing::warn!(
+            "Failed to initialize account pool: {}. Browser accounts may not work.",
+            e
+        );
+    }
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)

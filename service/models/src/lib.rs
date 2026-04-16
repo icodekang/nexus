@@ -5,6 +5,8 @@ pub mod model;
 pub mod subscription;
 pub mod api_log;
 pub mod chat;
+pub mod browser_account;
+pub mod qr_session;
 
 pub use user::*;
 pub use provider::*;
@@ -13,3 +15,5 @@ pub use model::*;
 pub use subscription::*;
 pub use api_log::*;
 pub use chat::*;
+pub use browser_account::*;
+pub use qr_session::*;
