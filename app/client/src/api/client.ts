@@ -1,5 +1,15 @@
+/**
+ * @file Client 端 API 客户端
+ * 提供客户端用户操作后端服务的 HTTP 请求封装
+ * 基于 REST API 与后端通信，自动处理 JWT 认证
+ */
+
 const API_BASE: string = import.meta.env.VITE_API_BASE ?? '';
 
+/**
+ * ApiError - API 错误类
+ * @description 扩展 Error 类，包含错误码用于 i18n 映射
+ */
 export class ApiError extends Error {
   code: string;
   constructor(message: string, code: string) {
@@ -9,6 +19,13 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * request - 通用 HTTP 请求封装
+ * @description 发送带认证的 JSON 请求，自动附加 Authorization header
+ * @param path - API 路径（相对于 API_BASE）
+ * @param options - Fetch 请求选项
+ * @returns 解析后的 JSON 响应数据
+ */
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('nexus_token');
   const headers: Record<string, string> = {
@@ -36,6 +53,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+/**
+ * Model - 模型信息
+ * @description 包含模型的基本信息和能力描述
+ */
 export interface Model {
   id: string;
   name: string;
@@ -45,11 +66,19 @@ export interface Model {
   capabilities: string[];
 }
 
+/**
+ * ChatMessage - 聊天消息
+ * @description 对话中的单条消息
+ */
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
+/**
+ * ApiKey - API 密钥信息
+ * @description 用户的 API 密钥（显示前缀，完整密钥仅创建时返回）
+ */
 export interface ApiKey {
   id: string;
   name: string | null;
@@ -59,6 +88,10 @@ export interface ApiKey {
   created_at: string;
 }
 
+/**
+ * UsageData - 使用量统计数据
+ * @description 包含周期内的 token 使用量和配额信息
+ */
 export interface UsageData {
   period_start: string;
   period_end: string;
@@ -72,6 +105,10 @@ export interface UsageData {
   usage_by_model: Array<{ model: string; provider: string; requests: number; input_tokens: number; output_tokens: number }>;
 }
 
+/**
+ * SubscriptionInfo - 订阅信息
+ * @description 用户的当前订阅状态和计划
+ */
 export interface SubscriptionInfo {
   subscription_plan: string;
   subscription_start: string | null;
@@ -79,6 +116,12 @@ export interface SubscriptionInfo {
   is_active: boolean;
 }
 
+/**
+ * login - 邮箱登录
+ * @param email - 邮箱地址
+ * @param password - 密码
+ * @returns token 和用户信息
+ */
 export async function login(email: string, password: string) {
   return request<{ token: string; user: { id: string; email: string; subscription_plan: string } }>('/v1/auth/login', {
     method: 'POST',
@@ -86,6 +129,12 @@ export async function login(email: string, password: string) {
   });
 }
 
+/**
+ * register - 用户注册
+ * @param email - 邮箱地址
+ * @param password - 密码
+ * @returns token 和用户信息
+ */
 export async function register(email: string, password: string) {
   return request<{ token: string; user: { id: string; email: string; subscription_plan: string } }>('/v1/auth/register', {
     method: 'POST',
@@ -93,6 +142,11 @@ export async function register(email: string, password: string) {
   });
 }
 
+/**
+ * sendSmsCode - 发送短信验证码
+ * @param phone - 手机号码
+ * @returns 发送成功消息和验证码有效期
+ */
 export async function sendSmsCode(phone: string) {
   return request<{ message: string; seconds_valid: number }>('/v1/auth/send-sms', {
     method: 'POST',
@@ -100,6 +154,12 @@ export async function sendSmsCode(phone: string) {
   });
 }
 
+/**
+ * verifySmsCode - 验证短信验证码并登录
+ * @param phone - 手机号码
+ * @param code - 验证码
+ * @returns token 和用户信息
+ */
 export async function verifySmsCode(phone: string, code: string) {
   return request<{ token: string; user: { id: string; phone: string; subscription_plan: string } }>('/v1/auth/verify-sms', {
     method: 'POST',
@@ -107,11 +167,23 @@ export async function verifySmsCode(phone: string, code: string) {
   });
 }
 
+/**
+ * fetchModels - 获取可用模型列表
+ * @param provider - 可选，按服务商过滤
+ * @returns 模型列表
+ */
 export async function fetchModels(provider?: string) {
   const query = provider ? `?provider=${provider}` : '';
   return request<{ data: Model[] }>(`/v1/models${query}`);
 }
 
+/**
+ * sendChat - 发送聊天消息（非流式）
+ * @param model - 模型 ID
+ * @param messages - 消息历史
+ * @param sessionId - 可选会话 ID
+ * @returns AI 响应消息和使用量统计
+ */
 export async function sendChat(model: string, messages: ChatMessage[], sessionId?: string) {
   const headers: Record<string, string> = {};
   if (sessionId) headers['x-session-id'] = sessionId;
@@ -126,6 +198,14 @@ export async function sendChat(model: string, messages: ChatMessage[], sessionId
   });
 }
 
+/**
+ * streamChat - 发送聊天消息（流式）
+ * @description 使用 Server-Sent Events (SSE) 流式接收 AI 响应
+ * @param model - 模型 ID
+ * @param messages - 消息历史
+ * @param sessionId - 可选会话 ID
+ * @yields 逐步返回 AI 回复内容
+ */
 export async function* streamChat(model: string, messages: ChatMessage[], sessionId?: string): AsyncGenerator<string> {
   const token = localStorage.getItem('nexus_token');
   const headers: Record<string, string> = {
@@ -170,18 +250,35 @@ export async function* streamChat(model: string, messages: ChatMessage[], sessio
   }
 }
 
+/**
+ * fetchSubscription - 获取当前订阅信息
+ * @returns 订阅计划和状态
+ */
 export async function fetchSubscription() {
   return request<SubscriptionInfo>('/v1/me/subscription');
 }
 
+/**
+ * fetchUsage - 获取使用量统计
+ * @returns 周期内的 token 使用量和配额信息
+ */
 export async function fetchUsage() {
   return request<UsageData>('/v1/me/usage');
 }
 
+/**
+ * fetchApiKeys - 获取用户的 API 密钥列表
+ * @returns API 密钥列表
+ */
 export async function fetchApiKeys() {
   return request<{ data: ApiKey[] }>('/v1/me/keys');
 }
 
+/**
+ * createApiKey - 创建新的 API 密钥
+ * @param name - 密钥名称（如：生产环境、开发环境）
+ * @returns 新创建的密钥（完整密钥仅在此返回一次）
+ */
 export async function createApiKey(name: string) {
   return request<{ id: string; key: string; name: string; created_at: string }>('/v1/me/keys', {
     method: 'POST',
@@ -189,12 +286,22 @@ export async function createApiKey(name: string) {
   });
 }
 
+/**
+ * deleteApiKey - 删除 API 密钥
+ * @param keyId - 密钥 ID
+ * @returns 是否删除成功
+ */
 export async function deleteApiKey(keyId: string) {
   return request<{ deleted: boolean }>(`/v1/me/keys/${keyId}`, {
     method: 'DELETE',
   });
 }
 
+/**
+ * subscribeToPlan - 订阅套餐
+ * @param plan - 套餐名称（如：monthly、yearly）
+ * @returns 订阅结果和新的订阅周期信息
+ */
 export async function subscribeToPlan(plan: string) {
   return request<{ message: string; plan: string; subscription_start: string; subscription_end: string }>('/v1/me/subscription', {
     method: 'POST',

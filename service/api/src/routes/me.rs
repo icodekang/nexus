@@ -18,6 +18,17 @@ pub fn routes() -> Router<Arc<AppState>> {
 }
 
 /// GET /v1/me/subscription
+///
+/// 获取当前用户的订阅信息
+///
+/// # 返回
+/// - user_id: 用户ID
+/// - email: 邮箱
+/// - phone: 手机号
+/// - subscription_plan: 订阅套餐名称
+/// - subscription_start: 订阅开始时间
+/// - subscription_end: 订阅结束时间
+/// - is_active: 订阅是否有效
 pub async fn subscription(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -36,6 +47,8 @@ pub async fn subscription(
 }
 
 /// GET /v1/me/subscription/plans
+///
+/// 获取所有可用的订阅套餐列表
 pub async fn subscription_plans() -> Result<Json<serde_json::Value>, ApiError> {
     let plans = SubscriptionPlanInfo::all();
     
@@ -44,13 +57,27 @@ pub async fn subscription_plans() -> Result<Json<serde_json::Value>, ApiError> {
     })))
 }
 
-/// Subscribe request body
+/// 订阅请求体
 #[derive(Debug, Deserialize)]
 pub struct SubscribeRequest {
+    /// 订阅套餐名称 (monthly, yearly, team, enterprise, zero_token)
     pub plan: String,
 }
 
 /// POST /v1/me/subscription
+///
+/// 订阅或更新用户的套餐
+///
+/// # 参数
+/// * `Extension(auth)` - 认证上下文
+/// * `Json(request)` - 订阅请求，包含要订阅的套餐名称
+///
+/// # 套餐持续时间
+/// - monthly: 30天
+/// - yearly: 365天
+/// - team: 30天
+/// - enterprise: 365天
+/// - zero_token: 30天
 pub async fn subscribe(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -88,6 +115,21 @@ pub async fn subscribe(
 }
 
 /// GET /v1/me/usage
+///
+/// 获取用户在当前计费周期的使用统计
+///
+/// # 返回
+/// - period_start: 计费周期开始时间
+/// - period_end: 计费周期结束时间
+/// - total_requests: 总请求数
+/// - total_input_tokens: 输入 Token 总数
+/// - total_output_tokens: 输出 Token 总数
+/// - total_tokens: Token 总数
+/// - token_quota: Token 配额上限
+/// - quota_used_percent: 配额使用百分比
+/// - avg_latency_ms: 平均延迟（毫秒）
+/// - usage_by_provider: 按 Provider 分类的使用统计
+/// - usage_by_model: 按 Model 分类的使用统计
 pub async fn usage(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -141,6 +183,16 @@ pub async fn usage(
 }
 
 /// GET /v1/me/keys
+///
+/// 列出当前用户的所有 API Keys
+///
+/// # 返回
+/// - id: Key ID
+/// - name: Key 名称
+/// - key_prefix: Key 前缀（用于显示）
+/// - is_active: 是否激活
+/// - last_used_at: 最后使用时间
+/// - created_at: 创建时间
 pub async fn list_keys(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -165,13 +217,25 @@ pub async fn list_keys(
     })))
 }
 
-/// Create key request
+/// 创建 Key 请求体
 #[derive(Debug, Deserialize)]
 pub struct CreateKeyRequest {
+    /// Key 名称（可选）
     pub name: Option<String>,
 }
 
 /// POST /v1/me/keys
+///
+/// 创建新的 API Key
+///
+/// # 注意
+/// 返回的 plain_key 只显示一次，之后无法找回
+///
+/// # 返回
+/// - id: Key ID
+/// - key: 完整的 API Key（只显示一次）
+/// - name: Key 名称
+/// - created_at: 创建时间
 pub async fn create_key(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -200,6 +264,11 @@ pub async fn create_key(
 }
 
 /// DELETE /v1/me/keys/:key_id
+///
+/// 删除指定的 API Key
+///
+/// # 参数
+/// * `Path(key_id)` - 要删除的 Key ID
 pub async fn delete_key(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,

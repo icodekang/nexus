@@ -1,8 +1,14 @@
+/**
+ * @file Error Utilities - 错误处理工具
+ * 提供 API 错误到国际化消息的映射和转换
+ */
+
 import { ApiError } from '../api/client';
 import { useI18n } from '../i18n';
 
 /**
- * Error code to i18n key mapping
+ * 错误码到 i18n key 的映射表
+ * @description 将后端返回的错误码映射到对应的翻译 key
  */
 const ERROR_CODE_MAP: Record<string, string> = {
   // Auth errors
@@ -40,7 +46,15 @@ const ERROR_CODE_MAP: Record<string, string> = {
 };
 
 /**
- * Get translated error message from an ApiError
+ * getErrorMessage - 从 ApiError 获取翻译后的错误消息
+ * @param err - 错误对象（通常是 ApiError 实例）
+ * @param t - 翻译函数
+ * @returns 翻译后的错误消息
+ *
+ * 优先级：
+ * 1. 从 ERROR_CODE_MAP 查找对应翻译
+ * 2. 回退到服务端返回的原始消息
+ * 3. 最后使用通用错误消息
  */
 export function getErrorMessage(err: unknown, t: (key: string) => string): string {
   if (err instanceof ApiError) {
@@ -63,7 +77,12 @@ export function getErrorMessage(err: unknown, t: (key: string) => string): strin
 }
 
 /**
- * Get error with optional contact support message
+ * getErrorWithSupport - 获取错误消息并附加客服提示
+ * @param err - 错误对象
+ * @param t - 翻译函数
+ * @returns 错误消息（可能附加客服联系方式）
+ *
+ * 注意：限流错误不会附加客服提示
  */
 export function getErrorWithSupport(err: unknown, t: (key: string) => string): string {
   const message = getErrorMessage(err, t);

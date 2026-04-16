@@ -1,8 +1,13 @@
+/**
+ * @file Users - 用户管理页面
+ * 展示用户列表，支持搜索和编辑用户信息（手机号、订阅套餐）
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchUsers, updateUser, type AdminUser } from '../api/admin';
 
+// 订阅套餐颜色映射
 const planColors: Record<string, string> = {
   yearly: '#6366F1',
   monthly: '#3B82F6',
@@ -11,6 +16,10 @@ const planColors: Record<string, string> = {
   none: '#A1A1AA',
 };
 
+/**
+ * Users - 用户管理主组件
+ * @description 获取用户列表，支持搜索（带防抖），编辑用户手机号和套餐
+ */
 export default function Users() {
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,7 +31,11 @@ export default function Users() {
   const [formPhone, setFormPhone] = useState('');
   const [formPlan, setFormPlan] = useState('monthly');
 
-  // Debounce search
+  // 防抖搜索：300ms 延迟更新搜索关键词，避免频繁请求
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
     return () => clearTimeout(timer);
@@ -43,12 +56,14 @@ export default function Users() {
     loadUsers();
   }, [loadUsers]);
 
+  // 打开编辑弹窗，填充用户现有数据
   const openEditModal = (user: AdminUser) => {
     setFormPhone(user.phone || '');
     setFormPlan(user.subscription_plan);
     setEditUser(user);
   };
 
+  // 提交编辑用户表单
   const handleEditUser = async () => {
     if (!editUser) return;
     try {
@@ -65,6 +80,7 @@ export default function Users() {
 
   return (
     <div style={styles.container}>
+      {/* 页面头部：标题 + 用户数量 + 搜索框 */}
       <header style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>{t('users.title')}</h1>
@@ -73,6 +89,7 @@ export default function Users() {
           </p>
         </div>
         <div style={styles.headerActions}>
+          {/* 搜索框：支持按邮箱搜索用户 */}
           <div style={styles.searchBox}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" />
@@ -89,6 +106,7 @@ export default function Users() {
         </div>
       </header>
 
+      {/* 用户列表表格 */}
       <div style={styles.tableCard}>
         <table style={styles.table}>
           <thead>
@@ -104,6 +122,7 @@ export default function Users() {
           <tbody>
             {users.map((user) => (
               <tr key={user.id} style={styles.tr}>
+                {/* 用户邮箱列 */}
                 <td style={{ ...styles.td, paddingLeft: '20px' }}>
                   <div style={styles.userCell}>
                     <div style={styles.userAvatar}>{user.email.charAt(0).toUpperCase()}</div>

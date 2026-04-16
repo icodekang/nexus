@@ -1,3 +1,8 @@
+/**
+ * @file Layout - 客户端应用布局组件
+ * 包含顶部导航栏、侧边栏（桌面端）/抽屉式（移动端）
+ * 管理和展示对话列表、用户信息
+ */
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, Plus, Trash2, CreditCard } from 'lucide-react';
@@ -6,6 +11,10 @@ import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
 import './Layout.css';
 
+/**
+ * Layout - 布局主组件
+ * @description 响应式侧边栏 + 主内容区，底部用户信息和操作
+ */
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const location = useLocation();
@@ -19,6 +28,7 @@ export default function Layout() {
     setActiveConversation, deleteConversation,
   } = useChatStore();
 
+  // 导航菜单项配置
   const navItems = [
     { to: '/chat', label: t('layout.chat'), icon: MessageSquare },
     { to: '/models', label: t('layout.models'), icon: Layers },
@@ -32,7 +42,8 @@ export default function Layout() {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  // Close mobile menu on outside click
+  // 点击外部关闭移动端菜单
+  useEffect(() => {
   useEffect(() => {
     if (!mobileMenuOpen) return;
     const handler = (e: MouseEvent) => {

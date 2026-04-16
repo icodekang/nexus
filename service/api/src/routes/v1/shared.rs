@@ -1,7 +1,12 @@
-//! Shared utilities used by both OpenAI- and Anthropic-compatible routes.
+//! OpenAI 和 Anthropic 兼容路由共享工具模块
 //!
-//! Contains rate-limit helpers, key selection, validation, and the shared
-//! model listing implementation.
+//! 提供共享的功能：
+//! - 速率限制计算
+//! - Key 选择和负载均衡
+//! - 订阅检查和配额验证
+//! - 通用请求验证
+//! - API 调用日志
+//! - 模型列表实现
 
 use std::sync::Arc;
 use axum::{
@@ -21,17 +26,31 @@ use models::{Message as InternalMessage, User, SubscriptionPlan, ModelWithProvid
 use provider_client::{ProviderClient, HttpProviderClient};
 use router::key_scheduler::SelectedKey;
 
-// ─── Rate-limit constants ────────────────────────────────────────────────────
+// ─── 速率限制常量 ────────────────────────────────────────────────────
 
+/// 免费用户速率限制（请求/分钟）
 const FREE_RPM: i64 = 10;
+/// ZeroToken 用户速率限制（请求/分钟）
 const ZEROTOKEN_RPM: i64 = 30;
+/// 月付用户速率限制（请求/分钟）
 const MONTHLY_RPM: i64 = 60;
+/// 年付用户速率限制（请求/分钟）
 const YEARLY_RPM: i64 = 120;
+/// 团队用户速率限制（请求/分钟）
 const TEAM_RPM: i64 = 300;
+/// 企业用户速率限制（请求/分钟）
 const ENTERPRISE_RPM: i64 = 1000;
 
+/// 会话亲和性 Header 名称
 pub const SESSION_HEADER: &str = "x-session-id";
 
+/// 根据订阅套餐获取速率限制
+///
+/// # 参数
+/// * `plan` - 订阅套餐类型
+///
+/// # 返回
+/// 每分钟允许的请求数
 pub fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     match plan {
         SubscriptionPlan::None => FREE_RPM,
@@ -43,8 +62,18 @@ pub fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     }
 }
 
-// ─── Key selection helpers ───────────────────────────────────────────────────
+// ─── Key 选择辅助函数 ───────────────────────────────────────────────────
 
+/// 选择 API Key 进行请求
+    ///
+    /// # 参数
+    /// * `state` - 应用状态
+    /// * `provider_slug` - Provider 标识
+    /// * `session_id` - 会话 ID（可选，用于会话亲和性）
+    ///
+    /// # 说明
+    /// 如果提供 session_id，会尽量为同一会话选择相同的 Key
+    /// 以实现会话亲和性，提高用户体验
 pub async fn select_key(
     state: &Arc<AppState>,
     provider_slug: &str,
@@ -58,6 +87,15 @@ pub async fn select_key(
     }
 }
 
+/// 创建 Provider HTTP 客户端
+    ///
+    /// # 参数
+    /// * `provider_slug` - Provider 标识
+    /// * `selected` - 选中的 Key（可选）
+    ///
+    /// # 返回
+    /// - 客户端实例
+    /// - Key ID（如果使用了指定 Key）
 pub fn create_client(
     provider_slug: &str,
     selected: Option<SelectedKey>,
@@ -76,6 +114,17 @@ pub fn create_client(
     }
 }
 
+/// 记录请求结果
+    ///
+    /// 更新 Key 的压力值和失败计数
+    /// 用于负载均衡和健康检测
+    ///
+    /// # 参数
+    /// * `state` - 应用状态
+    /// * `provider_slug` - Provider 标识
+    /// * `key_id` - Key ID
+    /// * `latency_ms` - 请求延迟（毫秒）
+    /// * `success` - 请求是否成功
 pub async fn record_result(
     state: &Arc<AppState>,
     provider_slug: &str,
@@ -93,8 +142,11 @@ pub async fn record_result(
     }
 }
 
-// ─── Session helpers ─────────────────────────────────────────────────────────
+// ─── 会话辅助函数 ─────────────────────────────────────────────────────────
 
+/// 从 Header 中提取会话 ID
+    ///
+    /// 查找 `x-session-id` Header
 pub fn extract_session_id(headers: &HeaderMap) -> Option<String> {
     headers
         .get(SESSION_HEADER)
@@ -103,12 +155,22 @@ pub fn extract_session_id(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// 获取默认会话 ID
+    ///
+    /// 使用用户 ID 作为默认会话 ID
 pub fn default_session_id(auth: &AuthContext) -> Option<String> {
     Some(auth.user.id.to_string())
 }
 
-// ─── Validation helpers ─────────────────────────────────────────────────────
+// ─── 验证辅助函数 ─────────────────────────────────────────────────────
 
+/// 检查用户订阅状态
+    ///
+    /// 验证订阅是否在有效期内
+    /// 免费用户始终通过（但有配额限制）
+    ///
+    /// # 错误
+    /// - SubscriptionExpired: 订阅已过期
 pub fn check_subscription(user: &User) -> Result<(), ApiError> {
     match user.subscription_plan {
         SubscriptionPlan::None => {}
@@ -127,6 +189,16 @@ pub fn check_subscription(user: &User) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// 检查用户 Token 配额
+    ///
+    /// 在当前计费周期内检查用户是否还有可用配额
+    ///
+    /// # 说明
+    /// 企业用户（Enterprise）无配额限制
+    ///
+    /// # 错误
+    /// - SubscriptionExpired: 计费周期已过
+    /// - InvalidRequest: 配额已用完
 pub async fn check_token_quota(state: &AppState, user: &User) -> Result<(), ApiError> {
     let quota = user.subscription_plan.monthly_token_quota();
     if quota == i64::MAX {
@@ -157,6 +229,10 @@ pub async fn check_token_quota(state: &AppState, user: &User) -> Result<(), ApiE
     Ok(())
 }
 
+/// 验证 temperature 参数
+    ///
+    /// # 范围
+    /// temperature 必须在 0.0 到 2.0 之间
 pub fn validate_temperature(temperature: f32) -> Result<(), ApiError> {
     if !(0.0..=2.0).contains(&temperature) {
         return Err(ApiError::InvalidRequest(
@@ -166,6 +242,12 @@ pub fn validate_temperature(temperature: f32) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// 添加速率限制 Header
+    ///
+    /// 添加以下 Header：
+    /// - X-RateLimit-Limit: 限制
+    /// - X-RateLimit-Remaining: 剩余
+    /// - X-RateLimit-Reset: 重置时间
 pub fn add_rate_limit_headers(response: &mut Response, limit: i64, remaining: i64, reset: i64) {
     use axum::http::HeaderValue;
     let headers = response.headers_mut();
@@ -175,8 +257,12 @@ pub fn add_rate_limit_headers(response: &mut Response, limit: i64, remaining: i6
     headers.insert("X-RateLimit-Reset", hv(&reset.to_string()));
 }
 
-// ─── API logging ─────────────────────────────────────────────────────────────
+// ─── API 日志记录 ─────────────────────────────────────────────────────────────
 
+/// 记录 API 调用日志
+    ///
+    /// 将 API 调用信息写入数据库
+    /// 包括用户、Provider、Model、Token 使用量、延迟等
 pub async fn log_api_call(
     state: &AppState,
     auth: &AuthContext,
@@ -202,8 +288,12 @@ pub async fn log_api_call(
     }
 }
 
-// ─── Model listing helper ────────────────────────────────────────────────────
+// ─── 模型列表实现 ────────────────────────────────────────────────────
 
+/// 获取模型列表实现
+    ///
+    /// 从数据库加载模型列表，并关联 Provider 信息
+    /// 结果会被缓存到 Redis
 pub async fn list_models_impl(
     state: &Arc<AppState>,
 ) -> Result<Vec<serde_json::Value>, ApiError> {

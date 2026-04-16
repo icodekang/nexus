@@ -1,7 +1,36 @@
+//! API 错误类型定义
+//! 所有 API 错误都定义在此模块中
+//!
+//! 错误分类：
+//! - 认证错误：InvalidApiKey、InvalidCredentials、Unauthorized
+//! - 业务错误：SubscriptionExpired、RateLimitExceeded、ModelNotFound
+//! - 第三方错误：ProviderError、SmsSendFailed
+//! - 客户端错误：InvalidRequest、NotImplemented
+
 use axum::{http::StatusCode, Json, response::IntoResponse};
 use serde_json::json;
 use thiserror::Error;
 
+/// API 错误枚举
+///
+/// # 错误类型
+/// - `ModelNotFound` - 模型未找到
+/// - `InvalidApiKey` - API Key 无效
+/// - `InvalidCredentials` - 邮箱或密码错误
+/// - `Unauthorized` - 未授权访问
+/// - `Forbidden` - 禁止访问（权限不足）
+/// - `SubscriptionExpired` - 订阅已过期
+/// - `RateLimitExceeded` - 请求频率超限
+/// - `ProviderError` - 上游 provider 错误
+/// - `NotImplemented` - 功能未实现
+/// - `InvalidRequest` - 请求参数无效
+/// - `UserAlreadyExists` - 用户已存在
+/// - `SmsSendFailed` - 短信发送失败
+/// - `SmsRateLimitExceeded` - 短信发送频率超限
+/// - `InvalidSmsCode` - 短信验证码无效
+/// - `PhoneAlreadyRegistered` - 手机号已注册
+/// - `UserNotFound` - 用户未找到
+/// - `Internal` - 内部错误
 #[derive(Error, Debug)]
 pub enum ApiError {
     #[error("Model not found: {0}")]

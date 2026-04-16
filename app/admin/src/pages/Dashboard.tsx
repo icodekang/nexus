@@ -1,9 +1,15 @@
+/**
+ * @file Dashboard - 管理员仪表盘页面
+ * 展示系统关键统计数据，包括用户数、订阅数、收入和 API 调用量
+ * 包含收入趋势图表和最近活动时间线
+ */
 import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
 import { fetchDashboardStats, type DashboardStats } from '../api/admin';
 
 type TimeRange = '30d' | '7d';
 
+// 时间范围选项对应的图表数据（模拟数据，用于展示趋势）
 const chartDataMap: Record<TimeRange, { label: string; value: number }[]> = {
   '30d': [
     { label: 'Jul', value: 28000 },
@@ -24,6 +30,7 @@ const chartDataMap: Record<TimeRange, { label: string; value: number }[]> = {
   ],
 };
 
+// 最近活动数据（模拟数据，用于展示用户行为）
 const activities = [
   { user: 'user@company.com', actionKey: 'dashboard.purchasedPlan', actionParams: { plan: 'Yearly' }, time: '2m' },
   { user: 'john@company.com', actionKey: 'dashboard.madeApiCall', time: '5m' },
@@ -31,12 +38,17 @@ const activities = [
   { user: 'bob@company.com', actionKey: 'dashboard.subscriptionExpired', time: '1h' },
 ];
 
+/**
+ * Dashboard - 管理员仪表盘主组件
+ * @description 获取并展示系统统计数据、收入图表和最近活动
+ */
 export default function Dashboard() {
   const { t } = useI18n();
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // 组件挂载时从 API 获取统计数据
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -45,7 +57,7 @@ export default function Dashboard() {
         if (!cancelled) setStats(data);
       })
       .catch(() => {
-        // Keep defaults on error
+        // 错误时保持默认值
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -53,9 +65,11 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, []);
 
+  // 根据选择的时间范围获取图表数据，并计算最大值用于柱状图比例
   const chartData = chartDataMap[timeRange];
   const maxValue = Math.max(...chartData.map((d) => d.value));
 
+  // 统计卡片配置：颜色、标题、数值
   const statMetas = [
     { title: t('dashboard.totalUsers'), color: '#6366F1', value: stats ? String(stats.total_users) : '-', change: '' },
     { title: t('dashboard.activeSubscriptions'), color: '#22C55E', value: stats ? String(stats.active_subscriptions) : '-', change: '' },
@@ -65,6 +79,7 @@ export default function Dashboard() {
 
   return (
     <div style={styles.container}>
+      {/* 页面头部：标题 + 时间范围选择器 */}
       <header style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>{t('dashboard.title')}</h1>
@@ -80,6 +95,7 @@ export default function Dashboard() {
         </select>
       </header>
 
+      {/* 统计卡片区域 */}
       <div style={styles.statsGrid}>
         {statMetas.map((stat, i) => (
           <div key={i} style={styles.statCard}>
@@ -95,7 +111,9 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* 主内容区域：收入图表 + 最近活动 */}
       <div style={styles.mainGrid}>
+        {/* 收入概览图表 */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>{t('dashboard.revenueOverview')}</h2>
@@ -103,6 +121,7 @@ export default function Dashboard() {
               {timeRange === '30d' ? '2024' : t('dashboard.last7Days')}
             </span>
           </div>
+          {/* 柱状图：根据数值自动计算高度比例 */}
           <div style={styles.chart}>
             {chartData.map((d, i) => (
               <div key={i} style={styles.chartCol}>
@@ -120,6 +139,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* 最近活动列表 */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>{t('dashboard.recentActivity')}</h2>
@@ -127,6 +147,7 @@ export default function Dashboard() {
           <div style={styles.activityList}>
             {activities.map((item, i) => (
               <div key={i} style={styles.activityItem}>
+                {/* 用户头像首字母 */}
                 <div style={styles.activityAvatar}>
                   {item.user.charAt(0).toUpperCase()}
                 </div>

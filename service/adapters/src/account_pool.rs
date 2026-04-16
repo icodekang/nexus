@@ -1,4 +1,7 @@
-//! Account Pool Manager for ZeroToken Browser Sessions
+//! 零 Token 浏览器会话账户池管理器
+//!
+//! 管理每个提供商的已认证浏览器会话池。
+//! 会话从数据库加载并在内存中缓存以实现快速访问。
 //!
 //! Manages a pool of authenticated browser sessions for each provider.
 //! Sessions are loaded from database and cached in memory for fast access.

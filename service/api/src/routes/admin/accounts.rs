@@ -1,3 +1,14 @@
+//! 浏览器账户管理路由模块
+//! 处理浏览器账户的 CRUD 操作和二维码认证
+//!
+//! 路由列表：
+//! - GET /accounts - 列出所有浏览器账户
+//! - POST /accounts - 创建新的浏览器账户
+//! - DELETE /accounts/:id - 删除浏览器账户
+//! - GET /accounts/:id/qrcode - 获取二维码用于认证
+//! - GET /accounts/:id/status - 获取账户状态（SSE 流）
+//! - POST /accounts/complete-auth - 完成认证回调
+
 use axum::{
     routing::{get, post, delete},
     Router, Json, Extension,
@@ -17,6 +28,7 @@ use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use models::{BrowserAccount, BrowserAccountStatus, QrCodeSession};
 
+/// 创建浏览器账户路由
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/accounts", get(list_accounts).post(create_account))
@@ -26,8 +38,9 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/accounts/complete-auth", post(complete_auth))
 }
 
-// ============ Browser Accounts CRUD ============
+// ============ 浏览器账户 CRUD ============
 
+/// 账户响应体
 #[derive(Debug, Serialize)]
 struct AccountResponse {
     id: String,
@@ -39,6 +52,7 @@ struct AccountResponse {
     created_at: String,
 }
 
+/// 从 BrowserAccount 转换为 AccountResponse
 impl From<BrowserAccount> for AccountResponse {
     fn from(acc: BrowserAccount) -> Self {
         Self {
@@ -65,11 +79,19 @@ async fn list_accounts(
     Ok(Json(serde_json::json!({ "data": data })))
 }
 
+/// 创建账户请求体
 #[derive(Debug, Deserialize)]
 struct CreateAccountRequest {
+    /// Provider 名称（claude 或 chatgpt）
     provider: String,
 }
 
+/// POST /admin/accounts
+///
+/// 创建新的浏览器账户
+///
+/// # 说明
+/// 目前支持的 Provider：claude、chatgpt
 async fn create_account(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -90,6 +112,12 @@ async fn create_account(
     Ok(Json(account.into()))
 }
 
+/// DELETE /admin/accounts/:id
+///
+/// 删除浏览器账户
+///
+/// # 说明
+/// 同时会清理 Redis 中的会话数据
 async fn delete_account(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -108,16 +136,28 @@ async fn delete_account(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-// ============ QR Code Generation ============
+// ============ 二维码生成 ============
 
+/// 二维码响应体
 #[derive(Debug, Serialize)]
 struct QrCodeResponse {
+    /// 会话 ID
     session_id: String,
-    code: String,             // 6-digit code
+    /// 6位数字验证码
+    code: String,
+    /// 过期时间
     expires_at: String,
-    auth_url: String,         // URL to open on mobile
+    /// 移动端打开的认证 URL
+    auth_url: String,
 }
 
+/// GET /admin/accounts/:id/qrcode
+///
+/// 获取二维码用于浏览器账户认证
+///
+/// # 说明
+/// 生成一个 6 位数字验证码和对应的认证 URL
+/// 验证码有效期为 5 分钟
 async fn get_qrcode(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -151,8 +191,16 @@ async fn get_qrcode(
     }))
 }
 
-// ============ Real-time Status via SSE ============
+// ============ 实时状态（SSE） ============
 
+/// GET /admin/accounts/:id/status
+///
+/// 通过 SSE 流获取账户状态变化
+///
+/// # 说明
+/// 使用 Server-Sent Events 实时推送账户状态
+/// 可能的事件类型：
+/// - status: 状态变化事件
 async fn get_account_status(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -221,16 +269,28 @@ async fn get_account_status(
     Ok(Sse::new(stream))
 }
 
-// ============ Complete Auth Callback ============
+// ============ 完成认证回调 ============
 
+/// 完成认证请求体
 #[derive(Debug, Deserialize)]
 struct CompleteAuthRequest {
+    /// 6位验证码
     code: String,
-    session_id: String,      // QR session ID
-    session_data: String,    // JSON encrypted session data
+    /// QR 会话 ID
+    session_id: String,
+    /// 加密的会话数据（JSON 格式）
+    session_data: String,
+    /// 账户邮箱（可选）
     email: Option<String>,
 }
 
+/// POST /admin/accounts/complete-auth
+///
+/// 完成浏览器账户认证
+///
+/// # 说明
+/// 由移动端完成认证后调用此接口
+/// 会更新账户状态并存储会话数据
 async fn complete_auth(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CompleteAuthRequest>,

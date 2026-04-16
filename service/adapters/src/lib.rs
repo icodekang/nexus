@@ -1,17 +1,17 @@
-//! Provider Client Module
+//! 提供商客户端适配器模块
 //!
-//! Direct Rust implementation for calling LLM provider APIs.
-//! Uses configuration-driven approach for easy extensibility.
+//! 直接使用 Rust 实现调用 LLM 提供商 API。
+//! 采用配置驱动的方式，便于扩展。
 //!
-//! # Supported Providers
+//! # 支持的提供商
 //!
-//! - **Built-in**: OpenAI, Anthropic, Google, DeepSeek
-//! - **Custom**: Define via CUSTOM_PROVIDERS environment variable
-//! - **Browser Emulator**: Simulates browser sessions for zero-token access (Claude.ai, ChatGPT)
+//! - **内置**: OpenAI, Anthropic, Google, DeepSeek
+//! - **自定义**: 通过 `CUSTOM_PROVIDERS` 环境变量定义
+//! - **浏览器模拟器**: 模拟浏览器会话实现零 Token 访问（Claude.ai, ChatGPT）
 //!
-//! # Adding Custom Providers
+//! # 添加自定义提供商
 //!
-//! Set CUSTOM_PROVIDERS environment variable with JSON array:
+//! 设置 `CUSTOM_PROVIDERS` 环境变量为 JSON 数组格式：
 //! ```json
 //! [
 //!   {

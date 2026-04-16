@@ -1,3 +1,8 @@
+/**
+ * @file Admin Chinese Translations - 管理员端中文翻译
+ * 包含管理后台所有界面的中文文本
+ */
+
 export const zh = {
   common: {
     brandName: 'Nexus',

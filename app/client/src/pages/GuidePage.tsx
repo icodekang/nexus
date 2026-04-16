@@ -1,10 +1,19 @@
+/**
+ * @file GuidePage - API 使用指南页面
+ * 展示 API 接入步骤、端点说明、流式调用示例和订阅套餐信息
+ */
 import { BookOpen, Key, MessageSquare, Layers, Zap, ArrowRight, Code2, Send } from 'lucide-react';
 import { useI18n } from '../i18n';
 import './GuidePage.css';
 
+/**
+ * GuidePage - 使用指南主组件
+ * @description 展示 API 接入教程和订阅套餐说明
+ */
 export default function GuidePage() {
   const { t } = useI18n();
 
+  // API 接入步骤配置
   const steps = [
     {
       icon: Key,
@@ -48,12 +57,13 @@ export default function GuidePage() {
 
   return (
     <div className="guide-page">
+      {/* 页面头部 */}
       <header className="guide-header">
         <h1 className="guide-title">{t('guide.title')}</h1>
         <p className="guide-subtitle">{t('guide.subtitle')}</p>
       </header>
 
-      {/* Steps */}
+      {/* API 接入步骤 */}
       <div className="guide-steps">
         {steps.map((step, i) => (
           <div key={i} className="guide-step">

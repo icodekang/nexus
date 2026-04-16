@@ -1,14 +1,23 @@
+/**
+ * @file QrCodeModal - 二维码认证弹窗组件
+ * 为浏览器账号登录生成二维码，通过 SSE 监听认证状态
+ * 认证成功后自动关闭弹窗
+ */
 import { useState, useEffect, useRef } from 'react';
 import { useI18n } from '../i18n';
 import { QRCodeSVG } from 'qrcode.react';
 import { generateQrCode, type BrowserAccount } from '../api/admin';
 
 interface QrCodeModalProps {
-  account: BrowserAccount;
-  onClose: () => void;
-  onSuccess: () => void;
+  account: BrowserAccount;  // 需要认证的浏览器账号
+  onClose: () => void;     // 关闭弹窗回调
+  onSuccess: () => void;   // 认证成功回调
 }
 
+/**
+ * QrCodeModal - 二维码认证弹窗
+ * @description 生成登录二维码，通过 SSE 实时监听认证状态变化
+ */
 export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModalProps) {
   const { t } = useI18n();
   const [qrData, setQrData] = useState<{ code: string; expires_at: string; auth_url: string } | null>(null);
@@ -16,8 +25,8 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
+  // 组件挂载时请求生成二维码
   useEffect(() => {
-    // Generate QR code on mount
     generateQrCode(account.id)
       .then((data) => {
         setQrData(data);
@@ -29,14 +38,16 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
       });
   }, [account.id]);
 
+  // 连接 SSE 获取实时认证状态
   useEffect(() => {
     if (!qrData) return;
 
-    // Connect to SSE for real-time status updates
+    // 连接 SSE 监听账号认证状态变化
     const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
     const sse = new EventSource(`${API_BASE}/admin/accounts/${account.id}/status`);
     eventSourceRef.current = sse;
 
+    // 收到消息：认证成功则关闭弹窗，认证失败则显示错误
     sse.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -47,12 +58,12 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
           sse.close();
         }
       } catch {
-        // Ignore parse errors
+        // 忽略解析错误
       }
     };
 
     sse.onerror = () => {
-      // SSE connection error - keep trying or show error
+      // SSE 连接错误时静默处理
     };
 
     return () => {
@@ -60,6 +71,7 @@ export default function QrCodeModal({ account, onClose, onSuccess }: QrCodeModal
     };
   }, [qrData, account.id, onSuccess]);
 
+  // 计算过期时间显示
   const expiresTime = qrData
     ? new Date(qrData.expires_at).toLocaleTimeString()
     : '';

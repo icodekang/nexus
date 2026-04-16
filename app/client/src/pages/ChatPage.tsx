@@ -1,3 +1,8 @@
+/**
+ * @file ChatPage - AI 对话聊天页面
+ * 支持流式和非流式对话，会话历史管理，模型选择
+ * 使用 chatStore 管理对话状态，modelStore 管理可用模型
+ */
 import { useState, useRef, useEffect } from 'react';
 import { Send, Plus, Trash2, ChevronDown, Sparkles, Check, Search, History } from 'lucide-react';
 import { useChatStore } from '../stores/chatStore';
@@ -7,6 +12,7 @@ import { useI18n } from '../i18n';
 import { getErrorMessage } from '../utils/errors';
 import './ChatPage.css';
 
+// 提供商元信息：颜色和显示名称
 const PROVIDER_META: Record<string, { color: string; label: string }> = {
   openai: { color: '#10B981', label: 'OpenAI' },
   anthropic: { color: '#D97706', label: 'Anthropic' },
@@ -14,6 +20,10 @@ const PROVIDER_META: Record<string, { color: string; label: string }> = {
   deepseek: { color: '#8B5CF6', label: 'DeepSeek' },
 };
 
+/**
+ * ChatPage - 聊天主组件
+ * @description 管理对话、发送消息、选择模型、处理流式响应
+ */
 export default function ChatPage() {
   const {
     conversations, activeConversationId, isLoading, selectedModel, showHistory,
@@ -29,17 +39,21 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
 
+  // 获取当前活动的会话
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
+  // 加载可用模型
   useEffect(() => {
     if (!loaded) loadModels();
   }, [loaded, loadModels]);
 
+  // 收到新消息时自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConversation?.messages.length]);
 
-  // Close model picker on outside click
+  // 点击模型选择器外部时关闭选择器
+  useEffect(() => {
   useEffect(() => {
     if (!showModelPicker) return;
     const handler = (e: MouseEvent) => {
@@ -51,6 +65,7 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showModelPicker]);
 
+  // 发送消息：创建/追加会话，调用流式或非流式 API
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
@@ -67,21 +82,23 @@ export default function ChatPage() {
 
     try {
       const conv = useChatStore.getState().conversations.find((c) => c.id === convId);
+      // 获取历史消息（排除空的 assistant 消息），作为上下文发送
       const messages = (conv?.messages || [])
         .filter((m) => m.role !== 'assistant' || m.content !== '')
         .map((m) => ({ role: m.role, content: m.content }));
 
       messages.push({ role: 'user', content: text });
 
-      // Use streaming — pass conversationId as x-session-id for key affinity
+      // 使用流式 API 发送消息，通过 x-session-id 实现密钥亲和性
       let fullContent = '';
       const stream = streamChat(selectedModel, messages, convId);
       for await (const chunk of stream) {
         fullContent += chunk;
+        // 实时更新最后一条 assistant 消息的内容
         useChatStore.getState().updateLastAssistantMessage(convId!, fullContent);
       }
 
-      // Fallback to non-streaming if no content received
+      // 如果流式响应无内容，降级到非流式 API
       if (!fullContent) {
         const resp = await sendChat(selectedModel, messages, convId);
         const assistantContent = resp.choices[0]?.message?.content || t('chat.noResponse');
@@ -98,6 +115,7 @@ export default function ChatPage() {
     }
   };
 
+  // 处理键盘事件：Enter 发送消息（Shift+Enter 换行）
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -105,17 +123,19 @@ export default function ChatPage() {
     }
   };
 
+  // 创建新对话
   const handleNewChat = () => {
     createConversation(selectedModel, t('chat.newChat'));
     setShowHistory(false);
     inputRef.current?.focus();
   };
 
+  // 获取当前选中的模型信息
   const selectedModelData = models.find((m) => m.id === selectedModel);
   const modelDisplayName = selectedModelData?.name || selectedModel;
   const selectedProviderMeta = selectedModelData ? PROVIDER_META[selectedModelData.provider] : null;
 
-  // Group and filter models
+  // 按提供商分组并支持搜索过滤模型
   const grouped = getModelsByProvider();
   const filteredGrouped: Record<string, typeof models> = {};
   const search = modelSearch.toLowerCase();

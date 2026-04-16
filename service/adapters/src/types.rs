@@ -1,4 +1,4 @@
-//! Shared types for provider clients
+//! 提供商客户端共享类型模块
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -1,4 +1,23 @@
-//! Pressure-based API Key Load Balancer
+//! 基于压力均衡的 API Key 负载均衡器模块
+//!
+//! 实现了"压力均衡"算法，用于在多个 API Key 之间分配请求，
+//! 同时保持会话级别的 Key 亲和性，确保同一会话始终路由到同一个 API Key，
+//! 除非该 Key 变得不可用。
+//!
+//! # 核心概念
+//! - 每个 API Key 有基于其当前利用率的"压力"值
+//! - 压力越低（利用率越低）的 Key 会接收更多请求
+//! - 压力会随时间衰减，允许重新平衡
+//! - 会话亲和性：会话一旦绑定到某个 Key，后续请求始终使用同一个 Key
+//! - 当绑定的 Key 失败时，会话会重新绑定到其他健康的 Key
+//! - TTL 过期后，会话会优先尝试之前的 Key；若该 Key 仍健康则恢复，否则选择新的 Key
+//!
+//! # 算法保证
+//! 1. 最优利用率：不会让单个 Key 过载而其他 Key 空闲
+//! 2. 会话亲和性：同一会话 → 同一 API Key（在 TTL 窗口内）
+//! 3. TTL 感知的重新绑定：TTL 过期后，优先之前的 Key
+//! 4. 故障转移透明：用户不会注意到 Key 切换
+//! 5. 优雅降级：系统能优雅处理 Key 耗尽的情况
 //!
 //! This module implements a "Pressure Equilibrium" algorithm for distributing
 //! requests across multiple API keys within the same provider, with

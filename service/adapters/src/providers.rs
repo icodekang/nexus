@@ -1,4 +1,7 @@
-//! Provider registry - allows dynamic registration of provider adapters
+//! 提供商适配器注册表模块
+//!
+//! 允许动态注册提供商适配器。
+//! 支持自定义消息转换器和流处理程序，用于处理非标准 API 格式的提供商。
 //!
 //! Providers can register custom message transformers and stream handlers.
 //! This is useful for providers with non-standard API formats.

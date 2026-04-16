@@ -1,3 +1,8 @@
+/**
+ * @file ProviderKeys - 提供商密钥管理页面
+ * 管理 AI 服务提供商的 API 密钥，支持添加、编辑、删除和测试密钥
+ * 密钥可设置为显示/隐藏，测试连接状态实时反馈
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
@@ -6,6 +11,7 @@ import {
   fetchProviders, type ProviderKey, type AdminProvider,
 } from '../api/admin';
 
+// 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
   openai: '#10A37F',
   anthropic: '#D97706',
@@ -13,10 +19,15 @@ const providerColors: Record<string, string> = {
   deepseek: '#6366F1',
 };
 
+// 根据 slug 获取提供商颜色
 function getColor(slug: string): string {
   return providerColors[slug] || '#A1A1AA';
 }
 
+/**
+ * ProviderKeys - 密钥管理主组件
+ * @description 获取密钥列表，支持添加/编辑/删除/测试密钥
+ */
 export default function ProviderKeys() {
   const { t } = useI18n();
   const [keys, setKeys] = useState<ProviderKey[]>([]);
@@ -25,16 +36,20 @@ export default function ProviderKeys() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editKey, setEditKey] = useState<ProviderKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProviderKey | null>(null);
+  // 密钥显示/隐藏状态集合
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  // 当前正在测试的密钥 ID
   const [testingId, setTestingId] = useState<string | null>(null);
+  // 测试结果
   const [testResult, setTestResult] = useState<{ id: string; success: boolean } | null>(null);
 
-  // Form state
+  // 表单状态
   const [formProvider, setFormProvider] = useState('');
   const [formApiKey, setFormApiKey] = useState('');
   const [formBaseUrl, setFormBaseUrl] = useState('');
   const [formPriority, setFormPriority] = useState('1');
 
+  // 加载密钥和提供商数据
   const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([fetchProviderKeys(), fetchProviders()])
@@ -57,11 +72,13 @@ export default function ProviderKeys() {
     setFormPriority('1');
   };
 
+  // 打开添加密钥弹窗
   const openAddModal = () => {
     resetForm();
     setShowAddModal(true);
   };
 
+  // 打开编辑弹窗（不填 API key 字段，仅编辑 base_url 和 priority）
   const openEditModal = (k: ProviderKey) => {
     setFormProvider(k.provider_slug);
     setFormApiKey('');
@@ -70,6 +87,7 @@ export default function ProviderKeys() {
     setEditKey(k);
   };
 
+  // 添加新密钥
   const handleAdd = async () => {
     if (!formProvider || !formApiKey.trim()) return;
     try {
@@ -86,6 +104,7 @@ export default function ProviderKeys() {
     }
   };
 
+  // 编辑密钥（仅更新 base_url 和 priority，如填写了 api_key 则同时更新）
   const handleEdit = async () => {
     if (!editKey) return;
     try {

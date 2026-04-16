@@ -1,3 +1,8 @@
+/**
+ * @file theme.ts - 管理员主题配置
+ * 定义颜色系统、字体、圆角半径和阴影
+ * 采用暖色中性色调 + 柔和的 indigo 作为强调色
+ */
 // Nexus Admin — Minimalist Theme
 // Palette: warm neutrals + soft indigo accent
 // Typography: Instrument Sans (display) + DM Sans (body)

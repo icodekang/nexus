@@ -1,13 +1,23 @@
+/**
+ * @file AuthCallback - 浏览器认证回调页面
+ * 处理浏览器自动化登录完成后的回调，完成会话激活
+ * 展示认证状态（加载中/成功/失败）
+ */
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { completeBrowserAuth } from '../api/admin';
 
+/**
+ * AuthCallback - 认证回调主组件
+ * @description 从 URL 获取 code 和 session_id，调用后端完成认证
+ */
 export default function AuthCallback() {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // 从 URL 参数获取认证码和会话 ID
     const code = searchParams.get('code');
     const sessionId = searchParams.get('session_id');
 
@@ -17,11 +27,10 @@ export default function AuthCallback() {
       return;
     }
 
-    // For the callback, we need session data from the browser
-    // This would typically come from cookies or postMessage from the login page
-    // For now, we'll collect the session data from the URL parameters
+    // 会话数据从 URL 参数中获取（通常来自 cookies 或 postMessage）
     const sessionData = searchParams.get('session_data') || '';
 
+    // 调用后端完成浏览器认证
     completeBrowserAuth(code, sessionId, sessionData)
       .then(() => {
         setStatus('success');
@@ -35,6 +44,7 @@ export default function AuthCallback() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
+        {/* 加载中状态 */}
         {status === 'loading' && (
           <>
             <div style={styles.spinner} />
@@ -43,6 +53,7 @@ export default function AuthCallback() {
           </>
         )}
 
+        {/* 认证成功状态 */}
         {status === 'success' && (
           <>
             <div style={styles.iconWrapper}>
@@ -56,6 +67,7 @@ export default function AuthCallback() {
           </>
         )}
 
+        {/* 认证失败状态 */}
         {status === 'error' && (
           <>
             <div style={styles.iconWrapper}>
@@ -74,6 +86,7 @@ export default function AuthCallback() {
         )}
       </div>
 
+      {/* CSS 动画：旋转动画 */}
       <style>{`
         @keyframes spin {
           100% { transform: rotate(360deg); }

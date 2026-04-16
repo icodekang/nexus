@@ -1,17 +1,25 @@
+//! 聊天模块
+//!
+//! 定义了聊天完成和嵌入请求/响应的数据结构
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Chat message
+/// 聊天消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
+    /// 角色（user/assistant/system）
     pub role: String,
+    /// 消息内容
     pub content: String,
+    /// 名称（可选，用于 function 调用）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
 impl Message {
+    /// 创建用户消息
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: "user".to_string(),
@@ -20,6 +28,7 @@ impl Message {
         }
     }
 
+    /// 创建助手消息
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: "assistant".to_string(),
@@ -28,6 +37,7 @@ impl Message {
         }
     }
 
+    /// 创建系统消息
     pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: "system".to_string(),
@@ -37,24 +47,31 @@ impl Message {
     }
 }
 
-/// Chat completion choice
+/// 聊天完成选项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Choice {
+    /// 选项索引
     pub index: usize,
+    /// 消息
     pub message: Message,
+    /// 完成原因（stop/length）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
 }
 
-/// Usage statistics
+/// Token 使用统计
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
+    /// 输入 Token 数量
     pub prompt_tokens: i32,
+    /// 输出 Token 数量
     pub completion_tokens: i32,
+    /// 总 Token 数量
     pub total_tokens: i32,
 }
 
 impl Usage {
+    /// 创建新的使用统计
     pub fn new(prompt_tokens: i32, completion_tokens: i32) -> Self {
         Self {
             prompt_tokens,
@@ -64,25 +81,35 @@ impl Usage {
     }
 }
 
-/// Chat completion request (OpenAI-compatible)
+/// 聊天完成请求（OpenAI 兼容格式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatRequest {
+    /// 模型标识符
     pub model: String,
+    /// 消息列表
     pub messages: Vec<Message>,
+    /// 生成温度
     #[serde(default = "default_temperature")]
     pub temperature: f32,
+    /// 最大输出 Token 数
     #[serde(default)]
     pub max_tokens: Option<i32>,
+    /// 是否流式响应
     #[serde(default)]
     pub stream: bool,
+    /// Top-P 采样
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
+    /// 停止序列
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
+    /// 存在惩罚
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
+    /// 频率惩罚
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f32>,
+    /// 用户标识（用于跟踪）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
@@ -92,6 +119,11 @@ fn default_temperature() -> f32 {
 }
 
 impl ChatRequest {
+    /// 创建新的聊天请求
+    ///
+    /// # 参数
+    /// * `model` - 模型标识符
+    /// * `messages` - 消息列表
     pub fn new(model: impl Into<String>, messages: Vec<Message>) -> Self {
         Self {
             model: model.into(),
@@ -108,18 +140,30 @@ impl ChatRequest {
     }
 }
 
-/// Chat completion response (OpenAI-compatible)
+/// 聊天完成响应（OpenAI 兼容格式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResponse {
+    /// 响应 ID
     pub id: String,
+    /// 对象类型
     pub object: String,
+    /// 创建时间戳
     pub created: u64,
+    /// 模型标识符
     pub model: String,
+    /// 完成选项列表
     pub choices: Vec<Choice>,
+    /// Token 使用统计
     pub usage: Usage,
 }
 
 impl ChatResponse {
+    /// 创建新的聊天响应
+    ///
+    /// # 参数
+    /// * `model` - 模型标识符
+    /// * `message` - 响应消息
+    /// * `usage` - Token 使用统计
     pub fn new(model: impl Into<String>, message: Message, usage: Usage) -> Self {
         Self {
             id: format!("chatcmpl-{}", Uuid::new_v4()),
@@ -136,33 +180,51 @@ impl ChatResponse {
     }
 }
 
-/// Streaming chunk for SSE
+/// 流式响应块（SSE 格式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatChunk {
+    /// 块 ID
     pub id: String,
+    /// 对象类型
     pub object: String,
+    /// 创建时间戳
     pub created: u64,
+    /// 模型标识符
     pub model: String,
+    /// 选项列表
     pub choices: Vec<ChunkChoice>,
 }
 
+/// 流式选项
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkChoice {
+    /// 选项索引
     pub index: usize,
+    /// 增量内容
     pub delta: ChunkDelta,
+    /// 完成原因
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
 }
 
+/// 流式增量内容
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkDelta {
+    /// 角色
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// 内容增量
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
 }
 
 impl ChatChunk {
+    /// 创建新的聊天块
+    ///
+    /// # 参数
+    /// * `model` - 模型标识符
+    /// * `content` - 内容增量
+    /// * `finished` - 是否完成
     pub fn new(model: impl Into<String>, content: impl Into<String>, finished: bool) -> Self {
         Self {
             id: format!("chatcmpl-{}", Uuid::new_v4()),
@@ -181,16 +243,24 @@ impl ChatChunk {
     }
 }
 
-/// Embeddings request
+/// 嵌入请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsRequest {
+    /// 模型标识符
     pub model: String,
+    /// 输入文本列表
     pub input: Vec<String>,
+    /// 用户标识
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
 
 impl EmbeddingsRequest {
+    /// 创建新的嵌入请求
+    ///
+    /// # 参数
+    /// * `model` - 模型标识符
+    /// * `input` - 输入文本列表
     pub fn new(model: impl Into<String>, input: Vec<String>) -> Self {
         Self {
             model: model.into(),
@@ -200,23 +270,36 @@ impl EmbeddingsRequest {
     }
 }
 
-/// Embeddings response
+/// 嵌入响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsResponse {
+    /// 对象类型
     pub object: String,
+    /// 嵌入数据列表
     pub data: Vec<EmbeddingData>,
+    /// 模型标识符
     pub model: String,
+    /// Token 使用统计
     pub usage: Usage,
 }
 
+/// 单个嵌入数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingData {
+    /// 对象类型
     pub object: String,
+    /// 嵌入向量
     pub embedding: Vec<f32>,
+    /// 索引
     pub index: usize,
 }
 
 impl EmbeddingsResponse {
+    /// 创建新的嵌入响应
+    ///
+    /// # 参数
+    /// * `model` - 模型标识符
+    /// * `embeddings` - 嵌入向量列表
     pub fn new(model: impl Into<String>, embeddings: Vec<Vec<f32>>) -> Self {
         let usage = Usage::new(
             embeddings.iter().map(|e| e.len() as i32).sum(),

@@ -1,4 +1,7 @@
-//! Generic HTTP-based provider client
+//! 通用的 HTTP 提供商客户端
+//!
+//! 使用配置驱动的方式调用任何 LLM 提供商。
+//! 同时支持内置提供商和用户自定义的提供商。
 //!
 //! Uses configuration-driven approach to call any LLM provider.
 //! Supports both built-in and user-defined custom providers.

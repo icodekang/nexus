@@ -1,3 +1,8 @@
+/**
+ * @file BrowserAccounts - 浏览器账号管理页面
+ * 管理 Claude.ai 和 ChatGPT 的浏览器自动化登录账号
+ * 支持扫码认证，展示账号状态和用量统计
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
@@ -7,6 +12,7 @@ import {
   type BrowserAccount, type QrCodeData,
 } from '../api/admin';
 
+// 提供商颜色映射
 const providerColors: Record<string, string> = {
   claude: '#D97706',
   chatgpt: '#10A37F',
@@ -16,13 +22,19 @@ function getProviderColor(provider: string): string {
   return providerColors[provider] || '#A1A1AA';
 }
 
+/**
+ * BrowserAccounts - 浏览器账号管理主组件
+ * @description 获取账号列表，支持添加（扫码认证）、删除账号
+ */
 export default function BrowserAccounts() {
   const { t } = useI18n();
   const [accounts, setAccounts] = useState<BrowserAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<BrowserAccount | null>(null);
+  // QR 码弹窗数据
   const [qrModalData, setQrModalData] = useState<{ account: BrowserAccount; qrData: QrCodeData } | null>(null);
 
+  // 加载账号列表
   const loadAccounts = useCallback(() => {
     setLoading(true);
     fetchBrowserAccounts()
@@ -44,6 +56,7 @@ export default function BrowserAccounts() {
     }
   };
 
+  // 删除账号
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {

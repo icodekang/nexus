@@ -1,3 +1,18 @@
+//! 数据模型模块
+//!
+//! 定义了系统使用的所有核心数据结构
+//!
+//! # 主要模型
+//! - 用户 (User)
+//! - 提供商 (Provider)
+//! - 模型 (LlmModel)
+//! - API Key (ApiKey, ProviderKey)
+//! - 订阅 (Subscription)
+//! - 交易 (Transaction)
+//! - API 日志 (ApiLog)
+//! - 浏览器账户 (BrowserAccount)
+//! - 二维码会话 (QrCodeSession)
+
 pub mod user;
 pub mod provider;
 pub mod provider_key;

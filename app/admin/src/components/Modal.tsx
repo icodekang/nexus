@@ -1,17 +1,27 @@
+/**
+ * @file Modal - 通用弹窗组件
+ * 支持键盘 ESC 关闭，点击遮罩层关闭
+ * 可自定义标题和内容区宽度
+ */
 import { useEffect, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
 
 interface ModalProps {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  children: ReactNode;
-  width?: number;
+  open: boolean;         // 控制弹窗显示/隐藏
+  onClose: () => void;   // 关闭回调
+  title: string;         // 弹窗标题
+  children: ReactNode;   // 弹窗内容
+  width?: number;        // 弹窗宽度（默认 480px）
 }
 
+/**
+ * Modal - 通用弹窗组件
+ * @description 渲染在页面最顶层的模态弹窗，带 fadeIn + slideUp 动画效果
+ */
 export default function Modal({ open, onClose, title, children, width = 480 }: ModalProps) {
   const { t } = useI18n();
 
+  // 监听 ESC 键关闭弹窗
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -21,14 +31,17 @@ export default function Modal({ open, onClose, title, children, width = 480 }: M
     return () => document.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
+  // 弹窗未打开时返回 null
   if (!open) return null;
 
   return (
+    // 点击遮罩层关闭弹窗，点击内容区阻止冒泡
     <div style={styles.overlay} onClick={onClose}>
       <div
         style={{ ...styles.modal, width: `${width}px` }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* 弹窗头部：标题 + 关闭按钮 */}
         <div style={styles.header}>
           <h2 style={styles.title}>{title}</h2>
           <button style={styles.closeBtn} onClick={onClose} title={t('common.close')}>

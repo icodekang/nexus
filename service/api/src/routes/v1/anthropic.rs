@@ -1,12 +1,12 @@
-//! Anthropic-compatible API endpoints (`/v1/anthropic/*`).
+//! Anthropic 兼容 API 接口模块 (`/v1/anthropic/*`)
 //!
-//! Request/response shape matches the Anthropic Messages API exactly.
+//! 请求/响应格式与 Anthropic Messages API 完全兼容
 //!
-//! Key differences from OpenAI:
-//!   - `max_tokens` is required (Anthropic always generates until limit)
-//!   - System prompt via `system` field in request body
-//!   - Streaming uses SSE `event:` lines (`message_start`, `content_block_delta`, …)
-//!   - Response body is `{"id":"...","content":[{"type":"text","text":"..."}]}`
+//! 与 OpenAI 的主要区别：
+//! - `max_tokens` 是必填项（Anthropic 总是生成到限制为止）
+//! - System prompt 通过请求体的 `system` 字段传入
+//! - 流式响应使用 SSE `event:` 行 (`message_start`, `content_block_delta`, …)
+//! - 响应体格式为 `{"id":"...","content":[{"type":"text","text":"..."}]}`
 
 use std::sync::Arc;
 use axum::{
@@ -35,34 +35,47 @@ use super::shared::{
     SESSION_HEADER,
 };
 
-// ─── Request / response types ───────────────────────────────────────────────
+// ─── 请求/响应类型 ───────────────────────────────────────────────
 
+/// Anthropic 查询参数
 #[derive(Debug, Deserialize)]
 pub struct AnthropicQuery {
+    /// 是否流式响应
     #[serde(default)]
     pub stream: Option<bool>,
 }
 
+/// Anthropic 请求体
 #[derive(Debug, Deserialize)]
 pub struct AnthropicRequest {
+    /// 模型标识
     pub model: String,
+    /// 消息列表
     pub messages: Vec<AnthropicMessage>,
+    /// 最大生成 Token 数（Anthropic 必填）
     #[serde(default)]
     pub max_tokens: Option<i32>,
+    /// 温度参数
     #[serde(rename = "temperature", default)]
     pub temperature: Option<f32>,
+    /// 是否流式响应
     #[serde(rename = "stream", default)]
     pub stream: Option<bool>,
+    /// System prompt
     #[serde(default)]
     pub system: Option<String>,
 }
 
+/// Anthropic 消息结构
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnthropicMessage {
+    /// 角色（user、assistant）
     pub role: String,
+    /// 消息内容
     pub content: String,
 }
 
+/// Anthropic 响应体
 #[derive(Debug, Serialize)]
 struct AnthropicResponse {
     id: String,
@@ -77,6 +90,7 @@ struct AnthropicResponse {
     usage: AnthropicUsage,
 }
 
+/// Anthropic 内容块
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 enum AnthropicContentBlock {
@@ -88,15 +102,23 @@ enum AnthropicContentBlock {
     },
 }
 
+/// Anthropic 使用量信息
 #[derive(Debug, Serialize)]
 struct AnthropicUsage {
     input_tokens: i32,
     output_tokens: i32,
 }
 
-// ─── Endpoints ───────────────────────────────────────────────────────────────
+// ─── 端点 ───────────────────────────────────────────────────────────────
 
 /// POST /v1/anthropic/messages
+///
+/// Anthropic Messages API 兼容接口
+///
+/// # 功能
+/// - 支持流式和非流式响应
+/// - 支持 system prompt
+/// - 与官方 Anthropic SDK 完全兼容
 pub async fn anthropic_messages(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -138,8 +160,11 @@ pub async fn anthropic_messages(
 }
 
 /// GET /v1/anthropic/models
-/// Lists all available models in Anthropic format.
-/// Compatible with `client.models.list()` from the official Anthropic Python SDK.
+///
+/// 获取可用模型列表（Anthropic 格式）
+///
+/// # 说明
+/// 与官方 Anthropic Python SDK 的 `client.models.list()` 兼容
 pub async fn anthropic_list_models(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -239,8 +264,9 @@ async fn anthropic_blocking_handler(
     Ok(http_response)
 }
 
-// ─── Streaming handler ───────────────────────────────────────────────────────
+// ─── 流式处理器 ───────────────────────────────────────────────────────
 
+/// 流式响应处理器
 async fn anthropic_stream_handler(
     state: Arc<AppState>,
     auth: AuthContext,
@@ -397,8 +423,11 @@ async fn anthropic_stream_handler(
     Ok(IntoResponse::into_response(axum::response::Sse::new(stream)))
 }
 
-// ─── Misc helpers ───────────────────────────────────────────────────────────
+// ─── 辅助函数 ───────────────────────────────────────────────────────────
 
+/// 预处理 System Prompt
+    ///
+    /// 如果提供了 system 参数，将其添加到消息列表的开头
 fn prepend_system(
     messages: Vec<InternalMessage>,
     system: Option<String>,

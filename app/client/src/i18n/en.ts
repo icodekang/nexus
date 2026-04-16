@@ -1,3 +1,8 @@
+/**
+ * @file Client English Translations - 客户端英文翻译
+ * 包含客户端所有界面的英文文本
+ */
+
 export const en = {
   common: {
     brandName: 'Nexus',

@@ -1,3 +1,26 @@
+//! 管理后台路由模块
+//! 提供管理员操作接口，包括用户管理、Provider 管理、Model 管理和交易记录查询
+//!
+//! 路由列表：
+//! - GET /dashboard/stats - 获取仪表盘统计数据
+//! - GET /users - 用户列表
+//! - PUT /users/:id - 更新用户信息
+//! - GET /providers - Provider 列表
+//! - POST /providers - 创建 Provider
+//! - PUT /providers/:id - 更新 Provider
+//! - DELETE /providers/:id - 删除 Provider
+//! - GET /provider-keys - Provider Keys 列表
+//! - POST /provider-keys - 创建 Provider Key
+//! - PUT /provider-keys/:id - 更新 Provider Key
+//! - DELETE /provider-keys/:id - 删除 Provider Key
+//! - POST /provider-keys/:id/test - 测试 Provider Key
+//! - GET /models - Model 列表
+//! - POST /models - 创建 Model
+//! - PUT /models/:id - 更新 Model
+//! - DELETE /models/:id - 删除 Model
+//! - GET /transactions - 交易记录列表
+//! - /accounts/* - 浏览器账户管理（嵌套路由）
+
 use axum::{
     routing::{get, post, put, delete},
     Router, Json, Extension,
@@ -15,6 +38,7 @@ use db::postgres::DashboardStats;
 
 pub mod accounts;
 
+/// 创建管理后台路由
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/dashboard/stats", get(dashboard_stats))
@@ -31,8 +55,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .merge(accounts::routes())
 }
 
-// ============ Dashboard ============
+// ============ 仪表盘 ============
 
+/// GET /admin/dashboard/stats
+///
+/// 获取仪表盘统计数据，包括用户数、收入、活跃用户等
 async fn dashboard_stats(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -43,15 +70,20 @@ async fn dashboard_stats(
     Ok(Json(stats))
 }
 
-// ============ Users ============
+// ============ 用户管理 ============
 
+/// 用户查询参数
 #[derive(Debug, Deserialize)]
 struct UserQuery {
+    /// 页码（从1开始）
     page: Option<u64>,
+    /// 每页数量（最大100）
     per_page: Option<u64>,
+    /// 搜索关键字（搜索邮箱）
     search: Option<String>,
 }
 
+/// 用户列表项
 #[derive(Debug, Serialize)]
 struct UserListItem {
     id: String,
@@ -102,12 +134,18 @@ async fn list_users(
     })))
 }
 
+/// 更新用户请求体
 #[derive(Debug, Deserialize)]
 struct UpdateUserRequest {
+    /// 新手机号（可选）
     phone: Option<String>,
+    /// 新订阅套餐（可选）
     subscription_plan: Option<String>,
 }
 
+/// PUT /admin/users/:id
+///
+/// 更新用户信息（管理员操作）
 async fn update_user(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -141,16 +179,24 @@ async fn update_user(
     })))
 }
 
-// ============ Providers ============
+// ============ Provider 管理 ============
 
+/// 创建 Provider 请求体
 #[derive(Debug, Deserialize)]
 struct CreateProviderRequest {
+    /// Provider 名称
     name: String,
+    /// Provider slug（唯一标识）
     slug: String,
+    /// API 基础 URL（可选）
     api_base_url: Option<String>,
+    /// 优先级（可选，数字越大优先级越高）
     priority: Option<i32>,
 }
 
+/// GET /admin/providers
+///
+/// 获取所有 Provider 列表
 async fn list_providers(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -174,6 +220,9 @@ async fn list_providers(
     Ok(Json(serde_json::json!({ "data": data })))
 }
 
+/// POST /admin/providers
+///
+/// 创建新的 Provider
 async fn create_provider(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -202,6 +251,7 @@ async fn create_provider(
     })))
 }
 
+/// 更新 Provider 请求体
 #[derive(Debug, Deserialize)]
 struct UpdateProviderRequest {
     name: Option<String>,
@@ -211,6 +261,9 @@ struct UpdateProviderRequest {
     priority: Option<i32>,
 }
 
+/// PUT /admin/providers/:id
+///
+/// 更新 Provider 信息
 async fn update_provider(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -233,6 +286,9 @@ async fn update_provider(
     Ok(Json(serde_json::json!({ "updated": true })))
 }
 
+/// DELETE /admin/providers/:id
+///
+/// 软删除 Provider（将 is_active 设为 false）
 async fn delete_provider(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -247,19 +303,30 @@ async fn delete_provider(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-// ============ Models ============
+// ============ Model 管理 ============
 
+/// 创建 Model 请求体
 #[derive(Debug, Deserialize)]
 struct CreateModelRequest {
+    /// 所属 Provider ID
     provider_id: String,
+    /// Model 名称
     name: String,
+    /// Model slug（唯一标识）
     slug: String,
+    /// 实际模型 ID（如 gpt-4o）
     model_id: String,
+    /// 模式：chat、completion、embedding
     mode: Option<String>,
+    /// 上下文窗口大小
     context_window: Option<i32>,
+    /// 支持的能力列表
     capabilities: Option<Vec<String>>,
 }
 
+/// GET /admin/models
+///
+/// 获取所有 Model 列表
 async fn list_models(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -285,6 +352,9 @@ async fn list_models(
     Ok(Json(serde_json::json!({ "data": data })))
 }
 
+/// POST /admin/models
+///
+/// 创建新的 Model
 async fn create_model(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -322,6 +392,7 @@ async fn create_model(
     })))
 }
 
+/// 更新 Model 请求体
 #[derive(Debug, Deserialize)]
 struct UpdateModelRequest {
     name: Option<String>,
@@ -332,6 +403,9 @@ struct UpdateModelRequest {
     is_active: Option<bool>,
 }
 
+/// PUT /admin/models/:id
+///
+/// 更新 Model 信息
 async fn update_model(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -357,6 +431,9 @@ async fn update_model(
     Ok(Json(serde_json::json!({ "updated": true })))
 }
 
+/// DELETE /admin/models/:id
+///
+/// 软删除 Model（将 is_active 设为 false）
 async fn delete_model(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,

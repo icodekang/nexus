@@ -1,3 +1,8 @@
+/**
+ * @file LoginPage - 用户登录/注册页面
+ * 支持邮箱登录注册和手机号 + SMS 验证码登录
+ * 登录成功后跳转到聊天页面
+ */
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Zap, Mail, Phone, Lock, ArrowRight, AlertCircle, ShieldCheck, ArrowLeft } from 'lucide-react';
@@ -7,27 +12,34 @@ import { useI18n } from '../i18n';
 import { getErrorMessage } from '../utils/errors';
 import './LoginPage.css';
 
+// SMS 验证码倒计时秒数
 const COUNTDOWN_SECONDS = 60;
 
+// 认证方式：邮箱 或 手机号
 type AuthMethod = 'email' | 'phone';
+// 邮箱流程步骤：登录 或 注册
 type EmailStep = 'login' | 'register';
 
+/**
+ * LoginPage - 登录/注册主组件
+ * @description 支持邮箱和手机号两种认证方式
+ */
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login: storeLogin } = useAuthStore();
   const { t } = useI18n();
 
-  // Auth method selection
+  // 认证方式选择：邮箱 / 手机号
   const [authMethod, setAuthMethod] = useState<AuthMethod>('email');
 
-  // Email state
+  // 邮箱认证相关状态
   const [emailStep, setEmailStep] = useState<EmailStep>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
 
-  // Phone state
+  // 手机号认证相关状态
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [phone, setPhone] = useState('');
   const [countryCode, setCountryCode] = useState('+86');
@@ -36,13 +48,13 @@ export default function LoginPage() {
   const [countdown, setCountdown] = useState(0);
   const [codeSent, setCodeSent] = useState(false);
 
-  // Shared state
+  // 共享状态：错误提示和输入框引用
   const [error, setError] = useState('');
   const codeInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
-  // Countdown timer for phone
+  // 手机号验证码倒计时定时器
   useEffect(() => {
     if (countdown <= 0) return;
     const timer = setInterval(() => {
@@ -51,9 +63,10 @@ export default function LoginPage() {
     return () => clearInterval(timer);
   }, [countdown]);
 
+  // 完整手机号（国际区号 + 本地号码）
   const fullPhone = countryCode + phone.replace(/\D/g, '');
 
-  // Email login/register
+  // 邮箱登录/注册提交
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -91,7 +104,7 @@ export default function LoginPage() {
     }
   };
 
-  // Phone: send SMS code
+  // 手机号：发送 SMS 验证码
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.replace(/\D/g, '').length < 10) {

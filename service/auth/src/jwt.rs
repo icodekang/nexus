@@ -1,3 +1,7 @@
+//! JWT Token 模块
+//!
+//! 提供 JWT Token 的生成和验证功能
+
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
 use chrono::{Utc, Duration};
@@ -5,25 +9,37 @@ use uuid::Uuid;
 
 use crate::AuthError;
 
-const TOKEN_EXPIRY_HOURS: i64 = 24 * 7; // 7 days
+/// Token 过期时间：7 天
+const TOKEN_EXPIRY_HOURS: i64 = 24 * 7;
 
-/// Get JWT secret from environment variable, falling back to a default for development
+/// 从环境变量获取 JWT 密钥，开发环境使用默认密钥
 fn get_jwt_secret() -> Vec<u8> {
     std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "dev-only-secret-change-in-production".to_string())
         .into_bytes()
 }
 
-/// JWT Claims
+/// JWT Claims（声明）
+///
+/// 包含 Token 中存储的用户信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,        // user_id
+    /// 用户 ID
+    pub sub: String,
+    /// 用户邮箱
     pub email: String,
-    pub exp: i64,           // expiration time
-    pub iat: i64,           // issued at
+    /// 过期时间戳
+    pub exp: i64,
+    /// 签发时间戳
+    pub iat: i64,
 }
 
 impl Claims {
+    /// 创建新的 Claims
+    ///
+    /// # 参数
+    /// * `user_id` - 用户 ID
+    /// * `email` - 用户邮箱
     pub fn new(user_id: Uuid, email: &str) -> Self {
         let now = Utc::now();
         Self {
@@ -34,16 +50,24 @@ impl Claims {
         }
     }
 
+    /// 获取用户 ID
     pub fn user_id(&self) -> Result<Uuid, AuthError> {
         Uuid::parse_str(&self.sub).map_err(|_| AuthError::InvalidToken)
     }
 }
 
-/// JWT Service
+/// JWT 服务
 pub struct JwtService;
 
 impl JwtService {
-    /// Generate a JWT token for a user
+    /// 为用户生成 JWT Token
+    ///
+    /// # 参数
+    /// * `user_id` - 用户 ID
+    /// * `email` - 用户邮箱
+    ///
+    /// # 返回
+    /// 生成的 JWT Token 字符串
     pub fn generate_token(user_id: Uuid, email: &str) -> Result<String, AuthError> {
         let claims = Claims::new(user_id, email);
         let secret = get_jwt_secret();
@@ -55,7 +79,13 @@ impl JwtService {
         ).map_err(|_| AuthError::InvalidToken)
     }
 
-    /// Validate and decode a JWT token
+    /// 验证并解码 JWT Token
+    ///
+    /// # 参数
+    /// * `token` - JWT Token 字符串
+    ///
+    /// # 返回
+    /// 解码后的 Claims
     pub fn validate_token(token: &str) -> Result<Claims, AuthError> {
         let secret = get_jwt_secret();
 
@@ -68,7 +98,13 @@ impl JwtService {
         .map_err(|_| AuthError::InvalidToken)
     }
 
-    /// Extract user_id from a token
+    /// 从 Token 中提取用户 ID
+    ///
+    /// # 参数
+    /// * `token` - JWT Token 字符串
+    ///
+    /// # 返回
+    /// 用户 ID
     pub fn get_user_id(token: &str) -> Result<Uuid, AuthError> {
         let claims = Self::validate_token(token)?;
         claims.user_id()

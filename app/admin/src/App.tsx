@@ -1,3 +1,8 @@
+/**
+ * @file App - 管理员应用根组件
+ * 整合路由、认证状态和国际化配置
+ * 提供侧边栏布局和受保护的路由
+ */
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import { I18nProvider, useI18n } from './i18n';
@@ -11,6 +16,10 @@ import BrowserAccounts from './pages/BrowserAccounts';
 import AuthCallback from './pages/AuthCallback';
 import Login from './pages/Login';
 
+/**
+ * ProtectedRoute - 受保护的路由包装组件
+ * @description 未登录用户重定向到登录页
+ */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) {
@@ -24,6 +33,7 @@ function Sidebar() {
   const { logout } = useAuth();
   const { t, locale, setLocale } = useI18n();
 
+  // 导航菜单项配置
   const navItems = [
     { path: '/dashboard', label: t('sidebar.dashboard'), icon: DashboardIcon },
     { path: '/users', label: t('sidebar.users'), icon: UsersIcon },
@@ -46,7 +56,9 @@ function Sidebar() {
       </div>
 
       <nav style={styles.nav}>
+        {/* 菜单分组标签 */}
         <div style={styles.navLabel}>{t('common.menu')}</div>
+        {/* 渲染导航项，高亮当前激活项 */}
         {navItems.map((item) => {
           const active = location.pathname === item.path;
           return (
@@ -67,6 +79,7 @@ function Sidebar() {
       </nav>
 
       <div style={styles.sidebarFooter}>
+        {/* 用户信息区域 */}
         <div style={styles.userInfo}>
           <div style={styles.avatar}>A</div>
           <div style={styles.userDetails}>
@@ -74,6 +87,7 @@ function Sidebar() {
             <span style={styles.userRole}>{t('common.administrator')}</span>
           </div>
         </div>
+        {/* 底部操作：语言切换 + 登出 */}
         <div style={styles.footerActions}>
           <button
             onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
@@ -95,6 +109,7 @@ function Sidebar() {
   );
 }
 
+// 各导航图标组件
 function DashboardIcon(_props: { active: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -162,6 +177,10 @@ function BrowserAccountsIcon(_props: { active: boolean }) {
   );
 }
 
+/**
+ * Layout - 页面布局组件
+ * @description 侧边栏 + 主内容区的组合布局
+ */
 function Layout() {
   return (
     <div style={styles.layout}>
@@ -173,6 +192,10 @@ function Layout() {
   );
 }
 
+/**
+ * AppRoutes - 应用路由配置
+ * @description 定义所有路由，包括公开路由和受保护路由
+ */
 function AppRoutes() {
   return (
     <Routes>

@@ -1,8 +1,17 @@
+/**
+ * @file Models - AI 模型管理页面
+ * 展示模型列表，支持添加、编辑、删除模型
+ * 模型关联到不同的 AI 服务提供商
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchModels, createModel, updateModel, deleteModel, fetchProviders, type AdminModel, type AdminProvider } from '../api/admin';
 
+/**
+ * Models - 模型管理主组件
+ * @description 获取模型和提供商列表，支持添加/编辑/删除模型
+ */
 export default function Models() {
   const { t } = useI18n();
   const [models, setModels] = useState<AdminModel[]>([]);
@@ -12,6 +21,7 @@ export default function Models() {
   const [editModel, setEditModel] = useState<AdminModel | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminModel | null>(null);
 
+  // 表单状态：模型名称、slug、模型 ID、提供商 ID、上下文窗口、能力列表
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
   const [formModelId, setFormModelId] = useState('');
@@ -19,6 +29,7 @@ export default function Models() {
   const [formContext, setFormContext] = useState('');
   const [formCaps, setFormCaps] = useState('');
 
+  // 加载模型和提供商数据
   const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([fetchModels(), fetchProviders()])
@@ -39,6 +50,7 @@ export default function Models() {
     return p?.name || providerId;
   };
 
+  // 根据 slug 获取提供商对应的品牌颜色
   const getProviderColor = (providerId: string) => {
     const colors: Record<string, string> = {
       openai: '#10A37F', anthropic: '#D97706', google: '#4285F4', deepseek: '#6366F1',
@@ -47,12 +59,14 @@ export default function Models() {
     return (p && colors[p.slug]) || '#A1A1AA';
   };
 
+  // 格式化上下文窗口大小（K/M 单位）
   const formatContext = (cw: number) => {
     if (cw >= 1_000_000) return `${(cw / 1_000_000).toFixed(0)}M`;
     if (cw >= 1000) return `${(cw / 1000).toFixed(0)}K`;
     return String(cw);
   };
 
+  // 重置表单为空
   const resetForm = () => {
     setFormName('');
     setFormSlug('');

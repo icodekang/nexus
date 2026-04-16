@@ -1,3 +1,5 @@
+//! PostgreSQL 数据库模块
+
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::Row;
 use chrono::{DateTime, Utc};
@@ -11,7 +13,7 @@ use models::{User, ApiKey, Provider, ProviderKey, LlmModel, Subscription, Transa
 use models::subscription::{TransactionType, TransactionStatus, SubscriptionStatus};
 use models::{BrowserAccount, BrowserAccountStatus};
 
-/// PostgreSQL connection pool
+/// PostgreSQL 连接池
 pub struct PostgresPool(PgPool);
 
 impl PostgresPool {

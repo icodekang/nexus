@@ -1,3 +1,8 @@
+/**
+ * @file ModelsPage - AI 模型浏览和选择页面
+ * 展示所有可用模型，支持按提供商筛选和搜索
+ * 选择模型后自动跳转到聊天页面
+ */
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Layers, ChevronRight, Check, Sparkles } from 'lucide-react';
@@ -6,6 +11,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
 import './ModelsPage.css';
 
+// 提供商元信息
 const PROVIDER_META: Record<string, { color: string; label: string }> = {
   openai: { color: '#10B981', label: 'OpenAI' },
   anthropic: { color: '#D97706', label: 'Anthropic' },
@@ -13,6 +19,10 @@ const PROVIDER_META: Record<string, { color: string; label: string }> = {
   deepseek: { color: '#8B5CF6', label: 'DeepSeek' },
 };
 
+/**
+ * ModelsPage - 模型浏览主组件
+ * @description 展示可用模型，支持搜索和提供商筛选
+ */
 export default function ModelsPage() {
   const navigate = useNavigate();
   const { models, loaded, loadModels } = useModelState();
@@ -23,11 +33,13 @@ export default function ModelsPage() {
 
   if (!loaded) loadModels();
 
+  // 从模型列表中提取所有提供商
   const providers = useMemo(() => {
     const set = new Set(models.map((m) => m.provider));
     return Array.from(set);
   }, [models]);
 
+  // 根据搜索关键词和选中的提供商过滤模型
   const filtered = useMemo(() => {
     return models.filter((m) => {
       const matchesSearch = !search ||
@@ -38,6 +50,7 @@ export default function ModelsPage() {
     });
   }, [models, search, activeProvider]);
 
+  // 选择模型：更新全局选中状态并跳转到聊天页面
   const handleSelect = (modelId: string) => {
     setSelectedModel(modelId);
     navigate('/chat');
@@ -45,6 +58,7 @@ export default function ModelsPage() {
 
   return (
     <div className="models-page">
+      {/* 页面头部 */}
       <header className="models-header">
         <div className="models-header-text">
           <h1 className="models-title">{t('models.title')}</h1>
@@ -52,6 +66,7 @@ export default function ModelsPage() {
         </div>
       </header>
 
+      {/* 工具栏：搜索框 + 提供商筛选 */}
       <div className="models-toolbar">
         <div className="models-search-wrapper">
           <Search size={16} className="models-search-icon" />
@@ -62,6 +77,7 @@ export default function ModelsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        {/* 提供商筛选标签 */}
         <div className="models-filters">
           <button
             className={`models-filter-pill ${!activeProvider ? 'active' : ''}`}
@@ -86,6 +102,7 @@ export default function ModelsPage() {
         </div>
       </div>
 
+      {/* 模型卡片网格 */}
       <div className="models-grid">
         {filtered.map((model) => {
           const isSelected = model.id === selectedModel;

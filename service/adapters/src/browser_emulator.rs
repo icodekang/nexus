@@ -1,4 +1,13 @@
-//! Browser Emulator Provider Client
+//! 浏览器模拟器提供商客户端
+//!
+//! 模拟浏览器会话以访问 LLM 网页界面，无需 API Key。
+//! 这实现了对 Claude.ai 和 ChatGPT 等模型的"零 Token"访问。
+//!
+//! # 工作原理
+//! 1. 维护浏览器会话状态（Cookie、localStorage）
+//! 2. 发送看起来像来自真实浏览器的 HTTP 请求
+//! 3. 解析网页界面的响应
+//! 4. 通过 SSE 或模拟 WebSocket 处理流式响应
 //!
 //! Simulates browser sessions to access LLM web interfaces without API keys.
 //! This enables "zero-token" access to models like Claude.ai and ChatGPT.

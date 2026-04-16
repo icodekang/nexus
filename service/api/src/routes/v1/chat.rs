@@ -1,3 +1,12 @@
+//! 统一 Chat 接口路由模块
+//! 提供 /v1/chat/completions、/v1/completions、/v1/embeddings 接口
+//!
+//! 特性：
+//! - 支持流式和非流式响应
+//! - 会话亲和性（同一会话使用相同 API Key）
+//! - 多 Provider 故障转移
+//! - ZeroToken 用户使用浏览器模拟器
+
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, HeaderName},
@@ -22,10 +31,10 @@ use provider_client::{
 };
 use router::key_scheduler::SelectedKey;
 
-// HTTP header name for session affinity
+/// 会话亲和性 Header
 const SESSION_HEADER: &str = "x-session-id";
 
-// Rate limit defaults per plan (requests per minute)
+// 速率限制常量（请求/分钟）
 const FREE_RPM: i64 = 10;
 const ZEROTOKEN_RPM: i64 = 30;
 const MONTHLY_RPM: i64 = 60;
@@ -33,6 +42,7 @@ const YEARLY_RPM: i64 = 120;
 const TEAM_RPM: i64 = 300;
 const ENTERPRISE_RPM: i64 = 1000;
 
+/// 根据套餐获取速率限制
 fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     match plan {
         SubscriptionPlan::None => FREE_RPM,
@@ -44,9 +54,10 @@ fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     }
 }
 
-/// Select an API key for a provider, optionally bound to a session for affinity.
-/// If `session_id` is provided, the scheduler reuses the same key for that session
-/// (same session → same API key) as long as the key remains healthy.
+/// 选择 Provider 的 API Key（支持会话亲和性）
+    ///
+    /// 如果提供 session_id，调度器会尽量为同一会话选择相同的 Key
+    /// 这样可以提高用户体验（会话一致性）
 async fn select_provider_key(
     state: &Arc<AppState>,
     provider_slug: &str,
@@ -60,8 +71,9 @@ async fn select_provider_key(
     }
 }
 
-/// Create a provider client from the selected key result.
-/// Also returns the key_id so the caller can record success/failure.
+/// 从选中的 Key 创建 Provider 客户端
+    ///
+    /// 同时返回 key_id 以便调用者记录成功/失败
 fn create_client_with_key(
     provider_slug: &str,
     selected: Option<SelectedKey>,
@@ -81,7 +93,9 @@ fn create_client_with_key(
     }
 }
 
-/// Create a browser emulator client for ZeroToken subscribers
+/// 为 ZeroToken 用户创建浏览器模拟器客户端
+    ///
+    /// ZeroToken 用户使用浏览器模拟器而不是直接调用 API
 fn create_zero_token_client(
     provider: &str,
 ) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
@@ -90,7 +104,9 @@ fn create_zero_token_client(
     Ok((client, None)) // Browser emulator doesn't use API keys
 }
 
-/// Get a browser emulator client from the account pool
+/// 从账户池获取浏览器模拟器客户端
+    ///
+    /// 优先从池中获取可用账户，如果池为空则创建新客户端
 async fn get_zero_token_client_from_pool(
     state: &Arc<AppState>,
     provider: &str,
@@ -105,12 +121,12 @@ async fn get_zero_token_client_from_pool(
     create_zero_token_client(provider)
 }
 
-/// Determine if user should use zero-token (browser emulator) access
+/// 判断用户是否使用 ZeroToken（浏览器模拟器）访问
 fn is_zero_token_user(subscription_plan: SubscriptionPlan) -> bool {
     subscription_plan.is_zero_token()
 }
 
-/// Get the browser emulator provider for zero-token users based on model
+/// 根据模型 Provider 获取对应的浏览器模拟器 Provider
 fn get_zero_token_provider(model_provider: &str) -> &'static str {
     // Map model providers to browser emulator providers
     match model_provider {
@@ -121,8 +137,9 @@ fn get_zero_token_provider(model_provider: &str) -> &'static str {
     }
 }
 
-/// Record request result (success or failure) in the scheduler.
-/// This updates key pressure, failure counts, and session binding state.
+/// 记录 Key 请求结果
+    ///
+    /// 更新 Key 的压力值、失败计数和会话绑定状态
 async fn record_key_result(
     state: &Arc<AppState>,
     provider_slug: &str,
@@ -140,13 +157,17 @@ async fn record_key_result(
     }
 }
 
+/// Chat 查询参数
 #[derive(Debug, Deserialize)]
 pub struct ChatQuery {
+    /// 是否流式响应
     pub stream: Option<bool>,
 }
 
-/// Extract the session ID from request headers.
-/// Returns the value of `x-session-id` header if present and non-empty.
+/// 从 Header 中提取会话 ID
+    ///
+    /// 优先使用 `x-session-id` Header，
+    /// 其次使用 user_id（对于没有浏览器会话的 API Key 调用者）
 fn extract_session_id(headers: &HeaderMap) -> Option<String> {
     headers
         .get(SESSION_HEADER)
@@ -156,6 +177,24 @@ fn extract_session_id(headers: &HeaderMap) -> Option<String> {
 }
 
 /// POST /v1/chat/completions
+///
+/// 统一的聊天补全接口
+///
+/// # 功能
+/// - 支持流式和非流式响应
+/// - 会话亲和性（通过 x-session-id Header）
+/// - 多 Provider 故障转移
+/// - ZeroToken 用户使用浏览器模拟器
+///
+/// # 请求参数
+/// - model: 模型标识（如 anthropic/claude-3-opus 或 claude-3-opus）
+/// - messages: 消息列表
+/// - temperature: 温度参数（0.0-2.0）
+/// - max_tokens: 最大生成 Token 数
+/// - stream: 是否流式响应
+///
+/// # 认证
+/// 需要有效的 API Key 或 JWT Token
 pub async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -532,7 +571,7 @@ pub async fn chat_completions(
     }
 }
 
-/// Add rate limit headers to response (OpenRouter-compatible)
+/// 添加速率限制 Header（OpenRouter 兼容）
 fn add_rate_limit_headers(response: &mut Response, limit: i64, remaining: i64, reset: i64) {
     let headers = response.headers_mut();
     headers.insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
@@ -540,7 +579,7 @@ fn add_rate_limit_headers(response: &mut Response, limit: i64, remaining: i64, r
     headers.insert("X-RateLimit-Reset", reset.to_string().parse().unwrap());
 }
 
-/// Check if user's subscription is active
+/// 检查用户订阅是否有效
 fn check_subscription(user: &User) -> Result<(), ApiError> {
     match user.subscription_plan {
         SubscriptionPlan::None => {
@@ -560,7 +599,7 @@ fn check_subscription(user: &User) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Check if user has remaining token quota in current billing period
+/// 检查用户在当前计费周期的 Token 配额
 async fn check_token_quota(state: &AppState, user: &User) -> Result<(), ApiError> {
     let quota = user.subscription_plan.monthly_token_quota();
     if quota == i64::MAX {
@@ -591,7 +630,7 @@ async fn check_token_quota(state: &AppState, user: &User) -> Result<(), ApiError
     Ok(())
 }
 
-/// Log API call to database
+/// 记录 API 调用到数据库
 async fn log_api_call(
     state: &AppState,
     auth: &AuthContext,
@@ -620,6 +659,11 @@ async fn log_api_call(
 }
 
 /// POST /v1/completions
+///
+/// 文本补全接口（未实现）
+///
+/// # 说明
+/// 请使用 /v1/chat/completions 接口
 pub async fn completions(
     State(_state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -631,6 +675,15 @@ pub async fn completions(
 }
 
 /// POST /v1/embeddings
+///
+/// 向量嵌入接口
+///
+/// # 功能
+/// 将文本转换为向量表示
+///
+/// # 参数
+/// - model: 模型名称
+/// - input: 要嵌入的文本或文本列表
 pub async fn embeddings(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -690,7 +743,11 @@ pub async fn embeddings(
     Ok(http_response)
 }
 
-/// Parse model string that could be "provider/model" or just "model"
+/// 解析模型字符串
+    ///
+    /// 支持两种格式：
+    /// - "provider/model" (如 "anthropic/claude-3-opus")
+    /// - "model" (如 "claude-3-opus")
 fn parse_model_string(model_str: &str) -> (String, String) {
     if let Some((provider, model)) = model_str.split_once('/') {
         (provider.to_string(), model.to_string())
@@ -699,7 +756,14 @@ fn parse_model_string(model_str: &str) -> (String, String) {
     }
 }
 
-/// Validate chat request parameters
+/// 验证 Chat 请求参数
+    ///
+    /// 检查以下参数：
+    /// - temperature: 必须在 0.0-2.0 之间
+    /// - max_tokens: 必须大于 0 且不超过上下文窗口
+    /// - top_p: 必须在 0.0-1.0 之间
+    /// - messages: 不能为空
+    /// - message roles: 必须是 system、user、assistant 或 tool
 fn validate_chat_request(request: &ChatRequest, context_window: i32) -> Result<(), ApiError> {
     if request.temperature < 0.0 || request.temperature > 2.0 {
         return Err(ApiError::InvalidRequest(

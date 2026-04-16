@@ -17,6 +17,10 @@ interface Plan {
   highlighted?: boolean;
 }
 
+/**
+ * SubscriptionPage - 订阅套餐主组件
+ * @description 获取当前套餐状态，展示套餐列表，处理订阅切换
+ */
 export default function SubscriptionPage() {
   const { t } = useI18n();
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
@@ -24,6 +28,7 @@ export default function SubscriptionPage() {
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [error, setError] = useState('');
 
+  // 加载当前订阅状态
   useEffect(() => {
     fetchSubscription()
       .then((sub) => {
@@ -35,6 +40,7 @@ export default function SubscriptionPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // 订阅/切换套餐
   const handleSubscribe = async (planKey: string) => {
     const planMap: Record<string, string> = {
       zeroToken: 'zero_token',
@@ -56,6 +62,7 @@ export default function SubscriptionPage() {
     }
   };
 
+  // 套餐列表配置
   const plans: Plan[] = [
     {
       key: 'zeroToken',
@@ -134,6 +141,7 @@ export default function SubscriptionPage() {
     },
   ];
 
+  // 获取按钮文字：当前套餐/切换/订阅
   const getButtonLabel = (planKey: string) => {
     if (subscribing === planKey) return t('login.pleaseWait');
     // Map plan keys to backend plan names for comparison
@@ -146,6 +154,7 @@ export default function SubscriptionPage() {
     return t('subscription.subscribe');
   };
 
+  // 判断是否为当前套餐（考虑套餐别名映射）
   const isCurrentPlan = (planKey: string) => {
     return currentPlan === planKey ||
       (planKey === 'zeroToken' && currentPlan === 'zero_token') ||
@@ -155,6 +164,7 @@ export default function SubscriptionPage() {
 
   return (
     <div className="subscription-page">
+      {/* 页面头部 */}
       <header className="subscription-header">
         <h1 className="subscription-title">{t('subscription.title')}</h1>
         <p className="subscription-subtitle">
@@ -165,6 +175,7 @@ export default function SubscriptionPage() {
         )}
       </header>
 
+      {/* 套餐卡片网格 */}
       <div className="subscription-grid">
         {plans.map((plan) => (
           <div

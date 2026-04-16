@@ -1,8 +1,14 @@
+/**
+ * @file Providers - AI 服务提供商管理页面
+ * 展示提供商列表，支持添加、编辑、删除提供商
+ * 提供商是 AI 模型的上游服务来源
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchProviders, createProvider, updateProvider, deleteProvider, type AdminProvider } from '../api/admin';
 
+// 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
   openai: '#10A37F',
   anthropic: '#D97706',
@@ -10,12 +16,17 @@ const providerColors: Record<string, string> = {
   deepseek: '#6366F1',
 };
 
+// 根据 slug 获取颜色，未知 slug 使用备用颜色
 function getColor(slug: string, index: number): string {
   if (providerColors[slug]) return providerColors[slug];
   const fallback = ['#10A37F', '#D97706', '#4285F4', '#6366F1', '#EC4899', '#F59E0B'];
   return fallback[index % fallback.length];
 }
 
+/**
+ * Providers - 提供商管理主组件
+ * @description 获取提供商列表，支持添加/编辑/删除提供商
+ */
 export default function Providers() {
   const { t } = useI18n();
   const [providers, setProviders] = useState<AdminProvider[]>([]);
@@ -24,11 +35,13 @@ export default function Providers() {
   const [editProvider, setEditProvider] = useState<AdminProvider | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminProvider | null>(null);
 
+  // 表单状态
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
   const [formApiUrl, setFormApiUrl] = useState('');
   const [formPriority, setFormPriority] = useState('1');
 
+  // 加载提供商列表
   const loadProviders = useCallback(() => {
     setLoading(true);
     fetchProviders()
@@ -48,11 +61,13 @@ export default function Providers() {
     setFormPriority('1');
   };
 
+  // 打开添加弹窗
   const openAddModal = () => {
     resetForm();
     setShowAddModal(true);
   };
 
+  // 打开编辑弹窗，填充现有数据
   const openEditModal = (p: AdminProvider) => {
     setFormName(p.name);
     setFormSlug(p.slug);

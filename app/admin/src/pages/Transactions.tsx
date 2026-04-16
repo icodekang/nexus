@@ -1,8 +1,13 @@
+/**
+ * @file Transactions - 交易记录管理页面
+ * 展示用户订阅和支付交易记录，支持按类型和状态筛选
+ */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchTransactions, type AdminTransaction } from '../api/admin';
 
+// 订阅套餐颜色映射
 const planColors: Record<string, string> = {
   yearly: '#6366F1',
   monthly: '#3B82F6',
@@ -10,15 +15,21 @@ const planColors: Record<string, string> = {
   enterprise: '#EC4899',
 };
 
+/**
+ * Transactions - 交易记录主组件
+ * @description 获取交易列表，支持类型/状态筛选，展示统计摘要
+ */
 export default function Transactions() {
   const { t } = useI18n();
   const [transactions, setTransactions] = useState<AdminTransaction[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  // 筛选状态
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [detailTx, setDetailTx] = useState<AdminTransaction | null>(null);
 
+  // 加载交易数据
   const loadTransactions = useCallback(() => {
     setLoading(true);
     fetchTransactions(1, 50, typeFilter, statusFilter)
@@ -34,9 +45,11 @@ export default function Transactions() {
     loadTransactions();
   }, [loadTransactions]);
 
+  // 交易类型和状态选项
   const txTypes = ['purchase', 'refund', 'renewal'];
   const txStatuses = ['completed', 'refunded', 'pending'];
 
+  // 获取状态对应的本地化标签
   const statusLabel = (s: string) => {
     if (s === 'completed') return t('transactions.completed');
     if (s === 'refunded') return t('transactions.refunded');
@@ -44,6 +57,7 @@ export default function Transactions() {
     return s;
   };
 
+  // 获取交易类型对应的本地化标签
   const typeLabel = (s: string) => {
     if (s === 'purchase') return t('transactions.purchase');
     if (s === 'refund') return t('transactions.refund');
@@ -51,12 +65,14 @@ export default function Transactions() {
     return s;
   };
 
+  // 获取状态对应的颜色
   const statusColor = (s: string) => {
     if (s === 'completed') return '#22C55E';
     if (s === 'refunded') return '#F59E0B';
     return '#A1A1AA';
   };
 
+  // 计算今日收入和平均订单金额（仅统计已完成交易）
   const summaryData = useMemo(() => {
     const revenueToday = transactions
       .filter((tx) => tx.status === 'completed' && tx.created_at.slice(0, 10) === new Date().toISOString().slice(0, 10))
@@ -73,6 +89,7 @@ export default function Transactions() {
 
   return (
     <div style={styles.container}>
+      {/* 页面头部：标题 + 筛选器 */}
       <header style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>{t('transactions.title')}</h1>
@@ -80,6 +97,7 @@ export default function Transactions() {
             {loading ? 'Loading...' : t('transactions.subtitle')}
           </p>
         </div>
+        {/* 交易类型和状态筛选 */}
         <div style={styles.filters}>
           <select
             style={styles.select}
@@ -104,6 +122,7 @@ export default function Transactions() {
         </div>
       </header>
 
+      {/* 统计摘要卡片 */}
       <div style={styles.summaryGrid}>
         {[
           { label: t('transactions.revenueToday'), value: summaryData.revenueToday, color: '#6366F1' },

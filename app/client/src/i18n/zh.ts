@@ -1,3 +1,8 @@
+/**
+ * @file Client Chinese Translations - 客户端中文翻译
+ * 包含客户端所有界面的中文文本
+ */
+
 export const zh = {
   common: {
     brandName: 'Nexus',

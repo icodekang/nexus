@@ -1,25 +1,38 @@
+//! 验证器模块
+//!
+//! 提供 API Key 和 Bearer Token 的验证功能
+
 use db::PostgresPool;
 use models::{User, ApiKey};
 use uuid::Uuid;
 
 use crate::AuthError;
 
-/// API Key validator
+/// API Key 验证器
+///
+/// 验证 API Key 并返回关联的用户信息
 pub struct ApiKeyValidator<'a> {
     db: &'a PostgresPool,
 }
 
 impl<'a> ApiKeyValidator<'a> {
+    /// 创建新的验证器
     pub fn new(db: &'a PostgresPool) -> Self {
         Self { db }
     }
 
-    /// Validate an API key (plain text, no "Bearer " prefix) and return the associated user
+    /// 验证 API Key（明文，不含 "Bearer " 前缀）并返回关联的用户
+    ///
+    /// # 参数
+    /// * `key` - API Key 明文
+    ///
+    /// # 返回
+    /// - `(ApiKey, User)`: API Key 和用户信息
     pub async fn validate(&self, key: &str) -> Result<(ApiKey, User), AuthError> {
-        // Hash the provided key
+        // 对提供的 Key 进行哈希
         let key_hash = super::keygen::ApiKeyGenerator::hash_key(key);
 
-        // Look up the key in the database
+        // 在数据库中查找 Key
         let api_key = self.db.get_api_key_by_hash(&key_hash)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
@@ -29,25 +42,29 @@ impl<'a> ApiKeyValidator<'a> {
             return Err(AuthError::ApiKeyInvalid);
         }
 
-        // Get the user
+        // 获取用户
         let user = self.db.get_user_by_id(api_key.user_id)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::UserNotFound)?;
 
-        // Check subscription
+        // 检查订阅状态
         if !user.is_subscription_active() {
             return Err(AuthError::SubscriptionExpired);
         }
 
-        // Update last used timestamp
+        // 更新最后使用时间戳
         let _ = self.db.update_api_key_last_used(api_key.id).await;
 
         Ok((api_key, user))
     }
 
-    /// Validate a Bearer token from Authorization header
-    /// Strips "Bearer " prefix before validation
+    /// 验证 Authorization 头中的 Bearer Token
+    ///
+    /// 验证前会去除 "Bearer " 前缀
+    ///
+    /// # 参数
+    /// * `auth_header` - Authorization 头的值
     pub async fn validate_bearer(&self, auth_header: &str) -> Result<(ApiKey, User), AuthError> {
         if !auth_header.starts_with("Bearer ") {
             return Err(AuthError::ApiKeyInvalid);
@@ -58,17 +75,21 @@ impl<'a> ApiKeyValidator<'a> {
     }
 }
 
-/// Bearer token validator
+/// Bearer Token 验证器
 pub struct BearerValidator<'a> {
     db: &'a PostgresPool,
 }
 
 impl<'a> BearerValidator<'a> {
+    /// 创建新的验证器
     pub fn new(db: &'a PostgresPool) -> Self {
         Self { db }
     }
 
-    /// Validate a Bearer token and return the user
+    /// 验证 Bearer Token 并返回用户
+    ///
+    /// # 参数
+    /// * `auth_header` - Authorization 头的值
     pub async fn validate(&self, auth_header: &str) -> Result<User, AuthError> {
         if !auth_header.starts_with("Bearer ") {
             return Err(AuthError::ApiKeyInvalid);
@@ -76,10 +97,10 @@ impl<'a> BearerValidator<'a> {
 
         let key = &auth_header[7..];
 
-        // Hash the provided key (without "Bearer " prefix)
+        // 对提供的 Key 进行哈希
         let key_hash = super::keygen::ApiKeyGenerator::hash_key(key);
 
-        // Look up the key in the database
+        // 在数据库中查找 Key
         let api_key = self.db.get_api_key_by_hash(&key_hash)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
@@ -89,13 +110,13 @@ impl<'a> BearerValidator<'a> {
             return Err(AuthError::ApiKeyInvalid);
         }
 
-        // Get the user
+        // 获取用户
         let user = self.db.get_user_by_id(api_key.user_id)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::UserNotFound)?;
 
-        // Check subscription
+        // 检查订阅状态
         if !user.is_subscription_active() {
             return Err(AuthError::SubscriptionExpired);
         }

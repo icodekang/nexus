@@ -1,3 +1,8 @@
+/**
+ * @file Admin English Translations - 管理员端英文翻译
+ * 包含管理后台所有界面的英文文本
+ */
+
 export const en = {
   common: {
     brandName: 'Nexus',

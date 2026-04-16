@@ -1,3 +1,8 @@
+/**
+ * @file KeysPage - API 密钥管理页面
+ * 展示用户创建的 API 密钥列表，支持创建、删除、显示/隐藏密钥
+ * 新密钥只在创建后显示一次，无法再次查看
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { fetchApiKeys, createApiKey, deleteApiKey, type ApiKey } from '../api/client';
@@ -5,6 +10,10 @@ import { useI18n } from '../i18n';
 import { getErrorMessage } from '../utils/errors';
 import './KeysPage.css';
 
+/**
+ * KeysPage - API 密钥管理主组件
+ * @description 加载/创建/删除 API 密钥，支持复制和显示/隐藏
+ */
 export default function KeysPage() {
   const { t, locale } = useI18n();
 
@@ -12,12 +21,15 @@ export default function KeysPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
+  // 新创建的密钥（只显示一次）
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  // 密钥前缀显示/完整显示的状态集合
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
 
+  // 加载密钥列表
   const loadKeys = useCallback(async () => {
     try {
       const res = await fetchApiKeys();
@@ -50,6 +62,7 @@ export default function KeysPage() {
     }
   };
 
+  // 删除 API 密钥
   const handleDelete = async (keyId: string) => {
     try {
       await deleteApiKey(keyId);

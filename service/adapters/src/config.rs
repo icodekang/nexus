@@ -1,40 +1,50 @@
-//! Provider configuration - defines how to connect to each LLM provider
+//! 提供商配置模块
+//!
+//! 定义了如何连接各个 LLM 提供商的配置
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Provider API configuration
+/// 提供商 API 配置
+///
+/// 包含连接提供商所需的所有配置信息
 #[derive(Debug, Clone)]
 pub struct ProviderConfig {
-    /// Provider identifier (openai, anthropic, google, deepseek, or custom)
+    /// 提供商标识符（如 openai, anthropic, google, deepseek 或自定义）
     pub id: String,
-    /// Human-readable name
+    /// 人类可读的名称
     pub name: String,
-    /// Base URL for API endpoints
+    /// API 端点的基础 URL
     pub base_url: String,
-    /// Authentication method
+    /// 认证方式
     pub auth: AuthConfig,
-    /// Chat completions endpoint path
+    /// Chat completions 端点路径
     pub chat_path: String,
-    /// Embeddings endpoint path
+    /// Embeddings 端点路径
     pub embeddings_path: String,
-    /// Streaming endpoint path (if different from chat)
+    /// 流式响应端点路径（如果与 chat 不同）
     pub stream_path: Option<String>,
-    /// Default headers needed (e.g., "anthropic-version")
+    /// 默认请求头（如 "anthropic-version"）
     pub headers: HashMap<String, String>,
-    /// Whether this provider uses OpenAI-compatible response format
+    /// 是否使用 OpenAI 兼容的响应格式
     pub openai_compatible: bool,
-    /// Custom provider (user-defined) flag
+    /// 是否为自定义提供商（用户定义）
     pub is_custom: bool,
 }
 
+/// 认证配置枚举
+///
+/// 定义了与提供商 API 认证的方式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AuthConfig {
-    /// Bearer token (Authorization: Bearer <token>)
+    /// Bearer Token (Authorization: Bearer <token>)
+    /// 用于 OpenAI、DeepSeek 等
     Bearer,
-    /// API Key in header (x-api-key: <token>)
+    /// API Key 在请求头中 (x-api-key: <token>)
+    /// 用于 Anthropic 等
     ApiKey,
-    /// Query parameter (?key=<token>)
+    /// 查询参数 (?key=<token>)
+    /// 用于 Google 等
     QueryKey,
 }
 

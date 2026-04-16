@@ -19,7 +19,18 @@ pub struct AuthContext {
     pub api_key_id: Option<Uuid>,
 }
 
-/// Extract and validate API key from Authorization header
+/// 验证 API Key 中间件
+///
+/// 从 Authorization header 中提取并验证 API Key
+///
+/// # 请求头格式
+/// - `Authorization: Bearer <api_key>`
+///
+/// # 错误处理
+/// - 缺少 Authorization header 返回 Unauthorized
+/// - 不是 Bearer 格式返回 InvalidApiKey
+/// - API Key 格式无效返回 InvalidApiKey
+/// - API Key 不存在或过期返回相应错误
 pub async fn validate_api_key(
     mut req: Request,
     next: Next,
@@ -67,9 +78,17 @@ pub async fn validate_api_key(
     Ok(next.run(req).await)
 }
 
-/// Extract the raw token from either:
-///   - `Authorization: Bearer <token>`  (OpenAI SDK)
-///   - `x-api-key: <token>`             (Anthropic SDK, LiteLLM, curl, etc.)
+/// 从请求中提取 Token
+    ///
+    /// 支持两种格式：
+    /// - `Authorization: Bearer <token>`  (OpenAI SDK)
+    /// - `x-api-key: <token>`             (Anthropic SDK, LiteLLM, curl 等)
+    ///
+    /// # 参数
+    /// * `req` - HTTP 请求引用
+    ///
+    /// # 返回
+    /// 如果找到有效的 token 返回 Some(String)，否则返回 None
 fn extract_token(req: &Request) -> Option<String> {
     // Authorization: Bearer <token>
     let bearer = req
@@ -90,9 +109,27 @@ fn extract_token(req: &Request) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Validate either an API key or a JWT token from the Authorization header.
-/// Tries API key format first; if not an API key, falls back to JWT validation.
-/// Supports both `Authorization: Bearer <key>` and `x-api-key: <key>` headers.
+/// JWT 或 API Key 验证中间件
+    ///
+    /// 验证 Authorization header 中的 token，支持两种格式：
+    /// 1. API Key 格式（优先）：适用于 API Key 用户
+    /// 2. JWT 格式（回退）：适用于 JWT Token 用户
+    ///
+    /// 支持的 header 格式：
+    /// - `Authorization: Bearer <key>` - API Key 或 JWT
+    /// - `x-api-key: <key>` - API Key（Anthropic SDK 兼容）
+    ///
+    /// # 验证流程
+    /// 1. 提取 token
+    /// 2. 如果是 API Key 格式，先尝试 API Key 验证
+    /// 3. API Key 验证失败则回退到 JWT 验证
+    /// 4. 验证成功后在请求扩展中插入 AuthContext
+    ///
+    /// # 错误处理
+    /// - 缺少 token 返回 Unauthorized
+    /// - API Key 过期返回 SubscriptionExpired
+    /// - JWT 无效返回 Unauthorized
+    /// - 用户不存在返回 Unauthorized
 pub async fn validate_jwt_or_api_key(
     mut req: Request,
     next: Next,
@@ -147,8 +184,17 @@ pub async fn validate_jwt_or_api_key(
     Ok(next.run(req).await)
 }
 
-/// Middleware that requires the authenticated user to be an admin.
-/// Must be applied after `validate_jwt_or_api_key`.
+/// 管理员权限验证中间件
+    ///
+    /// 要求已通过 `validate_jwt_or_api_key` 认证的用户具有管理员权限
+    /// 如果用户不是管理员，返回 Forbidden 错误
+    ///
+    /// # 使用方式
+    /// 此中间件必须在 `validate_jwt_or_api_key` 之后使用
+    ///
+    /// # 错误处理
+    /// - 没有 AuthContext 返回 Unauthorized
+    /// - 用户不是管理员返回 Forbidden
 pub async fn require_admin(
     req: Request,
     next: Next,

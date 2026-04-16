@@ -1,3 +1,6 @@
+//! 模型列表路由模块
+//! 提供模型列表查询接口
+
 use axum::{extract::{Query, State}, Json};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -6,12 +9,26 @@ use crate::state::AppState;
 use crate::error::ApiError;
 use models::{ModelWithProvider, LlmModel, Provider};
 
+/// 模型查询参数
 #[derive(Debug, Deserialize)]
 pub struct ModelsQuery {
+    /// 按 Provider 过滤（可选）
     pub provider: Option<String>,
 }
 
 /// GET /v1/models
+///
+/// 获取可用模型列表
+///
+/// # 说明
+/// 支持按 Provider 过滤，结果会被缓存
+///
+/// # 参数
+/// * `Query(query)` - 查询参数，可指定 provider 过滤
+///
+/// # 返回
+/// - object: "list"
+/// - data: 模型列表，每项包含 id、object、created、owned_by、provider 等信息
 pub async fn list_models(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ModelsQuery>,

@@ -1,8 +1,17 @@
+/**
+ * @file Login - 管理员登录页面
+ * 提供邮箱/密码登录功能，支持中英文切换
+ * 登录成功后跳转到仪表盘
+ */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useI18n } from '../i18n';
 
+/**
+ * Login - 管理员登录主组件
+ * @description 处理登录表单提交、错误提示和语言切换
+ */
 export default function Login() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -12,12 +21,13 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Already logged in, redirect
+  // 已登录用户直接跳转到仪表盘
   if (isAuthenticated) {
     navigate('/dashboard', { replace: true });
     return null;
   }
 
+  // 处理登录表单提交
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -28,6 +38,7 @@ export default function Login() {
         navigate('/dashboard', { replace: true });
       }
     } catch (err) {
+      // 根据错误消息类型设置对应的本地化错误提示
       const message = err instanceof Error ? err.message : '';
       if (message.includes('Invalid email or password') || message.includes('invalid_credentials')) {
         setError(t('login.invalidCredentials'));

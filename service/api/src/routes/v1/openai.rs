@@ -1,6 +1,6 @@
-//! OpenAI-compatible API endpoints (`/v1/openai/*`).
+//! OpenAI 兼容 API 接口模块 (`/v1/openai/*`)
 //!
-//! Request/response shape matches the OpenAI Chat Completions API exactly.
+//! 请求/响应格式与 OpenAI Chat Completions API 完全兼容
 
 use std::sync::Arc;
 use axum::{
@@ -31,35 +31,50 @@ use super::shared::{
     validate_temperature, add_rate_limit_headers, log_api_call,
 };
 
-// ─── Request types ───────────────────────────────────────────────────────────
+// ─── 请求类型 ───────────────────────────────────────────────────────────
 
+/// OpenAI 查询参数
 #[derive(Debug, Deserialize)]
 pub struct OpenAIQuery {
+    /// 是否流式响应
     pub stream: Option<bool>,
 }
 
+/// OpenAI 客户端请求体
 #[derive(Debug, Deserialize)]
 pub struct OpenAIClientRequest {
+    /// 模型标识
     pub model: String,
+    /// 消息列表
     pub messages: Vec<OpenAIMessage>,
+    /// 温度参数
     #[serde(default)]
     pub temperature: Option<f32>,
+    /// 最大生成 Token 数
     #[serde(default)]
     pub max_tokens: Option<i32>,
+    /// 是否流式响应
     #[serde(rename = "stream", default)]
     pub stream: Option<bool>,
+    /// Top-p 采样参数
     #[serde(default)]
     pub top_p: Option<f32>,
+    /// 停止序列
     #[serde(default)]
     pub stop: Option<Vec<String>>,
+    /// 用户标识（可选）
     #[serde(default)]
     pub user: Option<String>,
 }
 
+/// OpenAI 消息结构
 #[derive(Debug, Clone, Deserialize)]
 pub struct OpenAIMessage {
+    /// 角色（system、user、assistant）
     pub role: String,
+    /// 消息内容
     pub content: String,
+    /// 名称（可选，用于 user 消息）
     #[serde(default)]
     pub name: Option<String>,
 }
@@ -70,9 +85,14 @@ impl From<OpenAIMessage> for InternalMessage {
     }
 }
 
-// ─── Endpoints ───────────────────────────────────────────────────────────────
+// ─── 端点 ───────────────────────────────────────────────────────────────
 
 /// POST /v1/openai/chat/completions
+///
+/// OpenAI Chat Completions API 兼容接口
+///
+/// # 说明
+/// 与官方 OpenAI Python SDK 的 `client.chat.completions.create()` 兼容
 pub async fn openai_chat_completions(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -96,8 +116,11 @@ pub async fn openai_chat_completions(
 }
 
 /// GET /v1/openai/models
-/// Lists all available models in OpenAI format.
-/// Compatible with `client.models.list()` from the official OpenAI Python SDK.
+///
+/// 获取可用模型列表（OpenAI 格式）
+///
+/// # 说明
+/// 与官方 OpenAI Python SDK 的 `client.models.list()` 兼容
 pub async fn openai_list_models(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -107,8 +130,9 @@ pub async fn openai_list_models(
     Ok(Json(serde_json::json!({ "object": "list", "data": models })))
 }
 
-// ─── Unified chat handler ────────────────────────────────────────────────────
+// ─── 统一聊天处理器 ────────────────────────────────────────────────────
 
+/// 统一的聊天处理函数
 async fn unified_chat(
     state: Arc<AppState>,
     auth: AuthContext,
@@ -194,8 +218,9 @@ async fn unified_chat(
     }
 }
 
-// ─── Non-streaming handler ──────────────────────────────────────────────────
+// ─── 非流式处理器 ──────────────────────────────────────────────────
 
+/// 非流式响应处理器
 async fn openai_blocking_handler(
     state: Arc<AppState>,
     auth: AuthContext,
@@ -280,8 +305,9 @@ async fn openai_blocking_handler(
     Ok(response)
 }
 
-// ─── Streaming handler ───────────────────────────────────────────────────────
+// ─── 流式处理器 ───────────────────────────────────────────────────────
 
+/// 流式响应处理器
 async fn openai_stream_handler(
     state: Arc<AppState>,
     auth: AuthContext,
@@ -382,8 +408,11 @@ async fn openai_stream_handler(
     Ok(response)
 }
 
-// ─── Misc helpers ───────────────────────────────────────────────────────────
+// ─── 辅助函数 ───────────────────────────────────────────────────────────
 
+/// 解析模型字符串
+    ///
+    /// 支持 "provider/model" 或 "model" 格式
 fn parse_model_string(model_str: &str) -> (String, String) {
     if let Some((provider, model)) = model_str.split_once('/') {
         (provider.to_string(), model.to_string())
