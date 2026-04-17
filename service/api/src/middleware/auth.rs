@@ -166,6 +166,13 @@ pub async fn validate_jwt_or_api_key(
     let claims = JwtService::validate_token(&token)
         .map_err(|_| ApiError::Unauthorized)?;
 
+    // Check if token is blacklisted
+    if state.redis.is_token_blacklisted(&token).await
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to check token blacklist")))?
+    {
+        return Err(ApiError::Unauthorized);
+    }
+
     let user_id = claims.user_id()
         .map_err(|_| ApiError::Unauthorized)?;
 

@@ -26,6 +26,8 @@ reqwest = { workspace = true, features = ["json", "stream"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 rand = { workspace = true }
 base64 = "0.22"
+aes-gcm = "0.10"
+hex = "0.4"
 
 models = { path = "../models" }
 db = { path = "../db" }

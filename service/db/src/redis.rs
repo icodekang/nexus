@@ -314,4 +314,29 @@ impl RedisPool {
         let _: () = conn.publish(&channel, status).await?;
         Ok(())
     }
+
+    // ============ JWT Token 黑名单 ============
+
+    /// 将 Token 加入黑名单（注销时调用）
+    ///
+    /// # 参数
+    /// * `token` - JWT Token
+    /// * `ttl_seconds` - 黑名单过期时间（应等于 token 剩余有效期）
+    pub async fn blacklist_token(&self, token: &str, ttl_seconds: i64) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let key = format!("blacklist:jwt:{}", token);
+        let _: () = conn.set_ex(&key, "1", ttl_seconds as u64).await?;
+        Ok(())
+    }
+
+    /// 检查 Token 是否在黑名单中
+    ///
+    /// # 参数
+    /// * `token` - JWT Token
+    pub async fn is_token_blacklisted(&self, token: &str) -> Result<bool> {
+        let mut conn = self.conn().await?;
+        let key = format!("blacklist:jwt:{}", token);
+        let exists: bool = conn.exists(&key).await?;
+        Ok(exists)
+    }
 }

@@ -12,11 +12,11 @@ use crate::AuthError;
 /// Token 过期时间：7 天
 const TOKEN_EXPIRY_HOURS: i64 = 24 * 7;
 
-/// 从环境变量获取 JWT 密钥，开发环境使用默认密钥
+/// 从环境变量获取 JWT 密钥，生产环境必须设置
 fn get_jwt_secret() -> Vec<u8> {
     std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "dev-only-secret-change-in-production".to_string())
-        .into_bytes()
+        .map(|s| s.into_bytes())
+        .expect("JWT_SECRET environment variable must be set in production")
 }
 
 /// JWT Claims（声明）

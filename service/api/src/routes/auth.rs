@@ -244,12 +244,33 @@ pub async fn admin_login(
 /// 用户登出接口
 ///
 /// # 说明
-/// 实际实现中应该在 Redis 中使 Token 失效
+/// 将 JWT Token 加入黑名单，使其失效
 pub async fn logout(
-    State(_state): State<Arc<AppState>>,
-    Extension(_auth): Extension<AuthContext>,
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // In a real implementation, we would invalidate the token in Redis
+    // Get the token from the request body or extract from auth context
+    let token = body.get("token")
+        .and_then(|t| t.as_str())
+        .ok_or(ApiError::InvalidRequest("Missing token".to_string()))?;
+
+    // Calculate remaining TTL (token expiry - current time)
+    let claims = JwtService::validate_token(token)
+        .map_err(|_| ApiError::Unauthorized)?;
+
+    let now = chrono::Utc::now().timestamp();
+    let ttl = (claims.exp - now).max(0) as i64;
+
+    if ttl > 0 {
+        // Add token to blacklist with remaining TTL
+        state.redis.blacklist_token(token, ttl).await
+            .map_err(|e| {
+                tracing::error!("Failed to blacklist token: {:?}", e);
+                ApiError::Internal(anyhow::anyhow!("Failed to logout"))
+            })?;
+    }
+
     Ok(Json(serde_json::json!({
         "message": "Logged out successfully"
     })))

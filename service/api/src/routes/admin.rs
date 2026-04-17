@@ -29,6 +29,11 @@ use axum::{
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use aes_gcm::{
+    aead::{Aead, KeyInit, OsRng},
+    Aes256Gcm, Nonce,
+};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::state::AppState;
 use crate::error::ApiError;
@@ -450,21 +455,57 @@ async fn delete_model(
 
 // ============ Provider Keys ============
 
-/// Simple reversible encoding for API keys at rest.
-/// In production, use AES-256-GCM or a KMS service instead.
+/// AES-256-GCM encryption key (32 bytes)
+///
+/// Key must be provided via API_KEY_ENCRYPTION_KEY environment variable.
+/// Expected format: 64 hex characters (32 bytes)
+fn get_encryption_key() -> [u8; 32] {
+    let key_str = std::env::var("API_KEY_ENCRYPTION_KEY")
+        .expect("API_KEY_ENCRYPTION_KEY environment variable must be set");
+
+    // Decode hex-encoded key (64 hex chars = 32 bytes)
+    let mut key = [0u8; 32];
+    hex::decode_to_slice(&key_str, &mut key)
+        .expect("API_KEY_ENCRYPTION_KEY must be 64 hex characters (32 bytes)");
+
+    key
+}
+
+/// Encrypt API key using AES-256-GCM
 fn encode_api_key(key: &str) -> String {
-    // Simple hex encoding as placeholder — replace with real encryption
-    key.bytes().map(|b| format!("{:02x}", b)).collect()
+    let cipher = Aes256Gcm::new_from_slice(&get_encryption_key())
+        .expect("Invalid encryption key length");
+    let nonce_bytes: [u8; 12] = rand::random();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher.encrypt(nonce, key.as_bytes())
+        .expect("Encryption failed");
+
+    // Prepend nonce to ciphertext and base64 encode
+    let mut combined = nonce_bytes.to_vec();
+    combined.extend(ciphertext);
+    BASE64.encode(combined)
 }
 
 fn decode_api_key(encoded: &str) -> Result<String, ApiError> {
-    let bytes: Vec<u8> = (0..encoded.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&encoded[i..i + 2], 16))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key")))?;
-    String::from_utf8(bytes)
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key")))
+    let combined = BASE64.decode(encoded)
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key: invalid base64")))?;
+
+    if combined.len() < 12 {
+        return Err(ApiError::Internal(anyhow::anyhow!("Failed to decode API key: data too short")));
+    }
+
+    let (nonce_bytes, ciphertext) = combined.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let cipher = Aes256Gcm::new_from_slice(&get_encryption_key())
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Invalid encryption key")))?;
+
+    let plaintext = cipher.decrypt(nonce, ciphertext)
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decrypt API key")))?;
+
+    String::from_utf8(plaintext)
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key: invalid UTF-8")))
 }
 
 fn extract_key_prefix(key: &str) -> String {

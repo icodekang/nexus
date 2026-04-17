@@ -71,9 +71,26 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // 配置 CORS
+    // 配置 CORS - 只允许指定的域名
+    let allowed_origins: Vec<axum::http::HeaderValue> = std::env::var("CORS_ALLOWED_ORIGINS")
+        .map(|s| {
+            s.split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| axum::http::HeaderValue::from_str(s).expect("Invalid CORS origin"))
+                .collect()
+        })
+        .unwrap_or_else(|_| {
+            vec![
+                axum::http::HeaderValue::from_str("http://localhost:3000").unwrap(),
+                axum::http::HeaderValue::from_str("http://localhost:3001").unwrap(),
+            ]
+        });
+
+    tracing::info!("CORS configured with {} allowed origins", allowed_origins.len());
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(tower_http::cors::AllowOrigin::list(allowed_origins))
         .allow_methods(Any)
         .allow_headers(Any);
 
