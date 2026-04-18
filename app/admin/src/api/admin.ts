@@ -4,6 +4,8 @@
  * 基于 REST API 与后端通信，自动处理 JWT 认证
  */
 
+import { AdminApiError } from '../utils/errors';
+
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 
 /**
@@ -23,11 +25,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new AdminApiError('Network error', 'network_error');
+  }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: { message: 'Request failed' } }));
-    throw new Error(err.error?.message || 'Request failed');
+    const err = await res.json().catch(() => ({ error: { message: 'Request failed', code: 'request_failed' } }));
+    const message = err.error?.message || 'Request failed';
+    const code = err.error?.code || 'request_failed';
+    throw new AdminApiError(message, code);
   }
 
   return res.json();

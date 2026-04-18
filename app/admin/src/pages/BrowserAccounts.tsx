@@ -12,6 +12,7 @@ import {
   fetchProviders,
   type BrowserAccount, type QrCodeData, type AdminProvider,
 } from '../api/admin';
+import { getErrorMessage } from '../utils/errors';
 
 // 服务商slug到浏览器provider的映射
 const BROWSER_PROVIDER_MAP: Record<string, string> = {
@@ -43,6 +44,7 @@ export default function BrowserAccounts() {
   const { t } = useI18n();
   const [slots, setSlots] = useState<ProviderSlot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<BrowserAccount | null>(null);
   const [qrModalData, setQrModalData] = useState<{ account: BrowserAccount; qrData: QrCodeData } | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -51,6 +53,7 @@ export default function BrowserAccounts() {
   // 加载服务商和账号数据
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const [providersRes, accountsRes] = await Promise.all([
         fetchProviders(),
@@ -80,11 +83,11 @@ export default function BrowserAccounts() {
 
       setSlots(browserSlots);
     } catch (err) {
-      console.error('Failed to load data:', err);
+      setError(getErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadData();
@@ -95,7 +98,7 @@ export default function BrowserAccounts() {
       await createBrowserAccount(slot.browserProvider);
       loadData();
     } catch (err) {
-      console.error('Failed to add account:', err);
+      setError(getErrorMessage(err, t));
     }
   };
 
@@ -106,7 +109,7 @@ export default function BrowserAccounts() {
       setDeleteTarget(null);
       loadData();
     } catch (err) {
-      console.error('Failed to delete account:', err);
+      setError(getErrorMessage(err, t));
     }
   };
 
@@ -122,7 +125,7 @@ export default function BrowserAccounts() {
       };
       setQrModalData({ account, qrData });
     } catch (err) {
-      console.error('Failed to start login:', err);
+      setError(getErrorMessage(err, t));
     }
   };
 
@@ -142,10 +145,17 @@ export default function BrowserAccounts() {
         <div>
           <h1 style={styles.pageTitle}>{t('browserAccounts.title')}</h1>
           <p style={styles.pageSubtitle}>
-            {loading ? 'Loading...' : `已配置 ${slots.length} 个支持浏览器的服务商`}
+            {loading ? t('common.loading') : `已配置 ${slots.length} 个支持浏览器的服务商`}
           </p>
         </div>
       </header>
+
+      {error && (
+        <div style={styles.errorBanner}>
+          {error}
+          <button style={styles.errorClose} onClick={() => setError('')}>×</button>
+        </div>
+      )}
 
       {/* 服务商账号槽位网格 */}
       <div style={styles.slotsGrid}>
@@ -475,5 +485,27 @@ const styles: Record<string, React.CSSProperties> = {
   emptyDesc: {
     fontSize: '13px', color: '#A1A1AA', margin: 0,
     fontFamily: "'DM Sans', sans-serif", textAlign: 'center',
+  },
+  errorBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 16px',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    border: '1px solid rgba(239, 68, 68, 0.2)',
+    borderRadius: '10px',
+    marginBottom: '20px',
+    fontSize: '13px',
+    color: '#EF4444',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  errorClose: {
+    background: 'none',
+    border: 'none',
+    fontSize: '18px',
+    color: '#EF4444',
+    cursor: 'pointer',
+    padding: '0 4px',
+    lineHeight: 1,
   },
 };

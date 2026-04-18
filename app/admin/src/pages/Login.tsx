@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useI18n } from '../i18n';
+import { getErrorMessage } from '../utils/errors';
 
 /**
  * Login - 管理员登录主组件
@@ -38,21 +39,7 @@ export default function Login() {
         navigate('/dashboard', { replace: true });
       }
     } catch (err) {
-      // 根据错误消息类型设置对应的本地化错误提示
-      const message = err instanceof Error ? err.message : '';
-      if (message.includes('Invalid email or password') || message.includes('invalid_credentials')) {
-        setError(t('login.invalidCredentials'));
-      } else if (message.includes('Forbidden') || message.includes('forbidden')) {
-        setError(t('login.forbidden'));
-      } else if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
-        setError(t('login.networkError'));
-      } else if (message.includes('internal') || message.includes('Internal')) {
-        setError(t('login.serverError'));
-      } else if (message) {
-        setError(message);
-      } else {
-        setError(t('login.invalidCredentials'));
-      }
+      setError(getErrorMessage(err, t));
     } finally {
       setIsLoading(false);
     }

@@ -23,6 +23,28 @@ export const zh = {
     prev: '上一页',
     next: '下一页',
   },
+  errors: {
+    // Auth errors
+    invalid_credentials: '邮箱或密码错误，请重试。',
+    unauthorized: '请登录后继续操作。',
+    forbidden: '权限不足，仅管理员可登录。',
+    // Network errors
+    network_error: '网络错误，请检查网络连接后重试。',
+    request_failed: '请求失败，请重试。',
+    internal_error: '服务器错误，请稍后重试。',
+    // CRUD errors
+    create_failed: '创建失败，请重试。',
+    update_failed: '更新失败，请重试。',
+    delete_failed: '删除失败，请重试。',
+    // Browser account errors
+    qr_generate_failed: '二维码生成失败，请重试。',
+    auth_failed: '认证失败，请重试。',
+    account_add_failed: '添加账号失败，请重试。',
+    account_delete_failed: '删除账号失败，请重试。',
+    // Generic
+    try_again: '出现错误，请重试。',
+    contact_support: '如果问题持续存在，请联系客服。',
+  },
   login: {
     title: '欢迎回来',
     subtitle: '登录 Nexus 管理后台',

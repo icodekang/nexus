@@ -23,6 +23,28 @@ export const en = {
     prev: 'Prev',
     next: 'Next',
   },
+  errors: {
+    // Auth errors
+    invalid_credentials: 'Invalid email or password. Please try again.',
+    unauthorized: 'Please sign in to continue.',
+    forbidden: 'Access denied. Admin privileges required.',
+    // Network errors
+    network_error: 'Network error. Please check your connection and try again.',
+    request_failed: 'Request failed. Please try again.',
+    internal_error: 'Server error. Please try again later.',
+    // CRUD errors
+    create_failed: 'Failed to create. Please try again.',
+    update_failed: 'Failed to update. Please try again.',
+    delete_failed: 'Failed to delete. Please try again.',
+    // Browser account errors
+    qr_generate_failed: 'Failed to generate QR code. Please try again.',
+    auth_failed: 'Authentication failed. Please try again.',
+    account_add_failed: 'Failed to add account. Please try again.',
+    account_delete_failed: 'Failed to delete account. Please try again.',
+    // Generic
+    try_again: 'Something went wrong. Please try again.',
+    contact_support: 'If this problem persists, please contact support.',
+  },
   login: {
     title: 'Welcome back',
     subtitle: 'Sign in to your Nexus admin dashboard',
