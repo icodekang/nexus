@@ -22,7 +22,6 @@ interface QrCodeModalProps {
  */
 export default function QrCodeModal({ account, qrData, onClose, onSuccess }: QrCodeModalProps) {
   const { t } = useI18n();
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 

@@ -54,7 +54,6 @@ export default function ChatPage() {
 
   // 点击模型选择器外部时关闭选择器
   useEffect(() => {
-  useEffect(() => {
     if (!showModelPicker) return;
     const handler = (e: MouseEvent) => {
       if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {

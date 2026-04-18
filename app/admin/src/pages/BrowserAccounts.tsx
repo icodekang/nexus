@@ -333,6 +333,7 @@ export default function BrowserAccounts() {
       {qrModalData && (
         <QrCodeModal
           account={qrModalData.account}
+          qrData={qrModalData.qrData}
           onClose={() => setQrModalData(null)}
           onSuccess={handleAuthSuccess}
         />

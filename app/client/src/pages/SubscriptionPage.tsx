@@ -97,11 +97,6 @@ export default function SubscriptionPage() {
     };
   };
 
-  // 使用 API 数据或兜底硬编码
-  const displayPlans: Plan[] = availablePlans.length > 0
-    ? availablePlans.map(mapApiPlanToLocal)
-    : defaultPlans;
-
   // 套餐列表配置（兜底数据）
   const defaultPlans: Plan[] = [
     {
@@ -180,6 +175,11 @@ export default function SubscriptionPage() {
       ],
     },
   ];
+
+  // 使用 API 数据或兜底硬编码
+  const displayPlans: Plan[] = availablePlans.length > 0
+    ? availablePlans.map(mapApiPlanToLocal)
+    : defaultPlans;
 
   // 获取按钮文字：当前套餐/切换/订阅
   const getButtonLabel = (planKey: string) => {

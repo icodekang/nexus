@@ -44,7 +44,6 @@ export default function Layout() {
 
   // 点击外部关闭移动端菜单
   useEffect(() => {
-  useEffect(() => {
     if (!mobileMenuOpen) return;
     const handler = (e: MouseEvent) => {
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
