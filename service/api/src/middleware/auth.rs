@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Request, Extension},
+    extract::Request,
     http::header::AUTHORIZATION,
     middleware::Next,
     response::Response,

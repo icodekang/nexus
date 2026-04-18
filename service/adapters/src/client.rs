@@ -8,7 +8,7 @@
 
 use crate::config::{AuthConfig, ProviderConfig, ProviderRegistry};
 use crate::error::ProviderError;
-use crate::providers::{get_registry, StreamChunk, StreamHandler};
+use crate::providers::get_registry;
 use crate::types::{
     ChatRequest as ProviderChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse,
     ProviderType,

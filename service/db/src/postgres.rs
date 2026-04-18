@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::DbError;
 use models::{User, ApiKey, Provider, ProviderKey, LlmModel, Subscription, Transaction, ApiLog, SubscriptionPlan};
-use models::subscription::{TransactionType, TransactionStatus, SubscriptionStatus};
 use models::{BrowserAccount, BrowserAccountStatus};
 
 /// PostgreSQL 连接池

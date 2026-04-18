@@ -45,7 +45,7 @@ pub enum AuthError {
 }
 
 impl From<bcrypt::BcryptError> for AuthError {
-    fn from(err: bcrypt::BcryptError) -> Self {
+    fn from(_err: bcrypt::BcryptError) -> Self {
         AuthError::PasswordHashError
     }
 }

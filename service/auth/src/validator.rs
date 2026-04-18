@@ -4,7 +4,6 @@
 
 use db::PostgresPool;
 use models::{User, ApiKey};
-use uuid::Uuid;
 
 use crate::AuthError;
 

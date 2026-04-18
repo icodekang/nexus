@@ -8,9 +8,9 @@ pub mod error;
 pub use subscription::*;
 pub use error::*;
 
-use chrono::{DateTime, Utc};
-use models::{User, Subscription, Transaction, SubscriptionPlan};
-use models::subscription::{SubscriptionStatus, TransactionType, TransactionStatus};
+use chrono::Utc;
+use models::{Subscription, Transaction, SubscriptionPlan};
+use models::subscription::{SubscriptionStatus, TransactionType};
 
 /// 计费服务
 ///

@@ -2,7 +2,7 @@
 //!
 //! 定义了聊天完成和嵌入请求/响应的数据结构
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

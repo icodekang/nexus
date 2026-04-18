@@ -1,6 +1,7 @@
+#![allow(unused_imports)]
 use axum::{routing::{get, post, delete}, Router, Json, Extension, extract::State};
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::state::AppState;
 use crate::error::ApiError;
@@ -30,7 +31,6 @@ pub fn routes() -> Router<Arc<AppState>> {
 /// - subscription_end: 订阅结束时间
 /// - is_active: 订阅是否有效
 pub async fn subscription(
-    State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user = &auth.user;
@@ -271,7 +271,7 @@ pub async fn create_key(
 /// * `Path(key_id)` - 要删除的 Key ID
 pub async fn delete_key(
     State(state): State<Arc<AppState>>,
-    Extension(auth): Extension<AuthContext>,
+    Extension(_auth): Extension<AuthContext>,
     axum::extract::Path(key_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let key_uuid = uuid::Uuid::parse_str(&key_id)

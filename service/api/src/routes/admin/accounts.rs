@@ -14,8 +14,7 @@ use axum::{
     routing::{get, post, delete},
     Router, Json, Extension,
     extract::{Path, State, Query},
-    response::{IntoResponse, Response, sse::{Event, Sse}},
-    http::HeaderMap,
+    response::sse::{Event, Sse},
 };
 use std::sync::Arc;
 use futures_util::{Stream, StreamExt};
@@ -27,8 +26,7 @@ use uuid::Uuid;
 use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
-use auth::JwtService;
-use models::{BrowserAccount, BrowserAccountStatus, QrCodeSession};
+use models::BrowserAccount;
 use provider_client::headless_browser::{LoginEvent, BrowserSessionState};
 
 /// 创建浏览器账户路由
@@ -147,6 +145,7 @@ async fn delete_account(
 
 /// 启动登录请求体
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct StartLoginRequest {
     /// 是否使用无头浏览器（默认 true）
     #[serde(default = "default_true")]
@@ -185,7 +184,7 @@ async fn start_login(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
     Path(id): Path<String>,
-    Json(body): Json<StartLoginRequest>,
+    Json(_body): Json<StartLoginRequest>,
 ) -> Result<Json<LoginUrlResponse>, ApiError> {
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
@@ -457,6 +456,7 @@ async fn get_account_status(
 
 /// 完成登录请求体（用于手动触发或移动端回调）
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct CompleteLoginRequest {
     /// 验证码（可选）
     code: Option<String>,
@@ -487,8 +487,7 @@ async fn complete_login(
     }
 
     // If session_data is provided directly, use it
-    if let Some(session_data) = body.session_data {
-        // This would require knowing which account - for now, return error
+    if body.session_data.is_some() {
         return Err(ApiError::InvalidRequest(
             "session_data requires account_id in query params".to_string()
         ));
@@ -497,45 +496,5 @@ async fn complete_login(
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Login completion processed"
-    })))
-}
-
-// ============ 兼容旧接口 ============
-
-/// 兼容旧的二维码生成接口
-/// GET /admin/accounts/:id/qrcode
-///
-/// 返回登录 URL 和验证码
-async fn get_qrcode_legacy(
-    State(state): State<Arc<AppState>>,
-    Extension(_auth): Extension<AuthContext>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let account_id = Uuid::parse_str(&id)
-        .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
-
-    // Get account
-    let _account = state.db.get_browser_account(account_id).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
-        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
-
-    // Create headless browser session
-    let session = state.headless_browser.create_login_session("deepseek").await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to start login: {}", e)))?;
-
-    // Generate code
-    let code = format!("{:06}", rand::random::<u32>() % 900000 + 100000);
-    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
-
-    // Store QR session
-    state.redis.store_qr_session(&code, &session.id.to_string()).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
-
-    Ok(Json(serde_json::json!({
-        "session_id": session.id.to_string(),
-        "code": code,
-        "expires_at": expires_at.to_rfc3339(),
-        "auth_url": session.current_url,
-        "login_url": session.current_url
     })))
 }

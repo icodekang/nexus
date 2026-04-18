@@ -17,7 +17,7 @@ use serde::Deserialize;
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::middleware::auth::AuthContext;
-use models::{Message as InternalMessage, User, SubscriptionPlan, ChatChunk};
+use models::{Message as InternalMessage, ChatChunk};
 use provider_client::{
     ChatRequest as ProviderChatRequest,
     Message as ProviderMessage,
@@ -142,7 +142,7 @@ async fn unified_chat(
     temperature: f32,
     max_tokens: Option<i32>,
     is_stream: bool,
-    session_id: Option<String>,
+    _session_id: Option<String>,
 ) -> Result<Response, ApiError> {
     let user_id = auth.user.id.to_string();
     let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
@@ -235,7 +235,6 @@ async fn openai_blocking_handler(
 ) -> Result<Response, ApiError> {
     let mut last_error = None;
     let mut provider_resp = None;
-    let mut used_key_id: Option<uuid::Uuid> = None;
 
     // Primary provider with session affinity
     let selected_key = select_key(
@@ -250,7 +249,6 @@ async fn openai_blocking_handler(
     match client.chat(provider_request.clone()).await {
         Ok(resp) => {
             provider_resp = Some(resp);
-            used_key_id = key_id;
             let latency_ms = start_time.elapsed().as_millis() as i32;
             record_result(&state, &provider_for_request, key_id, latency_ms, true).await;
         }
@@ -273,7 +271,6 @@ async fn openai_blocking_handler(
                     match client.chat(provider_request.clone()).await {
                         Ok(resp) => {
                             provider_resp = Some(resp);
-                            used_key_id = key_id;
                             let latency_ms = start_time.elapsed().as_millis() as i32;
                             record_result(&state, &p.slug, key_id, latency_ms, true).await;
                             break;
@@ -311,7 +308,7 @@ async fn openai_blocking_handler(
 async fn openai_stream_handler(
     state: Arc<AppState>,
     auth: AuthContext,
-    provider_slug: String,
+    _provider_slug: String,
     model_name: String,
     start_time: std::time::Instant,
     rpm: i64,

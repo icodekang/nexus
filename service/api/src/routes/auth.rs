@@ -9,7 +9,7 @@
 //! - POST /send-sms - 发送短信验证码
 //! - POST /verify-sms - 验证短信验证码
 
-use axum::{routing::{post, get}, Router, Json, extract::State, Extension};
+use axum::{routing::post, Router, Json, extract::State, Extension};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use rand::Rng;
@@ -18,7 +18,7 @@ use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use models::User;
-use auth::{hash_password, verify_password, ApiKeyGenerator, JwtService};
+use auth::{hash_password, verify_password, JwtService};
 
 /// 创建认证路由
 pub fn routes() -> Router<Arc<AppState>> {
@@ -247,7 +247,7 @@ pub async fn admin_login(
 /// 将 JWT Token 加入黑名单，使其失效
 pub async fn logout(
     State(state): State<Arc<AppState>>,
-    Extension(auth): Extension<AuthContext>,
+    Extension(_auth): Extension<AuthContext>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Get the token from the request body or extract from auth context
@@ -324,7 +324,7 @@ pub async fn send_sms(
     }
 
     // Check rate limit
-    let (allowed, wait_seconds) = state.redis.check_sms_rate_limit(phone)
+    let (allowed, _wait_seconds) = state.redis.check_sms_rate_limit(phone)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to check rate limit")))?;
 
@@ -419,7 +419,7 @@ pub async fn verify_sms(
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Database error")))?;
 
-    let user = if let Some(mut user) = existing_user {
+    let user = if let Some(user) = existing_user {
         // User exists - generate token
         user
     } else {
@@ -463,9 +463,9 @@ pub async fn verify_sms(
     /// * `code` - 验证码
 async fn send_alibaba_sms(phone: &str, code: &str) -> Result<(), ApiError> {
     // Get阿里云 SMS configuration from environment
-    let access_key_id = std::env::var("ALIYUN_ACCESS_KEY_ID")
+    let _access_key_id = std::env::var("ALIYUN_ACCESS_KEY_ID")
         .map_err(|_| ApiError::SmsSendFailed)?;
-    let access_key_secret = std::env::var("ALIYUN_ACCESS_KEY_SECRET")
+    let _access_key_secret = std::env::var("ALIYUN_ACCESS_KEY_SECRET")
         .map_err(|_| ApiError::SmsSendFailed)?;
     let sign_name = std::env::var("ALIYUN_SMS_SIGN_NAME")
         .map_err(|_| ApiError::SmsSendFailed)?;

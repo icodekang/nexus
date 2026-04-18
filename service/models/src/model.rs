@@ -137,7 +137,6 @@ pub struct BuiltinModels;
 impl BuiltinModels {
     /// 获取所有内置模型
     pub fn all() -> Vec<LlmModel> {
-        use ModelMode::*;
 
         vec![
             // OpenAI 模型

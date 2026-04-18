@@ -68,7 +68,7 @@ impl User {
     /// # 返回
     /// 如果订阅处于有效期内返回 true
     pub fn is_subscription_active(&self) -> bool {
-        if let (Some(start), Some(end), SubscriptionPlan::None) =
+        if let (Some(_start), Some(_end), SubscriptionPlan::None) =
             (self.subscription_start, self.subscription_end, &self.subscription_plan)
         {
             return false;

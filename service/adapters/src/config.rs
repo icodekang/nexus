@@ -192,6 +192,7 @@ struct CustomProviderDef {
     auth: String,
     #[serde(rename = "apiKeyEnv")]
     #[serde(default)]
+    #[allow(dead_code)]
     api_key_env: Option<String>,
     #[serde(rename = "chatPath")]
     #[serde(default)]

@@ -9,12 +9,12 @@
 
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, HeaderName},
+    http::HeaderMap,
     response::{IntoResponse, Response, sse::{Event, Sse}},
     Json, Extension,
 };
 use std::sync::Arc;
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio::sync::broadcast;
 use serde::Deserialize;
@@ -27,7 +27,7 @@ use provider_client::{
     ChatRequest as ProviderChatRequest,
     Message as ProviderMessage,
     ProviderClient, ProviderClientFactory, HttpProviderClient,
-    BrowserEmulatorFactory, AccountPool, PersistedSession,
+    BrowserEmulatorFactory,
 };
 use router::key_scheduler::SelectedKey;
 
@@ -307,7 +307,6 @@ pub async fn chat_completions(
         let zero_token_provider_stream = zero_token_provider;
 
         tokio::spawn(async move {
-            let mut total_input_tokens: i32 = 0;
             let mut total_output_tokens: i32 = 0;
             let mut used_key_id: Option<uuid::Uuid> = None;
 
@@ -408,7 +407,7 @@ pub async fn chat_completions(
                 &provider_clone,
                 &model_slug_clone,
                 "chat",
-                total_input_tokens,
+                0,
                 total_output_tokens,
                 latency_ms,
             ).await;
@@ -431,7 +430,6 @@ pub async fn chat_completions(
         let mut last_error = None;
         let mut provider_resp = None;
         let mut used_provider = provider_for_request.clone();
-        let mut used_key_id: Option<uuid::Uuid> = None;
 
         // ZeroToken users use browser emulator instead of API keys
         let (client, key_id) = if let Some(zt_provider) = zero_token_provider {
@@ -449,7 +447,6 @@ pub async fn chat_completions(
         match client.chat(req).await {
             Ok(resp) => {
                 provider_resp = Some(resp);
-                used_key_id = key_id;
                 let latency_ms = start_time.elapsed().as_millis() as i32;
                 // Only record key result for non-ZeroToken (API key) requests
                 if !is_zero_token {
@@ -484,7 +481,6 @@ pub async fn chat_completions(
                     Ok(resp) => {
                         provider_resp = Some(resp);
                         used_provider = try_provider.clone();
-                        used_key_id = key_id;
                         let latency_ms = start_time.elapsed().as_millis() as i32;
                         record_key_result(&state, try_provider, key_id, latency_ms, true).await;
                         break;
@@ -504,14 +500,13 @@ pub async fn chat_completions(
                     continue;
                 }
 
-                let (client, key_id) = get_zero_token_client_from_pool(&state, zt_provider).await?;
+                let (client, _key_id) = get_zero_token_client_from_pool(&state, zt_provider).await?;
                 let mut req = provider_request.clone();
                 req.provider = zt_provider.to_string();
                 match client.chat(req).await {
                     Ok(resp) => {
                         provider_resp = Some(resp);
                         used_provider = zt_provider.to_string();
-                        used_key_id = key_id;
                         break;
                     }
                     Err(e) => {

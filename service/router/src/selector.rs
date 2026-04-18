@@ -25,7 +25,7 @@ use crate::{RouteStrategy, RouterError};
 /// # 注意
 /// 实际生产环境中，Cheapest 和 Fastest 策略应使用真实的定价和延迟数据
 pub fn select(
-    model: &LlmModel,
+    _model: &LlmModel,
     providers: &[&Provider],
     strategy: RouteStrategy,
 ) -> Result<Provider, RouterError> {
@@ -89,7 +89,7 @@ pub fn select(
 /// # 返回
 /// 按优先级排序的活跃提供商列表
 pub fn select_with_fallback(
-    model: &LlmModel,
+    _model: &LlmModel,
     providers: &[&Provider],
     strategy: RouteStrategy,
 ) -> Result<Vec<Provider>, RouterError> {

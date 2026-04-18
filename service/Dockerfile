@@ -9,6 +9,13 @@ FROM rust:1.94-bookworm AS builder
 
 WORKDIR /app
 
+# Configure Chinese cargo mirror for faster builds
+RUN mkdir -p /root/.cargo && \
+    echo '[source.crates-io]' > /root/.cargo/config.toml && \
+    echo 'replace-with = "aliyun"' >> /root/.cargo/config.toml && \
+    echo '[source.aliyun]' >> /root/.cargo/config.toml && \
+    echo 'registry = "sparse+https://mirrors.aliyun.com/crates.io-index/"' >> /root/.cargo/config.toml
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
     pkg-config \

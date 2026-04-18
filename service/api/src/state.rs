@@ -91,7 +91,6 @@ impl AppState {
     pub async fn init_account_pool(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use provider_client::PersistedSession;
         use models::BrowserAccountStatus;
-        use uuid::Uuid;
 
         let accounts = self.db.list_browser_accounts().await?;
 

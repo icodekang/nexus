@@ -28,11 +28,10 @@ use models::Message as InternalMessage;
 use provider_client::{ChatRequest as ProviderChatRequest, Message as ProviderMessage};
 
 use super::shared::{
-    rate_limit_for_plan, select_key, create_client, record_result,
+    rate_limit_for_plan, select_key, create_client,
     extract_session_id, default_session_id,
     check_subscription, check_token_quota,
     add_rate_limit_headers, log_api_call,
-    SESSION_HEADER,
 };
 
 // ─── 请求/响应类型 ───────────────────────────────────────────────

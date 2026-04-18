@@ -22,7 +22,7 @@
 //! - /accounts/* - 浏览器账户管理（嵌套路由）
 
 use axum::{
-    routing::{get, post, put, delete},
+    routing::{get, post, put},
     Router, Json, Extension,
     extract::{Query, Path, State},
 };
@@ -30,7 +30,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};

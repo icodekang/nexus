@@ -217,6 +217,7 @@ pub struct SelectedKey {
 // ---------------------------------------------------------------------------
 
 pub struct ProviderKeyScheduler {
+    #[allow(dead_code)]
     provider_slug: String,
     keys: HashMap<uuid::Uuid, ProviderKey>,
     loads: HashMap<uuid::Uuid, KeyLoad>,

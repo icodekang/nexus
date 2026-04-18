@@ -10,19 +10,14 @@
 
 use std::sync::Arc;
 use axum::{
-    extract::State,
     http::HeaderMap,
     response::Response,
-    Json, Extension,
 };
-use tokio_stream::wrappers::BroadcastStream;
-use tokio::sync::broadcast;
-use futures_util::StreamExt;
 
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::middleware::auth::AuthContext;
-use models::{Message as InternalMessage, User, SubscriptionPlan, ModelWithProvider, Provider};
+use models::{User, SubscriptionPlan, ModelWithProvider, Provider};
 use provider_client::{ProviderClient, HttpProviderClient};
 use router::key_scheduler::SelectedKey;
 

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 use crate::error::ApiError;
-use models::{ModelWithProvider, LlmModel, Provider};
+use models::{ModelWithProvider, Provider};
 
 /// 模型查询参数
 #[derive(Debug, Deserialize)]

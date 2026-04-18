@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports)]
+
 //! 提供商客户端适配器模块
 //!
 //! 直接使用 Rust 实现调用 LLM 提供商 API。
