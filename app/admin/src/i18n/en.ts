@@ -20,6 +20,8 @@ export const en = {
     confirm: 'Confirm',
     viewDetails: 'View Details',
     deleteConfirm: 'Are you sure you want to delete this item?',
+    prev: 'Prev',
+    next: 'Next',
   },
   login: {
     title: 'Welcome back',
@@ -80,6 +82,7 @@ export const en = {
     planLabel: 'Plan',
     statusLabel: 'Status',
     selectPlan: 'Select plan',
+    pageInfo: 'Page {{page}} of {{totalPages}} ({{total}} total)',
     selectStatus: 'Select status',
   },
   providers: {
@@ -146,6 +149,7 @@ export const en = {
     detailDate: 'Date',
     refundAction: 'Refund',
     refundConfirm: 'Are you sure you want to refund this transaction?',
+    pageInfo: 'Page {{page}} of {{totalPages}} ({{total}} total)',
   },
   providerKeys: {
     title: 'Provider Keys',

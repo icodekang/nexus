@@ -40,6 +40,7 @@ export default function Providers() {
   const [formSlug, setFormSlug] = useState('');
   const [formApiUrl, setFormApiUrl] = useState('');
   const [formPriority, setFormPriority] = useState('1');
+  const [formActive, setFormActive] = useState(true);
 
   // 加载提供商列表
   const loadProviders = useCallback(() => {
@@ -59,6 +60,7 @@ export default function Providers() {
     setFormSlug('');
     setFormApiUrl('');
     setFormPriority('1');
+    setFormActive(true);
   };
 
   // 打开添加弹窗
@@ -73,6 +75,7 @@ export default function Providers() {
     setFormSlug(p.slug);
     setFormApiUrl(p.api_base_url);
     setFormPriority(String(p.priority));
+    setFormActive(p.is_active);
     setEditProvider(p);
   };
 
@@ -84,6 +87,7 @@ export default function Providers() {
         slug: formSlug || formName.toLowerCase().replace(/\s+/g, '-'),
         api_base_url: formApiUrl || undefined,
         priority: parseInt(formPriority) || undefined,
+        is_active: formActive,
       });
       setShowAddModal(false);
       loadProviders();
@@ -100,6 +104,7 @@ export default function Providers() {
         slug: formSlug,
         api_base_url: formApiUrl,
         priority: parseInt(formPriority) || editProvider.priority,
+        is_active: formActive,
       });
       setEditProvider(null);
       loadProviders();
@@ -199,6 +204,7 @@ export default function Providers() {
           slug={formSlug} setSlug={setFormSlug}
           apiUrl={formApiUrl} setApiUrl={setFormApiUrl}
           priority={formPriority} setPriority={setFormPriority}
+          isActive={formActive} setIsActive={setFormActive}
           t={t}
           onSubmit={handleAddProvider}
           onCancel={() => setShowAddModal(false)}
@@ -212,6 +218,7 @@ export default function Providers() {
           slug={formSlug} setSlug={setFormSlug}
           apiUrl={formApiUrl} setApiUrl={setFormApiUrl}
           priority={formPriority} setPriority={setFormPriority}
+          isActive={formActive} setIsActive={setFormActive}
           t={t}
           onSubmit={handleEditProvider}
           onCancel={() => setEditProvider(null)}
@@ -239,13 +246,14 @@ export default function Providers() {
 }
 
 function ProviderForm({
-  name, setName, slug, setSlug, apiUrl, setApiUrl, priority, setPriority,
+  name, setName, slug, setSlug, apiUrl, setApiUrl, priority, setPriority, isActive, setIsActive,
   t, onSubmit, onCancel, submitLabel,
 }: {
   name: string; setName: (v: string) => void;
   slug: string; setSlug: (v: string) => void;
   apiUrl: string; setApiUrl: (v: string) => void;
   priority: string; setPriority: (v: string) => void;
+  isActive: boolean; setIsActive: (v: boolean) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
   onSubmit: () => void;
   onCancel: () => void;
@@ -293,6 +301,34 @@ function ProviderForm({
           min="1"
           style={formStyles.input}
         />
+      </div>
+      <div style={{ ...formStyles.field, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <label style={{ ...formStyles.label, marginBottom: 0 }}>Active</label>
+        <button
+          type="button"
+          onClick={() => setIsActive(!isActive)}
+          style={{
+            width: '44px',
+            height: '24px',
+            borderRadius: '12px',
+            backgroundColor: isActive ? '#22C55E' : '#D1D5DB',
+            border: 'none',
+            cursor: 'pointer',
+            position: 'relative',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          <span style={{
+            position: 'absolute',
+            top: '2px',
+            left: isActive ? '22px' : '2px',
+            width: '20px',
+            height: '20px',
+            borderRadius: '50%',
+            backgroundColor: '#FFFFFF',
+            transition: 'left 0.2s',
+          }} />
+        </button>
       </div>
       <div style={formStyles.actions}>
         <button style={formStyles.cancelBtn} onClick={onCancel}>{t('common.cancel')}</button>

@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
+use auth::JwtService;
 use models::{BrowserAccount, BrowserAccountStatus, QrCodeSession};
 use provider_client::headless_browser::{LoginEvent, BrowserSessionState};
 
@@ -253,11 +254,31 @@ async fn get_login_url(
 /// 同时启动后台任务监控登录完成
 async fn get_account_status(
     State(state): State<Arc<AppState>>,
-    Extension(_auth): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>> + Send>, ApiError> {
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    // Validate token from query param for SSE (EventSource doesn't support headers)
+    if let Some(token) = params.get("token") {
+        let claims = auth::JwtService::validate_token(token)
+            .map_err(|_| ApiError::Unauthorized)?;
+
+        let user_id = claims.user_id()
+            .map_err(|_| ApiError::Unauthorized)?;
+
+        // Verify user is admin
+        let user = state.db.get_user_by_id(user_id).await
+            .map_err(|_| ApiError::Unauthorized)?
+            .ok_or(ApiError::Unauthorized)?;
+
+        if !user.is_admin {
+            return Err(ApiError::Forbidden);
+        }
+    } else {
+        return Err(ApiError::Unauthorized);
+    }
 
     // Create broadcast channel for this client
     let (tx, rx) = broadcast::channel::<Result<Event, std::convert::Infallible>>(100);

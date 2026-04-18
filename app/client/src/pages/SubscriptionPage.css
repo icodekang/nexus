@@ -29,6 +29,40 @@
   margin-top: 6px;
 }
 
+/* ===== Usage Stats ===== */
+.usage-stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-bottom: 32px;
+  padding: 16px 24px;
+  background: #FFFFFF;
+  border: 1px solid #E7E5E4;
+  border-radius: 12px;
+}
+
+.usage-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #71717A;
+}
+
+.usage-stat svg {
+  color: #6366F1;
+}
+
+.usage-stat-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.usage-stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1C1917;
+}
+
 /* ===== Grid ===== */
 .subscription-grid {
   display: grid;

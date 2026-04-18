@@ -23,27 +23,36 @@ export default function Transactions() {
   const { t } = useI18n();
   const [transactions, setTransactions] = useState<AdminTransaction[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(20);
   const [loading, setLoading] = useState(true);
   // 筛选状态
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [detailTx, setDetailTx] = useState<AdminTransaction | null>(null);
 
+  const totalPages = Math.ceil(total / perPage);
+
   // 加载交易数据
   const loadTransactions = useCallback(() => {
     setLoading(true);
-    fetchTransactions(1, 50, typeFilter, statusFilter)
+    fetchTransactions(page, perPage, typeFilter, statusFilter)
       .then((res) => {
         setTransactions(res.data);
         setTotal(res.total);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [typeFilter, statusFilter]);
+  }, [page, perPage, typeFilter, statusFilter]);
 
   useEffect(() => {
     loadTransactions();
   }, [loadTransactions]);
+
+  // 筛选条件变化时重置页码
+  useEffect(() => {
+    setPage(1);
+  }, [typeFilter, statusFilter]);
 
   // 交易类型和状态选项
   const txTypes = ['purchase', 'refund', 'renewal'];
@@ -72,7 +81,7 @@ export default function Transactions() {
     return '#A1A1AA';
   };
 
-  // 计算今日收入和平均订单金额（仅统计已完成交易）
+  // 计算今日收入和平均订单金额（基于当前页数据，仅供参考）
   const summaryData = useMemo(() => {
     const revenueToday = transactions
       .filter((tx) => tx.status === 'completed' && tx.created_at.slice(0, 10) === new Date().toISOString().slice(0, 10))
@@ -82,10 +91,10 @@ export default function Transactions() {
       : 0;
     return {
       revenueToday: `$${revenueToday.toFixed(2)}`,
-      count: transactions.length,
+      count: total,
       avgOrder: `$${avgOrder.toFixed(2)}`,
     };
-  }, [transactions]);
+  }, [transactions, total]);
 
   return (
     <div style={styles.container}>
@@ -215,6 +224,31 @@ export default function Transactions() {
           </tbody>
         </table>
       </div>
+
+      {/* 分页控件 */}
+      {totalPages > 1 && (
+        <div style={styles.pagination}>
+          <span style={styles.paginationInfo}>
+            {t('transactions.pageInfo', { page, totalPages, total })}
+          </span>
+          <div style={styles.paginationButtons}>
+            <button
+              style={{ ...styles.pageBtn, opacity: page <= 1 ? 0.5 : 1 }}
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              {t('common.prev')}
+            </button>
+            <button
+              style={{ ...styles.pageBtn, opacity: page >= totalPages ? 0.5 : 1 }}
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              {t('common.next')}
+            </button>
+          </div>
+        </div>
+      )}
 
       <Modal open={!!detailTx} onClose={() => setDetailTx(null)} title={t('transactions.detailTitle')}>
         {detailTx && (
@@ -449,5 +483,32 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif",
     transition: 'all 0.1s ease',
+  },
+  pagination: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: '16px',
+    padding: '0 4px',
+  },
+  paginationInfo: {
+    fontSize: '13px',
+    color: '#71717A',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  paginationButtons: {
+    display: 'flex',
+    gap: '8px',
+  },
+  pageBtn: {
+    padding: '6px 14px',
+    borderRadius: '8px',
+    border: '1px solid #E7E5E4',
+    backgroundColor: '#FFFFFF',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#18181B',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
   },
 };

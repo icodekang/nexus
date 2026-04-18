@@ -41,7 +41,7 @@ export default function ProviderKeys() {
   // 当前正在测试的密钥 ID
   const [testingId, setTestingId] = useState<string | null>(null);
   // 测试结果
-  const [testResult, setTestResult] = useState<{ id: string; success: boolean } | null>(null);
+  const [testResult, setTestResult] = useState<{ id: string; success: boolean; message?: string } | null>(null);
 
   // 表单状态
   const [formProvider, setFormProvider] = useState('');
@@ -139,12 +139,12 @@ export default function ProviderKeys() {
     setTestResult(null);
     try {
       const res = await testProviderKey(id);
-      setTestResult({ id, success: res.success });
+      setTestResult({ id, success: res.success, message: res.message });
     } catch {
-      setTestResult({ id, success: false });
+      setTestResult({ id, success: false, message: 'Connection failed' });
     } finally {
       setTestingId(null);
-      setTimeout(() => setTestResult(null), 3000);
+      setTimeout(() => setTestResult(null), 5000);
     }
   };
 
@@ -263,20 +263,27 @@ export default function ProviderKeys() {
                   <td style={{ ...styles.td, textAlign: 'right' }}>
                     <div style={styles.actions}>
                       {/* Test button */}
-                      <button
-                        style={{
-                          ...styles.actionBtn,
-                          ...(testRes?.success ? styles.testSuccessBtn : {}),
-                          ...(testRes && !testRes.success ? styles.testFailBtn : {}),
-                        }}
-                        onClick={() => handleTest(k.id)}
-                        disabled={isTesting}
-                      >
-                        {isTesting ? t('providerKeys.testing') : testRes
-                          ? (testRes.success ? t('providerKeys.testSuccess') : t('providerKeys.testFailed'))
-                          : t('providerKeys.testKey')
-                        }
-                      </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                        <button
+                          style={{
+                            ...styles.actionBtn,
+                            ...(testRes?.success ? styles.testSuccessBtn : {}),
+                            ...(testRes && !testRes.success ? styles.testFailBtn : {}),
+                          }}
+                          onClick={() => handleTest(k.id)}
+                          disabled={isTesting}
+                        >
+                          {isTesting ? t('providerKeys.testing') : testRes
+                            ? (testRes.success ? t('providerKeys.testSuccess') : t('providerKeys.testFailed'))
+                            : t('providerKeys.testKey')
+                          }
+                        </button>
+                        {testRes && !testRes.success && testRes.message && (
+                          <span style={{ fontSize: '11px', color: '#EF4444', maxWidth: '150px', textAlign: 'right' }}>
+                            {testRes.message}
+                          </span>
+                        )}
+                      </div>
                       <button style={styles.actionBtn} onClick={() => openEditModal(k)}>
                         {t('common.edit')}
                       </button>

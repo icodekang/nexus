@@ -259,6 +259,26 @@ export async function fetchSubscription() {
 }
 
 /**
+ * PlanInfo - 套餐信息
+ */
+export interface PlanInfo {
+  plan: string;
+  name: string;
+  price_monthly: number;
+  price_yearly: number;
+  price_team_monthly: number;
+  features: string[];
+}
+
+/**
+ * fetchPlans - 获取可用订阅套餐列表
+ * @returns 套餐列表
+ */
+export async function fetchPlans() {
+  return request<{ plans: PlanInfo[] }>('/v1/me/subscription/plans');
+}
+
+/**
  * fetchUsage - 获取使用量统计
  * @returns 周期内的 token 使用量和配额信息
  */

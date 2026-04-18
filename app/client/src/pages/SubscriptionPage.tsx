@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Check, Sparkles, Zap } from 'lucide-react';
+import { Check, Sparkles, Zap, TrendingUp, Activity } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { fetchSubscription, subscribeToPlan } from '../api/client';
+import { fetchSubscription, subscribeToPlan, fetchUsage, fetchPlans, type UsageData, type PlanInfo } from '../api/client';
 import { getErrorMessage } from '../utils/errors';
 import './SubscriptionPage.css';
 
@@ -27,14 +27,18 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [availablePlans, setAvailablePlans] = useState<PlanInfo[]>([]);
 
-  // 加载当前订阅状态
+  // 加载当前订阅状态、使用量和套餐列表
   useEffect(() => {
-    fetchSubscription()
-      .then((sub) => {
+    Promise.all([fetchSubscription(), fetchUsage(), fetchPlans()])
+      .then(([sub, usageData, plansData]) => {
         if (sub.is_active && sub.subscription_plan) {
           setCurrentPlan(sub.subscription_plan);
         }
+        setUsage(usageData);
+        setAvailablePlans(plansData.plans);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -62,8 +66,44 @@ export default function SubscriptionPage() {
     }
   };
 
-  // 套餐列表配置
-  const plans: Plan[] = [
+  // 将 API PlanInfo 映射为本地 Plan 格式
+  const mapApiPlanToLocal = (apiPlan: PlanInfo, index: number): Plan => {
+    const period = t('subscription.perMonth');
+    const billedLabel = t('subscription.billedMonthly');
+
+    // 根据索引和 plan 名称确定 badge
+    let badge: string | undefined;
+    let badgeType: 'recommended' | 'best' | undefined;
+    let highlighted = false;
+
+    if (apiPlan.plan === 'autoRenew' || apiPlan.plan === 'recommended') {
+      badge = t('subscription.recommended');
+      badgeType = 'recommended';
+      highlighted = true;
+    } else if (apiPlan.plan === 'yearly' || apiPlan.plan === 'best_value') {
+      badge = t('subscription.bestValue');
+      badgeType = 'best';
+    }
+
+    return {
+      key: apiPlan.plan,
+      price: apiPlan.plan.includes('yearly') ? `$${apiPlan.price_yearly}` : `$${apiPlan.price_monthly}`,
+      period,
+      badge,
+      badgeType,
+      billedLabel,
+      features: apiPlan.features || [],
+      highlighted,
+    };
+  };
+
+  // 使用 API 数据或兜底硬编码
+  const displayPlans: Plan[] = availablePlans.length > 0
+    ? availablePlans.map(mapApiPlanToLocal)
+    : defaultPlans;
+
+  // 套餐列表配置（兜底数据）
+  const defaultPlans: Plan[] = [
     {
       key: 'zeroToken',
       price: '¥10',
@@ -175,9 +215,31 @@ export default function SubscriptionPage() {
         )}
       </header>
 
+      {/* 使用量统计 */}
+      {usage && (
+        <div className="usage-stats">
+          <div className="usage-stat">
+            <Activity size={16} />
+            <span className="usage-stat-label">{t('subscription.totalRequests')}</span>
+            <span className="usage-stat-value">{usage.total_requests.toLocaleString()}</span>
+          </div>
+          <div className="usage-stat">
+            <TrendingUp size={16} />
+            <span className="usage-stat-label">{t('subscription.totalTokens')}</span>
+            <span className="usage-stat-value">{usage.total_tokens.toLocaleString()}</span>
+          </div>
+          {usage.token_quota && (
+            <div className="usage-stat">
+              <span className="usage-stat-label">{t('subscription.quotaUsed')}</span>
+              <span className="usage-stat-value">{usage.quota_used_percent.toFixed(1)}%</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 套餐卡片网格 */}
       <div className="subscription-grid">
-        {plans.map((plan) => (
+        {displayPlans.map((plan) => (
           <div
             key={plan.key}
             className={`subscription-card ${plan.highlighted ? 'highlighted' : ''} ${isCurrentPlan(plan.key) ? 'selected' : ''}`}

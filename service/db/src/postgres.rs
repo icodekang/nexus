@@ -809,6 +809,7 @@ impl PostgresPool {
         name: Option<&str>,
         slug: Option<&str>,
         model_id: Option<&str>,
+        provider_id: Option<Uuid>,
         context_window: Option<i32>,
         capabilities: Option<serde_json::Value>,
         is_active: Option<bool>,
@@ -819,9 +820,10 @@ impl PostgresPool {
                 name = COALESCE($2, name),
                 slug = COALESCE($3, slug),
                 model_id = COALESCE($4, model_id),
-                context_window = COALESCE($5, context_window),
-                capabilities = COALESCE($6, capabilities),
-                is_active = COALESCE($7, is_active)
+                provider_id = COALESCE($5, provider_id),
+                context_window = COALESCE($6, context_window),
+                capabilities = COALESCE($7, capabilities),
+                is_active = COALESCE($8, is_active)
             WHERE id = $1
             "#,
         )
@@ -829,6 +831,7 @@ impl PostgresPool {
         .bind(name)
         .bind(slug)
         .bind(model_id)
+        .bind(provider_id)
         .bind(context_window)
         .bind(capabilities)
         .bind(is_active)

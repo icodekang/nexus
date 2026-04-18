@@ -116,6 +116,7 @@ export default function Models() {
         name: formName,
         slug: formSlug,
         model_id: formModelId,
+        provider_id: formProviderId || undefined,
         context_window: parseInt(formContext) || editModel.context_window,
         capabilities: formCaps.split(',').map((c) => c.trim()).filter(Boolean),
       });

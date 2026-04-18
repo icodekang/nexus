@@ -403,6 +403,7 @@ struct UpdateModelRequest {
     name: Option<String>,
     slug: Option<String>,
     model_id: Option<String>,
+    provider_id: Option<String>,
     context_window: Option<i32>,
     capabilities: Option<Vec<String>>,
     is_active: Option<bool>,
@@ -420,6 +421,12 @@ async fn update_model(
     let model_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid model ID".to_string()))?;
 
+    let provider_id = if let Some(ref pid) = body.provider_id {
+        Some(Uuid::parse_str(pid).map_err(|_| ApiError::InvalidRequest("Invalid provider_id".to_string()))?)
+    } else {
+        None
+    };
+
     let caps_json = body.capabilities.map(|c| serde_json::to_value(&c).unwrap());
 
     state.db.update_model(
@@ -427,6 +434,7 @@ async fn update_model(
         body.name.as_deref(),
         body.slug.as_deref(),
         body.model_id.as_deref(),
+        provider_id,
         body.context_window,
         caps_json,
         body.is_active,

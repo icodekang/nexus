@@ -188,6 +188,9 @@ export const zh = {
     feat100kTokens: '10万 tokens/月',
     featClaudeSupport: '支持 Claude.ai',
     featChatGPTSupport: '支持 ChatGPT',
+    totalRequests: '总请求数',
+    totalTokens: '总 Tokens',
+    quotaUsed: '配额使用',
   },
   guide: {
     title: '快速入门指南',

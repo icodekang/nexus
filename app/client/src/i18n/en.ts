@@ -188,6 +188,9 @@ export const en = {
     feat100kTokens: '100K tokens/month',
     featClaudeSupport: 'Claude.ai support',
     featChatGPTSupport: 'ChatGPT support',
+    totalRequests: 'Total Requests',
+    totalTokens: 'Total Tokens',
+    quotaUsed: 'Quota Used',
   },
   guide: {
     title: 'Quick Start Guide',

@@ -20,6 +20,8 @@ export const zh = {
     confirm: '确认',
     viewDetails: '查看详情',
     deleteConfirm: '确定要删除此项吗？',
+    prev: '上一页',
+    next: '下一页',
   },
   login: {
     title: '欢迎回来',
@@ -81,6 +83,7 @@ export const zh = {
     statusLabel: '状态',
     selectPlan: '选择套餐',
     selectStatus: '选择状态',
+    pageInfo: '第 {{page}} 页，共 {{totalPages}} 页（共 {{total}} 条）',
   },
   providers: {
     title: '服务商',
@@ -146,6 +149,7 @@ export const zh = {
     detailDate: '日期',
     refundAction: '退款',
     refundConfirm: '确定要退款此交易吗？',
+    pageInfo: '第 {{page}} 页，共 {{totalPages}} 页（共 {{total}} 条）',
   },
   providerKeys: {
     title: '密钥管理',

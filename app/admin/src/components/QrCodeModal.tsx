@@ -30,7 +30,11 @@ export default function QrCodeModal({ account, qrData, onClose, onSuccess }: QrC
   useEffect(() => {
     // 连接 SSE 监听账号认证状态变化
     const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
-    const sse = new EventSource(`${API_BASE}/admin/accounts/${account.id}/status`);
+    const token = localStorage.getItem('nexus_admin_token');
+    const sseUrl = token
+      ? `${API_BASE}/admin/accounts/${account.id}/status?token=${encodeURIComponent(token)}`
+      : `${API_BASE}/admin/accounts/${account.id}/status`;
+    const sse = new EventSource(sseUrl);
     eventSourceRef.current = sse;
 
     // 收到消息：认证成功则关闭弹窗，认证失败则显示错误
@@ -51,7 +55,8 @@ export default function QrCodeModal({ account, qrData, onClose, onSuccess }: QrC
     };
 
     sse.onerror = () => {
-      // SSE 连接错误时静默处理
+      setError('Connection lost. Please try again.');
+      sse.close();
     };
 
     return () => {

@@ -26,31 +26,36 @@ export default function Users() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(20);
   const [loading, setLoading] = useState(true);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
   const [formPhone, setFormPhone] = useState('');
   const [formPlan, setFormPlan] = useState('monthly');
+
+  const totalPages = Math.ceil(total / perPage);
 
   // 防抖搜索：300ms 延迟更新搜索关键词，避免频繁请求
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // 搜索关键词变化时重置页码
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+    setPage(1);
+  }, [debouncedSearch]);
 
   const loadUsers = useCallback(() => {
     setLoading(true);
-    fetchUsers(1, 50, debouncedSearch)
+    fetchUsers(page, perPage, debouncedSearch)
       .then((res) => {
         setUsers(res.data);
         setTotal(res.total);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [debouncedSearch]);
+  }, [page, perPage, debouncedSearch]);
 
   useEffect(() => {
     loadUsers();
@@ -174,6 +179,31 @@ export default function Users() {
         </table>
       </div>
 
+      {/* 分页控件 */}
+      {totalPages > 1 && (
+        <div style={styles.pagination}>
+          <span style={styles.paginationInfo}>
+            {t('users.pageInfo', { page, totalPages, total })}
+          </span>
+          <div style={styles.paginationButtons}>
+            <button
+              style={{ ...styles.pageBtn, opacity: page <= 1 ? 0.5 : 1 }}
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              {t('common.prev')}
+            </button>
+            <button
+              style={{ ...styles.pageBtn, opacity: page >= totalPages ? 0.5 : 1 }}
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              {t('common.next')}
+            </button>
+          </div>
+        </div>
+      )}
+
       <Modal open={!!editUser} onClose={() => setEditUser(null)} title={t('users.editUser')}>
         <div style={formStyles.form}>
           <div style={formStyles.field}>
@@ -287,5 +317,32 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '5px 12px', backgroundColor: 'transparent', border: '1px solid #E7E5E4',
     borderRadius: '8px', fontSize: '11px', color: '#71717A', cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif", transition: 'all 0.1s ease',
+  },
+  pagination: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: '16px',
+    padding: '0 4px',
+  },
+  paginationInfo: {
+    fontSize: '13px',
+    color: '#71717A',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  paginationButtons: {
+    display: 'flex',
+    gap: '8px',
+  },
+  pageBtn: {
+    padding: '6px 14px',
+    borderRadius: '8px',
+    border: '1px solid #E7E5E4',
+    backgroundColor: '#FFFFFF',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#18181B',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
   },
 };
