@@ -17,6 +17,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - PORT=8080
+      - MIGRATIONS_PATH=/app/db/migrations
       # Provider API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -24,6 +25,8 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       # Custom Providers (JSON array)
       - CUSTOM_PROVIDERS=${CUSTOM_PROVIDERS:-}
+    volumes:
+      - ./service/db/migrations:/app/db/migrations:ro
     env_file:
       - .env
     depends_on:

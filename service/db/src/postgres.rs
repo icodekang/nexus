@@ -30,6 +30,10 @@ impl PostgresPool {
         &self.0
     }
 
+    pub fn pool(&self) -> &PgPool {
+        &self.0
+    }
+
     // ============ User operations ============
 
     pub async fn create_user(&self, user: &User) -> Result<(), DbError> {

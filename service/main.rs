@@ -43,6 +43,13 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
 
+    // 执行数据库迁移
+    let migrations_path = std::env::var("MIGRATIONS_PATH")
+        .unwrap_or_else(|_| "./db/migrations".to_string());
+    if let Err(e) = db::run_migrations(db.pool(), &migrations_path).await {
+        tracing::warn!("Failed to run migrations: {}. Continuing...", e);
+    }
+
     // 初始化 Redis 连接
     let redis = db::RedisPool::new(
         &std::env::var("REDIS_URL")
