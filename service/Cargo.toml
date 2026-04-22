@@ -16,12 +16,12 @@ edition = "2021"
 authors = ["nexus Team"]
 
 [package]
-name = "nexus-api"
+name = "nexus-service"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "nexus-api"
+name = "nexus-service"
 path = "main.rs"
 
 [dependencies]

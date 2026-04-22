@@ -1,0 +1,18 @@
+# Ignore target directories (not needed in build context except for pre-built binaries)
+**/target/debug
+**/target/doc
+**/target/.fingerprint
+**/target/incremental
+**/node_modules
+**/.git
+**/.DS_Store
+**/*.log
+
+# Ignore IDE/config files
+**/.vscode
+**/.idea
+**/CLAUDE.md
+
+# Ignore Docker files (except docker-compose)
+**/Dockerfile*
+!**/docker-compose*

@@ -9,18 +9,19 @@ FROM rust:1.94-bookworm AS builder
 
 WORKDIR /app
 
-# Configure Chinese cargo mirror for faster builds
-RUN mkdir -p /root/.cargo && \
-    echo '[source.crates-io]' > /root/.cargo/config.toml && \
-    echo 'replace-with = "aliyun"' >> /root/.cargo/config.toml && \
-    echo '[source.aliyun]' >> /root/.cargo/config.toml && \
-    echo 'registry = "sparse+https://mirrors.aliyun.com/crates.io-index/"' >> /root/.cargo/config.toml
-
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure cargo mirror (USTC, tsinghua backup)
+RUN mkdir -p ~/.cargo && \
+    echo '[source.crates-io]' >> ~/.cargo/config.toml && \
+    echo 'replace-with = "ustc"' >> ~/.cargo/config.toml && \
+    echo '' >> ~/.cargo/config.toml && \
+    echo '[source.ustc]' >> ~/.cargo/config.toml && \
+    echo 'registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"' >> ~/.cargo/config.toml
 
 # Copy Cargo workspace files
 COPY Cargo.toml Cargo.lock* ./
@@ -42,7 +43,7 @@ RUN cargo build --release
 RUN for member in models db auth api router billing adapters; do rm -rf $member/src; done && rm -f main.rs
 
 # Copy actual source code
-COPY . ./
+COPY . .
 
 # Rebuild with actual code
 RUN touch main.rs && \
@@ -67,7 +68,7 @@ RUN groupadd --gid 1000 nexus && \
     useradd --uid 1000 --gid nexus --shell /bin/bash nexus
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/nexus-api /app/nexus-api
+COPY --from=builder /app/target/release/nexus-service /app/nexus-service
 
 # Set ownership
 RUN chown -R nexus:nexus /app
@@ -90,4 +91,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run
-CMD ["./nexus-api"]
+CMD ["./nexus-service"]
