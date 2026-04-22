@@ -223,6 +223,9 @@ pub struct ProviderKeyScheduler {
     loads: HashMap<uuid::Uuid, KeyLoad>,
     /// session_id → binding
     session_bindings: HashMap<String, SessionBinding>,
+    /// Tracks the last key a session was bound to, even after binding is removed.
+    /// Used to restore session affinity after key revival.
+    last_bound_key: HashMap<String, uuid::Uuid>,
     gain_factor: f64,
 }
 
@@ -233,6 +236,7 @@ impl ProviderKeyScheduler {
             keys: HashMap::new(),
             loads: HashMap::new(),
             session_bindings: HashMap::new(),
+            last_bound_key: HashMap::new(),
             gain_factor: 1.5,
         }
     }
@@ -524,32 +528,66 @@ impl ProviderKeyScheduler {
         if let Some(load) = self.loads.get_mut(&key_id) {
             load.record_failure();
         }
-        // Evict bindings pointing to this key, but preserve previous_key_id history.
-        let to_insert: Vec<(String, SessionBinding)> = self
-            .session_bindings
-            .iter()
-            .filter(|(_, b)| b.key_id == key_id)
-            .map(|(sid, b)| {
-                (
-                    sid.clone(),
-                    SessionBinding {
-                        key_id: b.previous_key_id.unwrap_or(key_id),
-                        last_used: b.last_used,
-                        previous_key_id: Some(key_id),
-                    },
-                )
-            })
-            .collect();
-        for (sid, binding) in to_insert {
-            self.session_bindings.insert(sid, binding);
+        // Only rotate binding when key becomes unhealthy (3rd consecutive failure).
+        let is_unhealthy = self.loads.get(&key_id)
+            .map(|l| !l.is_healthy)
+            .unwrap_or(false);
+
+        if !is_unhealthy {
+            return;
         }
-        self.session_bindings
-            .retain(|_, b| b.key_id != key_id);
+
+        // Collect updates and removals first to avoid borrow conflicts
+        let mut to_remove: Vec<String> = Vec::new();
+        let mut to_update: Vec<(String, uuid::Uuid)> = Vec::new();
+
+        for (sid, binding) in self.session_bindings.iter() {
+            if binding.key_id == key_id {
+                if let Some(prev) = binding.previous_key_id {
+                    if prev != key_id {
+                        to_update.push((sid.clone(), prev));
+                    } else {
+                        self.last_bound_key.insert(sid.clone(), key_id);
+                        to_remove.push(sid.clone());
+                    }
+                } else {
+                    self.last_bound_key.insert(sid.clone(), key_id);
+                    to_remove.push(sid.clone());
+                }
+            }
+        }
+
+        for (sid, new_key_id) in to_update {
+            if let Some(binding) = self.session_bindings.get_mut(&sid) {
+                binding.key_id = new_key_id;
+                binding.previous_key_id = Some(key_id);
+            }
+        }
+        for sid in to_remove {
+            self.session_bindings.remove(&sid);
+        }
     }
 
     pub fn revive_key(&mut self, key_id: uuid::Uuid) {
         if let Some(load) = self.loads.get_mut(&key_id) {
             load.mark_healthy();
+        }
+        // First, restore bindings waiting with previous_key_id
+        for binding in self.session_bindings.values_mut() {
+            if binding.previous_key_id == Some(key_id) {
+                binding.key_id = key_id;
+                binding.previous_key_id = None;
+            }
+        }
+        // Then, restore bindings for sessions that had this key as their last bound key
+        for (sid, &last_key) in self.last_bound_key.iter() {
+            if last_key == key_id && !self.session_bindings.contains_key(sid) {
+                self.session_bindings.insert(sid.clone(), SessionBinding {
+                    key_id,
+                    last_used: Instant::now(),
+                    previous_key_id: None,
+                });
+            }
         }
     }
 
