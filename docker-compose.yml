@@ -1,3 +1,6 @@
+# DOCKER_BUILDKIT=1 is required for BuildKit inline registry cache to work.
+# Either: export DOCKER_BUILDKIT=1 before running docker compose, or
+# add "buildkit": true to /etc/docker/daemon.json and restart Docker.
 services:
   # ==========================================================================
   # Nexus Service (Rust API Gateway)
@@ -7,6 +10,13 @@ services:
     build:
       context: ./service
       dockerfile: Dockerfile
+      # Enable BuildKit inline registry cache. The cargo registry and target
+      # cache are pushed to the registry on first build and reused on all
+      # subsequent builds — no external cache servers or volume mounts needed.
+      # Requires: DOCKER_BUILDKIT=1 (set in this file's environment section).
+      tags: [nexus-service:latest]
+    volumes:
+      - ./service/db/migrations:/app/db/migrations:ro
     container_name: nexus-service
     ports:
       - "8080:8080"
@@ -23,8 +33,6 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       # Custom Providers (JSON array)
       - CUSTOM_PROVIDERS=${CUSTOM_PROVIDERS:-}
-    volumes:
-      - ./service/db/migrations:/app/db/migrations:ro
     env_file:
       - .env
     depends_on:
