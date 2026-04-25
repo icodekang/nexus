@@ -129,20 +129,22 @@ async fn main() -> anyhow::Result<()> {
         .layer(auth_mw.clone());
 
     // ── 管理员路由 ────────────────────────────────────────────────────
-    // 注意：auth_mw 必须在 admin_mw 之前（后添加的 layer 先执行）
+    // 注意：auth_mw 必须在 admin_mw 之前执行（先添加的 layer 先执行）
     let admin = Router::new()
         .nest("/admin", routes::admin::routes())
-        .layer(auth_mw.clone())
-        .layer(admin_mw);
+        .layer(admin_mw)
+        .layer(auth_mw.clone());
 
     // 合并所有路由并附加状态
     // `.with_state()` 将 router 转换为 `Router<()>` 以支持 `into_make_service()`
+    // `Extension(state)` 让 from_fn 中间件能通过 req.extensions() 获取 AppState
     let app = Router::new()
         .merge(public)
         .merge(v1)
         .merge(me)
         .merge(admin)
         .layer(cors)
+        .layer(axum::Extension(state.clone()))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));

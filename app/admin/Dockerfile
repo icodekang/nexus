@@ -18,7 +18,11 @@ RUN npm install
 # Copy source code
 COPY . ./
 
-# Build
+# Build — VITE_API_BASE defaults to "" so the frontend uses relative
+# paths for API calls.  Nginx proxies /v1/ and /admin/ to the backend,
+# avoiding cross-origin issues entirely.
+ARG VITE_API_BASE=
+ENV VITE_API_BASE=${VITE_API_BASE}
 RUN npm run build
 
 # -----------------------------------------------------------------------------

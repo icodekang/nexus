@@ -28,7 +28,7 @@ export default function QrCodeModal({ account, qrData, onClose, onSuccess }: QrC
   // 连接 SSE 获取实时认证状态
   useEffect(() => {
     // 连接 SSE 监听账号认证状态变化
-    const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
+    const API_BASE: string = import.meta.env.VITE_API_BASE ?? '';
     const token = localStorage.getItem('nexus_admin_token');
     const sseUrl = token
       ? `${API_BASE}/admin/accounts/${account.id}/status?token=${encodeURIComponent(token)}`
