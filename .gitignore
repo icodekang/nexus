@@ -67,6 +67,7 @@ credentials/
 
 # claude
 .claude
+CLAUDE.md
 
 # Terraform
 *.tfstate
