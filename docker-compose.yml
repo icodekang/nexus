@@ -1,6 +1,3 @@
-# DOCKER_BUILDKIT=1 is required for BuildKit inline registry cache to work.
-# Either: export DOCKER_BUILDKIT=1 before running docker compose, or
-# add "buildkit": true to /etc/docker/daemon.json and restart Docker.
 services:
   # ==========================================================================
   # Nexus Service (Rust API Gateway)
