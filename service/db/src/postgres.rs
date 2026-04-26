@@ -297,8 +297,19 @@ impl PostgresPool {
         Ok(row.map(|r| self.row_to_model(&r)))
     }
 
+    pub async fn model_slug_exists(&self, slug: &str) -> Result<bool, DbError> {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM models WHERE slug = $1)")
+            .bind(slug)
+            .fetch_one(self.inner())
+            .await?;
+        Ok(exists)
+    }
+
     fn row_to_model(&self, row: &PgRow) -> LlmModel {
         use models::ModelMode;
+        
+        let capabilities: serde_json::Value = row.get("capabilities");
+        let capabilities: Vec<String> = serde_json::from_value(capabilities).unwrap_or_default();
         
         LlmModel {
             id: row.get("id"),
@@ -312,7 +323,7 @@ impl PostgresPool {
                 _ => ModelMode::Chat,
             },
             context_window: row.get("context_window"),
-            capabilities: row.get("capabilities"),
+            capabilities,
             is_active: row.get("is_active"),
             created_at: row.get("created_at"),
         }
@@ -799,7 +810,7 @@ impl PostgresPool {
     }
 
     pub async fn list_all_models(&self) -> Result<Vec<LlmModel>, DbError> {
-        let rows = sqlx::query("SELECT * FROM models ORDER BY name")
+        let rows = sqlx::query("SELECT * FROM models WHERE is_active = true ORDER BY name")
             .fetch_all(self.inner())
             .await?;
 
@@ -812,7 +823,7 @@ impl PostgresPool {
         name: Option<&str>,
         slug: Option<&str>,
         model_id: Option<&str>,
-        provider_id: Option<Uuid>,
+        provider_id: Option<&str>,
         context_window: Option<i32>,
         capabilities: Option<serde_json::Value>,
         is_active: Option<bool>,

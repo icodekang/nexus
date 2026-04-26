@@ -69,6 +69,10 @@ export default function Models() {
   const openAddModal = () => {
     resetForm();
     setShowAddModal(true);
+    // Refresh providers when opening the modal
+    fetchProviders()
+      .then((res) => setProviders(res.data))
+      .catch(() => {});
   };
 
   const openEditModal = (m: AdminModel) => {

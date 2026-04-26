@@ -403,6 +403,14 @@ async fn create_model(
         _ => ModelMode::Chat,
     };
 
+    // Check for duplicate slug
+    let slug_exists = state.db.model_slug_exists(&body.slug).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("DB error: {}", e)))?;
+
+    if slug_exists {
+        return Err(ApiError::InvalidRequest(format!("Model with slug '{}' already exists", body.slug)));
+    }
+
     let model = LlmModel::new(
         body.provider_id,
         body.name,
@@ -453,12 +461,6 @@ async fn update_model(
     let model_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid model ID".to_string()))?;
 
-    let provider_id = if let Some(ref pid) = body.provider_id {
-        Some(Uuid::parse_str(pid).map_err(|_| ApiError::InvalidRequest("Invalid provider_id".to_string()))?)
-    } else {
-        None
-    };
-
     let caps_json = body.capabilities.map(|c| serde_json::to_value(&c).unwrap());
 
     state.db.update_model(
@@ -466,7 +468,7 @@ async fn update_model(
         body.name.as_deref(),
         body.slug.as_deref(),
         body.model_id.as_deref(),
-        provider_id,
+        body.provider_id.as_deref(),
         body.context_window,
         caps_json,
         body.is_active,
