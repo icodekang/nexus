@@ -240,7 +240,8 @@ export default function ProviderKeys() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Provider Keys Table */}
+      {activeTab === 'provider' && (
       <div style={styles.tableCard}>
         <table style={styles.table}>
           <thead>
@@ -377,6 +378,7 @@ export default function ProviderKeys() {
           </div>
         )}
       </div>
+      )}
 
       {/* User API Keys Table */}
       {activeTab === 'user' && (
