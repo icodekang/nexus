@@ -603,16 +603,6 @@ async fn create_provider_key(
     Extension(_auth): Extension<AuthContext>,
     Json(body): Json<CreateProviderKeyRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Check if provider key already exists
-    let existing_keys = state.db.list_provider_keys().await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to check existing keys: {}", e)))?;
-
-    if let Some(_existing) = existing_keys.iter().find(|k| k.provider_slug == body.provider_slug) {
-        return Err(ApiError::InvalidRequest(
-            format!("Provider key for '{}' already exists. Please edit the existing key instead.", body.provider_slug)
-        ));
-    }
-
     let encrypted = encode_api_key(&body.api_key);
     let prefix = extract_key_prefix(&body.api_key);
 
