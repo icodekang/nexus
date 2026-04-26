@@ -98,7 +98,7 @@ export const zh = {
     changePhone: '使用其他手机号码',
   },
   layout: {
-    chat: '对话',
+    chat: '搜索',
     models: '模型',
     apiKeys: 'API 密钥',
     subscription: '订阅',

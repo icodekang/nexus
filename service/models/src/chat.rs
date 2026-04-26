@@ -321,3 +321,57 @@ impl EmbeddingsResponse {
         }
     }
 }
+
+// ── 批量查询（多模型对比） ──────────────────────────────────────────────────
+
+/// 批量聊天请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchChatRequest {
+    /// 消息列表
+    pub messages: Vec<Message>,
+    /// 指定模型列表（可选，不传则系统智能选择）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<String>>,
+    /// 最大输出 Token 数
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<i32>,
+}
+
+/// 单个模型的查询结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelResult {
+    /// 模型标识
+    pub model: String,
+    /// Provider 标识
+    pub provider: String,
+    /// 回答内容
+    pub content: String,
+    /// 评分（1.0-1.0）
+    pub score: f64,
+    /// 评分理由
+    pub reason: String,
+    /// 请求延迟（毫秒）
+    pub latency_ms: u64,
+    /// Token 使用统计
+    pub usage: Usage,
+    /// 是否成功
+    pub success: bool,
+    /// 错误信息（失败时）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// 批量聊天响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchChatResponse {
+    /// 响应 ID
+    pub id: String,
+    /// 用户问题
+    pub query: String,
+    /// 各模型结果（已按评分降序排列）
+    pub results: Vec<ModelResult>,
+    /// 评分使用的模型
+    pub judge_model: String,
+    /// 总耗时（毫秒）
+    pub total_latency_ms: u64,
+}

@@ -34,6 +34,7 @@ use crate::state::AppState;
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/chat/completions", post(chat::chat_completions))
+        .route("/chat/batch", post(chat::chat_batch))
         .route("/completions", post(chat::completions))
         .route("/embeddings", post(chat::embeddings))
         .route("/models", axum::routing::get(models::list_models))

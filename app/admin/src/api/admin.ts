@@ -33,6 +33,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('nexus_admin_token');
+      localStorage.removeItem('nexus_admin_user');
+      window.location.href = '/login';
+      throw new AdminApiError('Session expired', 'unauthorized');
+    }
     const err = await res.json().catch(() => ({ error: { message: 'Request failed', code: 'request_failed' } }));
     const message = err.error?.message || 'Request failed';
     const code = err.error?.code || 'request_failed';
@@ -91,6 +97,42 @@ export interface DashboardStats {
  */
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   return request<DashboardStats>('/admin/dashboard/stats');
+}
+
+/**
+ * RevenueTrend - 收入趋势数据点
+ */
+export interface RevenueTrend {
+  label: string;
+  value: number;
+  date: string;
+}
+
+/**
+ * fetchRevenueTrends - 获取收入趋势数据
+ * @param days - 天数（7 或 30）
+ * @returns 每日收入数据点列表
+ */
+export async function fetchRevenueTrends(days: number = 30): Promise<RevenueTrend[]> {
+  return request<RevenueTrend[]>(`/admin/dashboard/revenue-trends?days=${days}`);
+}
+
+/**
+ * RecentActivity - 最近活动项
+ */
+export interface RecentActivity {
+  user_email: string;
+  action_type: string;
+  description: string;
+  time_ago: string;
+}
+
+/**
+ * fetchRecentActivity - 获取最近活动列表
+ * @returns 最近活动数据
+ */
+export async function fetchRecentActivity(): Promise<RecentActivity[]> {
+  return request<RecentActivity[]>('/admin/dashboard/recent-activity');
 }
 
 // ============ Users 用户管理 ============

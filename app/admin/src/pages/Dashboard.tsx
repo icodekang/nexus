@@ -5,71 +5,48 @@
  */
 import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
-import { fetchDashboardStats, type DashboardStats } from '../api/admin';
+import { fetchDashboardStats, fetchRevenueTrends, fetchRecentActivity, type DashboardStats, type RevenueTrend, type RecentActivity } from '../api/admin';
 
 type TimeRange = '30d' | '7d';
 
-// 时间范围选项对应的图表数据（模拟数据，用于展示趋势）
-const chartDataMap: Record<TimeRange, { label: string; value: number }[]> = {
-  '30d': [
-    { label: 'Jul', value: 28000 },
-    { label: 'Aug', value: 32000 },
-    { label: 'Sep', value: 35000 },
-    { label: 'Oct', value: 38000 },
-    { label: 'Nov', value: 42000 },
-    { label: 'Dec', value: 45678 },
-  ],
-  '7d': [
-    { label: 'Mon', value: 3200 },
-    { label: 'Tue', value: 2800 },
-    { label: 'Wed', value: 3600 },
-    { label: 'Thu', value: 4100 },
-    { label: 'Fri', value: 3900 },
-    { label: 'Sat', value: 2100 },
-    { label: 'Sun', value: 1880 },
-  ],
-};
-
-// 最近活动数据（模拟数据，用于展示用户行为）
-const activities = [
-  { user: 'user@company.com', actionKey: 'dashboard.purchasedPlan', actionParams: { plan: 'Yearly' }, time: '2m' },
-  { user: 'john@company.com', actionKey: 'dashboard.madeApiCall', time: '5m' },
-  { user: 'jane@company.com', actionKey: 'dashboard.upgradedTo', actionParams: { plan: 'Team' }, time: '12m' },
-  { user: 'bob@company.com', actionKey: 'dashboard.subscriptionExpired', time: '1h' },
-];
-
-/**
- * Dashboard - 管理员仪表盘主组件
- * @description 获取并展示系统统计数据、收入图表和最近活动
- */
 export default function Dashboard() {
   const { t } = useI18n();
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [timeRange, setTimeRange] = useState<TimeRange>('7d');
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [chartData, setChartData] = useState<RevenueTrend[]>([]);
+  const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
-  // 组件挂载时从 API 获取统计数据
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchDashboardStats()
-      .then((data) => {
-        if (!cancelled) setStats(data);
-      })
-      .catch(() => {
-        // 错误时保持默认值
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    Promise.all([
+      fetchDashboardStats(),
+      fetchRevenueTrends(7),
+      fetchRecentActivity(),
+    ]).then(([statsData, trendData, activityData]) => {
+      if (cancelled) return;
+      setStats(statsData);
+      setChartData(trendData);
+      setActivities(activityData);
+    }).catch(() => {}).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
     return () => { cancelled = true; };
   }, []);
 
-  // 根据选择的时间范围获取图表数据，并计算最大值用于柱状图比例
-  const chartData = chartDataMap[timeRange];
-  const maxValue = Math.max(...chartData.map((d) => d.value));
+  useEffect(() => {
+    let cancelled = false;
+    const days = timeRange === '7d' ? 7 : 30;
+    fetchRevenueTrends(days)
+      .then((data) => { if (!cancelled) setChartData(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [timeRange]);
 
-  // 统计卡片配置：颜色、标题、数值
+  const maxValue = chartData.length > 0 ? Math.max(...chartData.map((d) => d.value)) : 1;
+
   const statMetas = [
     { title: t('dashboard.totalUsers'), color: '#6366F1', value: stats ? String(stats.total_users) : '-', change: '' },
     { title: t('dashboard.activeSubscriptions'), color: '#22C55E', value: stats ? String(stats.active_subscriptions) : '-', change: '' },
@@ -79,7 +56,6 @@ export default function Dashboard() {
 
   return (
     <div style={styles.container}>
-      {/* 页面头部：标题 + 时间范围选择器 */}
       <header style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>{t('dashboard.title')}</h1>
@@ -90,12 +66,11 @@ export default function Dashboard() {
           value={timeRange}
           onChange={(e) => setTimeRange(e.target.value as TimeRange)}
         >
-          <option value="30d">{t('dashboard.last30Days')}</option>
           <option value="7d">{t('dashboard.last7Days')}</option>
+          <option value="30d">{t('dashboard.last30Days')}</option>
         </select>
       </header>
 
-      {/* 统计卡片区域 */}
       <div style={styles.statsGrid}>
         {statMetas.map((stat, i) => (
           <div key={i} style={styles.statCard}>
@@ -111,29 +86,49 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* 主内容区域：收入图表 + 最近活动 */}
       <div style={styles.mainGrid}>
         {/* 收入概览图表 */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>{t('dashboard.revenueOverview')}</h2>
             <span style={styles.cardBadge}>
-              {timeRange === '30d' ? '2024' : t('dashboard.last7Days')}
+              {timeRange === '30d' ? t('dashboard.last30Days') : t('dashboard.last7Days')}
             </span>
           </div>
-          {/* 柱状图：根据数值自动计算高度比例 */}
           <div style={styles.chart}>
             {chartData.map((d, i) => (
-              <div key={i} style={styles.chartCol}>
+              <div
+                key={i}
+                style={styles.chartCol}
+                onMouseEnter={() => setHoveredBar(i)}
+                onMouseLeave={() => setHoveredBar(null)}
+              >
                 <div style={styles.chartBarTrack}>
                   <div
                     style={{
                       ...styles.chartBarFill,
-                      height: `${(d.value / maxValue) * 100}%`,
+                      height: maxValue > 0 ? `${Math.max((d.value / maxValue) * 100, 2)}%` : '2%',
+                      backgroundColor: d.value > 0
+                        ? (hoveredBar === i ? '#4F46E5' : '#6366F1')
+                        : '#E7E5E4',
+                      transform: hoveredBar === i ? 'scaleX(1.1)' : 'scaleX(1)',
                     }}
                   />
                 </div>
-                <span style={styles.chartLabel}>{d.label}</span>
+                {/* 悬浮提示 */}
+                {hoveredBar === i && (
+                  <div style={styles.tooltip}>
+                    ${d.value.toFixed(2)}
+                    <div style={styles.tooltipDate}>{d.date}</div>
+                  </div>
+                )}
+                <span style={{
+                  ...styles.chartLabel,
+                  color: hoveredBar === i ? '#18181B' : '#A1A1AA',
+                  fontWeight: hoveredBar === i ? 600 : 400,
+                }}>
+                  {d.label}
+                </span>
               </div>
             ))}
           </div>
@@ -145,19 +140,23 @@ export default function Dashboard() {
             <h2 style={styles.cardTitle}>{t('dashboard.recentActivity')}</h2>
           </div>
           <div style={styles.activityList}>
+            {activities.length === 0 && (
+              <div style={styles.emptyActivity}>No recent activity</div>
+            )}
             {activities.map((item, i) => (
               <div key={i} style={styles.activityItem}>
-                {/* 用户头像首字母 */}
-                <div style={styles.activityAvatar}>
-                  {item.user.charAt(0).toUpperCase()}
+                <div style={{
+                  ...styles.activityAvatar,
+                  backgroundColor: item.action_type === 'api_call' ? '#EEF2FF' : '#F0FDF4',
+                  color: item.action_type === 'api_call' ? '#6366F1' : '#22C55E',
+                }}>
+                  {item.user_email.charAt(0).toUpperCase()}
                 </div>
                 <div style={styles.activityContent}>
-                  <span style={styles.activityAction}>
-                    {item.actionParams ? t(item.actionKey, item.actionParams) : t(item.actionKey)}
-                  </span>
-                  <span style={styles.activityUser}>{item.user}</span>
+                  <span style={styles.activityAction}>{item.description}</span>
+                  <span style={styles.activityUser}>{item.user_email}</span>
                 </div>
-                <span style={styles.activityTime}>{t('dashboard.timeAgo', { time: item.time })}</span>
+                <span style={styles.activityTime}>{item.time_ago}</span>
               </div>
             ))}
           </div>
@@ -290,8 +289,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    height: '120px',
+    height: '140px',
     paddingTop: '8px',
+    position: 'relative',
   },
   chartCol: {
     display: 'flex',
@@ -301,6 +301,8 @@ const styles: Record<string, React.CSSProperties> = {
     height: '100%',
     justifyContent: 'flex-end',
     gap: '8px',
+    position: 'relative',
+    cursor: 'pointer',
   },
   chartBarTrack: {
     width: '28px',
@@ -316,17 +318,50 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#6366F1',
     borderRadius: '6px',
     minHeight: '4px',
-    transition: 'height 0.3s ease',
+    transition: 'height 0.3s ease, background-color 0.15s ease, transform 0.15s ease',
+    transformOrigin: 'bottom center',
+  },
+  tooltip: {
+    position: 'absolute',
+    bottom: '100%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    marginBottom: '8px',
+    backgroundColor: '#18181B',
+    color: '#FFFFFF',
+    fontSize: '13px',
+    fontWeight: '600',
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '6px 10px',
+    borderRadius: '8px',
+    whiteSpace: 'nowrap',
+    zIndex: 10,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+  },
+  tooltipDate: {
+    fontSize: '10px',
+    fontWeight: '400',
+    color: '#A1A1AA',
+    marginTop: '2px',
+    textAlign: 'center',
   },
   chartLabel: {
     fontSize: '10px',
     color: '#A1A1AA',
     fontFamily: "'DM Sans', sans-serif",
+    transition: 'color 0.15s ease, font-weight 0.15s ease',
   },
   activityList: {
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
+  },
+  emptyActivity: {
+    fontSize: '13px',
+    color: '#A1A1AA',
+    textAlign: 'center',
+    padding: '32px 0',
+    fontFamily: "'DM Sans', sans-serif",
   },
   activityItem: {
     display: 'flex',
@@ -338,13 +373,11 @@ const styles: Record<string, React.CSSProperties> = {
     width: '30px',
     height: '30px',
     borderRadius: '8px',
-    backgroundColor: '#F5F5F4',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '12px',
     fontWeight: '600',
-    color: '#71717A',
     fontFamily: "'Instrument Sans', sans-serif",
     flexShrink: 0,
   },
@@ -360,6 +393,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '500',
     color: '#18181B',
     fontFamily: "'DM Sans', sans-serif",
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   activityUser: {
     fontSize: '11px',

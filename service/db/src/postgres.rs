@@ -1065,3 +1065,108 @@ pub struct DashboardStats {
     pub total_revenue: f64,
     pub api_calls_today: i64,
 }
+
+/// Revenue trend data point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevenueTrend {
+    pub label: String,
+    pub value: f64,
+    pub date: String,
+}
+
+/// Recent activity item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentActivity {
+    pub user_email: String,
+    pub action_type: String,
+    pub description: String,
+    pub time_ago: String,
+}
+
+impl PostgresPool {
+    pub async fn get_revenue_trends(&self, days: i32) -> Result<Vec<RevenueTrend>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                TO_CHAR(day, 'Dy') AS label,
+                COALESCE(SUM(t.amount), 0)::FLOAT8 AS value,
+                TO_CHAR(day, 'YYYY-MM-DD') AS date
+            FROM generate_series(
+                CURRENT_DATE - ($1::int - 1) * INTERVAL '1 day',
+                CURRENT_DATE,
+                INTERVAL '1 day'
+            ) AS day
+            LEFT JOIN transactions t
+                ON t.created_at::date = day::date
+                AND t.status = 'completed'
+                AND t.amount > 0
+            GROUP BY day
+            ORDER BY day
+            "#
+        )
+        .bind(days)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.into_iter().map(|row| RevenueTrend {
+            label: row.get("label"),
+            value: row.get::<f64, _>("value"),
+            date: row.get("date"),
+        }).collect())
+    }
+
+    pub async fn get_recent_activity(&self, limit: i64) -> Result<Vec<RecentActivity>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT * FROM (
+                SELECT
+                    u.email AS user_email,
+                    t.transaction_type AS action_type,
+                    CASE
+                        WHEN t.transaction_type = 'purchase' THEN 'Purchased ' || COALESCE(t.plan, 'plan')
+                        WHEN t.transaction_type = 'renewal' THEN 'Renewed ' || COALESCE(t.plan, 'plan')
+                        WHEN t.transaction_type = 'refund' THEN 'Refund processed'
+                        ELSE t.transaction_type
+                    END AS description,
+                    EXTRACT(EPOCH FROM (NOW() - t.created_at))::int AS seconds_ago
+                FROM transactions t
+                JOIN users u ON u.id = t.user_id
+
+                UNION ALL
+
+                SELECT
+                    u.email AS user_email,
+                    'api_call' AS action_type,
+                    'API call via ' || al.provider_id || ' (' || al.model_id || ')' AS description,
+                    EXTRACT(EPOCH FROM (NOW() - al.created_at))::int AS seconds_ago
+                FROM api_logs al
+                JOIN users u ON u.id = al.user_id
+            ) combined
+            ORDER BY seconds_ago ASC
+            LIMIT $1
+            "#
+        )
+        .bind(limit)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.into_iter().map(|row| {
+            let seconds: i32 = row.get("seconds_ago");
+            let time_ago = if seconds < 60 {
+                format!("{}s", seconds)
+            } else if seconds < 3600 {
+                format!("{}m", seconds / 60)
+            } else if seconds < 86400 {
+                format!("{}h", seconds / 3600)
+            } else {
+                format!("{}d", seconds / 86400)
+            };
+            RecentActivity {
+                user_email: row.get("user_email"),
+                action_type: row.get("action_type"),
+                description: row.get("description"),
+                time_ago,
+            }
+        }).collect())
+    }
+}

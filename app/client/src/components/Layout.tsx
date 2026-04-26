@@ -5,9 +5,8 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, Plus, Trash2, CreditCard } from 'lucide-react';
+import { Search, Key, BookOpen, Layers, LogOut, Zap, Menu, X, CreditCard, Plus } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
-import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
 import './Layout.css';
 
@@ -22,15 +21,10 @@ export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { t, locale, setLocale } = useI18n();
-  const {
-    selectedModel, createConversation,
-    conversations, activeConversationId,
-    setActiveConversation, deleteConversation,
-  } = useChatStore();
 
   // 导航菜单项配置
   const navItems = [
-    { to: '/chat', label: t('layout.chat'), icon: MessageSquare },
+    { to: '/search', label: t('layout.chat'), icon: Search },
     { to: '/models', label: t('layout.models'), icon: Layers },
     { to: '/keys', label: t('layout.apiKeys'), icon: Key },
     { to: '/subscription', label: t('layout.subscription'), icon: CreditCard },
@@ -87,42 +81,7 @@ export default function Layout() {
             </NavLink>
           ))}
 
-          {/* Mobile-only: inline conversation list */}
-          <div className="sidebar-conversations">
-            <div className="sidebar-conversations-divider">
-              <span className="sidebar-conversations-divider-label">{t('chat.conversations')}</span>
-            </div>
-            <div className="sidebar-conversations-list">
-              {conversations.length === 0 ? (
-                <div className="sidebar-conversations-empty">{t('chat.noConversations')}</div>
-              ) : (
-                conversations.map((c) => (
-                  <div
-                    key={c.id}
-                    className={`sidebar-conversation-item ${c.id === activeConversationId ? 'active' : ''}`}
-                    onClick={() => {
-                      setActiveConversation(c.id);
-                      setMobileMenuOpen(false);
-                      navigate('/chat');
-                    }}
-                  >
-                    <MessageSquare size={13} strokeWidth={1.75} />
-                    <span className="sidebar-conversation-title">{c.title}</span>
-                    <button
-                      className="sidebar-conversation-delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteConversation(c.id);
-                      }}
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </nav>
+          </nav>
 
         <div className="sidebar-footer">
           <div className="sidebar-user">
@@ -162,10 +121,7 @@ export default function Layout() {
           </div>
           <button
             className="mobile-new-chat-btn"
-            onClick={() => {
-              createConversation(selectedModel, t('chat.newChat'));
-              navigate('/chat');
-            }}
+            onClick={() => navigate('/search')}
           >
             <Plus size={18} />
           </button>

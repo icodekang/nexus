@@ -98,7 +98,7 @@ export const en = {
     changePhone: 'Use a different phone number',
   },
   layout: {
-    chat: 'Chat',
+    chat: 'Search',
     models: 'Models',
     apiKeys: 'API Keys',
     subscription: 'Subscription',

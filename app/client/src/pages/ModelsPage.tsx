@@ -53,7 +53,7 @@ export default function ModelsPage() {
   // 选择模型：更新全局选中状态并跳转到聊天页面
   const handleSelect = (modelId: string) => {
     setSelectedModel(modelId);
-    navigate('/chat');
+    navigate('/search');
   };
 
   return (

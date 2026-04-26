@@ -804,3 +804,380 @@ fn validate_chat_request(request: &ChatRequest, context_window: i32) -> Result<(
 
     Ok(())
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 批量查询（多模型对比）
+// ═══════════════════════════════════════════════════════════════════════════════
+
+use models::{BatchChatRequest, BatchChatResponse, ModelResult};
+
+/// POST /v1/chat/batch — 多模型并行查询 + LLM-as-Judge 评分
+pub async fn chat_batch(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    headers: HeaderMap,
+    Json(request): Json<BatchChatRequest>,
+) -> Result<Json<BatchChatResponse>, ApiError> {
+    let total_start = std::time::Instant::now();
+
+    // 1. Rate limiting
+    let user_id = auth.user.id.to_string();
+    let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
+    let (allowed, _, _) = state.redis
+        .check_rate_limit(&user_id, rpm, 60)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Rate limit check failed: {}", e)))?;
+    if !allowed {
+        return Err(ApiError::RateLimitExceeded);
+    }
+
+    // 2. Validate
+    if request.messages.is_empty() {
+        return Err(ApiError::InvalidRequest("messages must not be empty".to_string()));
+    }
+
+    // 3. Check subscription
+    check_subscription(&auth.user)?;
+    check_token_quota(&state, &auth.user).await?;
+
+    // 4. Get the user's last question
+    let user_query = request.messages.iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.content.clone())
+        .unwrap_or_default();
+
+    // 5. Select models
+    let all_models = state.db.list_models().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list models: {}", e)))?;
+
+    let selected_model_slugs = if let Some(ref models) = request.models {
+        models.clone()
+    } else {
+        smart_select_models(&user_query, &all_models)
+    };
+
+    if selected_model_slugs.is_empty() {
+        return Err(ApiError::InvalidRequest("No models available".to_string()));
+    }
+
+    // 6. Query all models in parallel
+    let session_id = extract_session_id(&headers)
+        .or_else(|| Some(auth.user.id.to_string()));
+
+    let mut tasks = Vec::new();
+
+    for model_slug in &selected_model_slugs {
+        let state_clone = state.clone();
+        let slug = model_slug.clone();
+        let messages = request.messages.clone();
+        let max_tokens = request.max_tokens;
+        let sid = session_id.clone();
+
+        // Find model info
+        let model_info = all_models.iter().find(|m| m.slug == *slug).cloned();
+
+        let task = tokio::spawn(async move {
+            let start = std::time::Instant::now();
+
+            let model = match model_info {
+                Some(m) => m,
+                None => return ModelResult {
+                    model: slug.clone(),
+                    provider: String::new(),
+                    content: String::new(),
+                    score: 0.0,
+                    reason: String::new(),
+                    latency_ms: 0,
+                    success: false,
+                    error: Some("Model not found".to_string()),
+                    usage: Usage::new(0, 0),
+                },
+            };
+
+            let provider_slug = model.provider_id.clone();
+
+            // Select key
+            let selected_key = {
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.tick();
+                sid.as_ref().and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
+            };
+
+            // Create client
+            let client_result = match &selected_key {
+                Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                    .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                None => HttpProviderClient::new(&provider_slug)
+                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                    .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+            };
+
+            let (client, key_id) = match client_result {
+                Ok(v) => v,
+                Err(e) => return ModelResult {
+                    model: slug.clone(),
+                    provider: provider_slug,
+                    content: String::new(),
+                    score: 0.0,
+                    reason: String::new(),
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    success: false,
+                    error: Some(format!("Client error: {}", e)),
+                    usage: Usage::new(0, 0),
+                },
+            };
+
+            // Build provider request
+            let provider_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
+                provider_client::Message {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                }
+            }).collect();
+
+            let provider_request = provider_client::ChatRequest {
+                provider: provider_slug.clone(),
+                model: model.model_id.clone(),
+                messages: provider_messages,
+                temperature: 0.7,
+                max_tokens,
+                stream: false,
+                extra: std::collections::HashMap::new(),
+            };
+
+            // Execute
+            match client.chat(provider_request).await {
+                Ok(response) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    let prompt_tokens = response.usage.get("prompt_tokens").copied().unwrap_or(0);
+                    let completion_tokens = response.usage.get("completion_tokens").copied().unwrap_or(0);
+
+                    record_key_result(&state_clone, &provider_slug, key_id, latency as i32, true).await;
+
+                    ModelResult {
+                        model: slug.clone(),
+                        provider: provider_slug,
+                        content: response.message.content,
+                        score: 0.0,
+                        reason: String::new(),
+                        latency_ms: latency,
+                        success: true,
+                        error: None,
+                        usage: Usage::new(prompt_tokens, completion_tokens),
+                    }
+                }
+                Err(e) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    record_key_result(&state_clone, &provider_slug, key_id, latency as i32, false).await;
+
+                    ModelResult {
+                        model: slug.clone(),
+                        provider: provider_slug,
+                        content: String::new(),
+                        score: 0.0,
+                        reason: String::new(),
+                        latency_ms: latency,
+                        success: false,
+                        error: Some(format!("{}", e)),
+                        usage: Usage::new(0, 0),
+                    }
+                }
+            }
+        });
+
+        tasks.push(task);
+    }
+
+    // Await all tasks
+    let mut results = Vec::new();
+    for task in tasks {
+        match task.await {
+            Ok(result) => results.push(result),
+            Err(e) => tracing::error!("Batch task join error: {}", e),
+        }
+    }
+
+    // 7. Filter successful results for scoring
+    let successful: Vec<&ModelResult> = results.iter().filter(|r| r.success).collect();
+
+    if !successful.is_empty() {
+        // 8. LLM-as-Judge scoring
+        match judge_responses(&state, &user_query, &successful).await {
+            Ok(scores) => {
+                for result in results.iter_mut() {
+                    if let Some(score_info) = scores.iter().find(|s| s.model == result.model) {
+                        result.score = score_info.score;
+                        result.reason = score_info.reason.clone();
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Judge scoring failed, using default: {}", e);
+                for result in results.iter_mut() {
+                    if result.success {
+                        result.score = (result.content.len() as f64 / 100.0).min(9.0).max(5.0);
+                        result.reason = "评分服务不可用".to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    // 9. Sort by score descending
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(Json(BatchChatResponse {
+        id: format!("batch-{}", uuid::Uuid::new_v4()),
+        query: user_query,
+        results,
+        judge_model: "gpt-4o".to_string(),
+        total_latency_ms: total_start.elapsed().as_millis() as u64,
+    }))
+}
+
+// ── 智能选模型 ─────────────────────────────────────────────────────────────
+
+/// 根据用户问题特征选择 3-4 个最合适的模型
+fn smart_select_models(query: &str, models: &[models::LlmModel]) -> Vec<String> {
+    let q = query.to_lowercase();
+
+    let code_keywords = ["代码", "编程", "函数", "bug", "debug", "code", "program", "function", "class", "api", "sql", "python", "rust", "java", "javascript", "typescript"];
+    let creative_keywords = ["写", "创作", "故事", "诗", "文章", "write", "story", "poem", "creative", "essay", "小说"];
+    let analysis_keywords = ["分析", "比较", "评估", "解释", "为什么", "analyze", "compare", "explain", "why", "推理", "逻辑"];
+
+    let is_code = code_keywords.iter().any(|k| q.contains(k));
+    let is_creative = creative_keywords.iter().any(|k| q.contains(k));
+    let is_analysis = analysis_keywords.iter().any(|k| q.contains(k));
+
+    let mut selected: Vec<String> = Vec::new();
+    let mut used_providers: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let priority_order: Vec<&str> = if is_code {
+        vec!["gpt-4o", "claude-3-5-sonnet", "deepseek-chat"]
+    } else if is_creative {
+        vec!["claude-3-5-sonnet", "gpt-4o", "gemini-1-5-pro"]
+    } else if is_analysis {
+        vec!["gpt-4o", "claude-3-5-sonnet", "gemini-1-5-pro"]
+    } else {
+        vec!["gpt-4o", "claude-3-5-sonnet", "gemini-1-5-pro", "deepseek-chat"]
+    };
+
+    for slug in priority_order {
+        if selected.len() >= 4 { break; }
+        if let Some(model) = models.iter().find(|m| m.slug == slug) {
+            if !used_providers.contains(&model.provider_id) {
+                selected.push(slug.to_string());
+                used_providers.insert(model.provider_id.clone());
+            }
+        }
+    }
+
+    if selected.len() < 3 {
+        for model in models {
+            if selected.len() >= 4 { break; }
+            if !selected.contains(&model.slug) && !used_providers.contains(&model.provider_id) {
+                selected.push(model.slug.clone());
+                used_providers.insert(model.provider_id.clone());
+            }
+        }
+    }
+
+    selected
+}
+
+// ── LLM-as-Judge 评分 ─────────────────────────────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+struct JudgeScore {
+    model: String,
+    score: f64,
+    reason: String,
+}
+
+/// 使用 LLM 对多个回答进行评分
+async fn judge_responses(
+    state: &Arc<AppState>,
+    question: &str,
+    results: &[&ModelResult],
+) -> Result<Vec<JudgeScore>, ApiError> {
+    let mut answers_block = String::new();
+    for r in results {
+        answers_block.push_str(&format!(
+            "---\n{} 的回答：\n{}\n---\n",
+            r.model,
+            &r.content[..r.content.len().min(2000)]
+        ));
+    }
+
+    let judge_prompt = format!(
+        r#"你是一个AI回答质量评审员。请根据以下标准对每个AI的回答进行评分(1.0-10.0)：
+- 准确性：事实是否正确
+- 完整性：是否充分回答了问题
+- 清晰度：表达是否清楚易懂
+- 有用性：对用户是否有实际帮助
+
+用户问题：{}
+
+{}
+
+请以纯JSON数组格式返回评分结果，不要包含其他文字：
+[{{"model": "模型名", "score": 8.5, "reason": "简短评语"}}, ...]"#,
+        question, answers_block
+    );
+
+    let judge_model = state.db.get_model_by_slug("gpt-4o").await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge model lookup failed: {}", e)))?
+        .ok_or_else(|| ApiError::ModelNotFound("gpt-4o".to_string()))?;
+
+    let provider_slug = judge_model.provider_id.clone();
+
+    let selected_key = {
+        let mut scheduler = state.key_scheduler.write().await;
+        scheduler.tick();
+        scheduler.select_key_no_session(&provider_slug)
+    };
+
+    let client = match &selected_key {
+        Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+            .map(|c| Arc::new(c) as Arc<dyn ProviderClient>)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?,
+        None => HttpProviderClient::new(&provider_slug)
+            .map(|c| Arc::new(c) as Arc<dyn ProviderClient>)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?,
+    };
+
+    let judge_request = provider_client::ChatRequest {
+        provider: provider_slug.clone(),
+        model: judge_model.model_id.clone(),
+        messages: vec![
+            provider_client::Message::system("你是一个专业的AI回答质量评审员。请严格按照要求的JSON格式返回评分结果。".to_string()),
+            provider_client::Message::user(judge_prompt),
+        ],
+        temperature: 0.3,
+        max_tokens: Some(2000),
+        stream: false,
+        extra: std::collections::HashMap::new(),
+    };
+
+    let response = client.chat(judge_request).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge call failed: {}", e)))?;
+
+    let content = response.message.content.trim();
+
+    let json_str = if let Some(start) = content.find('[') {
+        if let Some(end) = content.rfind(']') {
+            &content[start..=end]
+        } else {
+            content
+        }
+    } else {
+        content
+    };
+
+    let scores: Vec<JudgeScore> = serde_json::from_str(json_str)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse judge scores: {} | raw: {}", e, json_str)))?;
+
+    Ok(scores)
+}

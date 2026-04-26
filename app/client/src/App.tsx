@@ -8,7 +8,7 @@ import { useAuthStore } from './stores/authStore';
 import { I18nProvider } from './i18n';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
-import ChatPage from './pages/ChatPage';
+import SearchPage from './pages/SearchPage';
 import ModelsPage from './pages/ModelsPage';
 import KeysPage from './pages/KeysPage';
 import SubscriptionPage from './pages/SubscriptionPage';
@@ -29,7 +29,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
   if (isAuthenticated) {
-    return <Navigate to="/chat" replace />;
+    return <Navigate to="/search" replace />;
   }
   return <>{children}</>;
 }
@@ -49,15 +49,15 @@ function AppContent() {
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         {/* 受保护路由：聊天、模型、密钥、订阅、指南页面 */}
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<ChatPage />} />
+          <Route index element={<Navigate to="/search" replace />} />
+          <Route path="search" element={<SearchPage />} />
           <Route path="models" element={<ModelsPage />} />
           <Route path="keys" element={<KeysPage />} />
           <Route path="subscription" element={<SubscriptionPage />} />
           <Route path="guide" element={<GuidePage />} />
         </Route>
         {/* 未匹配路由重定向到聊天页 */}
-        <Route path="*" element={<Navigate to="/chat" replace />} />
+        <Route path="*" element={<Navigate to="/search" replace />} />
       </Routes>
     </BrowserRouter>
   );

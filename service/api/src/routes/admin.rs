@@ -39,7 +39,7 @@ use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use models::{Provider, ProviderKey, LlmModel, ModelMode};
-use db::postgres::DashboardStats;
+use db::postgres::{DashboardStats, RevenueTrend, RecentActivity};
 
 pub mod accounts;
 
@@ -47,6 +47,8 @@ pub mod accounts;
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/dashboard/stats", get(dashboard_stats))
+        .route("/dashboard/revenue-trends", get(revenue_trends))
+        .route("/dashboard/recent-activity", get(recent_activity))
         .route("/users", get(list_users))
         .route("/users/:id", put(update_user))
         .route("/providers", get(list_providers).post(create_provider))
@@ -75,7 +77,37 @@ async fn dashboard_stats(
     Ok(Json(stats))
 }
 
-// ============ 用户管理 ============
+/// GET /admin/dashboard/revenue-trends
+///
+/// 获取每日收入趋势数据
+async fn revenue_trends(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Query(params): Query<RevenueTrendsQuery>,
+) -> Result<Json<Vec<RevenueTrend>>, ApiError> {
+    let days = params.days.unwrap_or(30).clamp(7, 90);
+    let trends = state.db.get_revenue_trends(days).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get revenue trends: {}", e)))?;
+    Ok(Json(trends))
+}
+
+/// GET /admin/dashboard/recent-activity
+///
+/// 获取最近活动列表
+async fn recent_activity(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+) -> Result<Json<Vec<RecentActivity>>, ApiError> {
+    let activities = state.db.get_recent_activity(10).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get recent activity: {}", e)))?;
+    Ok(Json(activities))
+}
+
+/// 收入趋势查询参数
+#[derive(Debug, Deserialize)]
+struct RevenueTrendsQuery {
+    days: Option<i32>,
+}
 
 /// 用户查询参数
 #[derive(Debug, Deserialize)]

@@ -328,3 +328,51 @@ export async function subscribeToPlan(plan: string) {
     body: JSON.stringify({ plan }),
   });
 }
+
+// ── 批量查询（多模型对比） ──────────────────────────────────────────────────
+
+/**
+ * ModelResult - 单个模型的查询结果
+ */
+export interface ModelResult {
+  model: string;
+  provider: string;
+  content: string;
+  score: number;
+  reason: string;
+  latency_ms: number;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * BatchChatResponse - 批量查询响应
+ */
+export interface BatchChatResponse {
+  id: string;
+  query: string;
+  results: ModelResult[];
+  judge_model: string;
+  total_latency_ms: number;
+}
+
+/**
+ * fetchBatchChat - 多模型并行查询
+ * @param messages - 消息列表
+ * @param models - 可选指定模型列表
+ * @returns 各模型回答结果（已按评分排序）
+ */
+export async function fetchBatchChat(
+  messages: ChatMessage[],
+  models?: string[],
+): Promise<BatchChatResponse> {
+  const body: Record<string, unknown> = { messages };
+  if (models && models.length > 0) {
+    body.models = models;
+  }
+  return request<BatchChatResponse>('/v1/chat/batch', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}

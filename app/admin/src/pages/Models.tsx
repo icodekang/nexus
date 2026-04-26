@@ -8,10 +8,6 @@ import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchModels, createModel, updateModel, deleteModel, fetchProviders, type AdminModel, type AdminProvider } from '../api/admin';
 
-/**
- * Models - 模型管理主组件
- * @description 获取模型和提供商列表，支持添加/编辑/删除模型
- */
 export default function Models() {
   const { t } = useI18n();
   const [models, setModels] = useState<AdminModel[]>([]);
@@ -20,8 +16,8 @@ export default function Models() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editModel, setEditModel] = useState<AdminModel | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminModel | null>(null);
+  const [formError, setFormError] = useState('');
 
-  // 表单状态：模型名称、slug、模型 ID、提供商 ID、上下文窗口、能力列表
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
   const [formModelId, setFormModelId] = useState('');
@@ -29,7 +25,6 @@ export default function Models() {
   const [formContext, setFormContext] = useState('');
   const [formCaps, setFormCaps] = useState('');
 
-  // 加载模型和提供商数据
   const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([fetchModels(), fetchProviders()])
@@ -41,32 +36,26 @@ export default function Models() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const getProviderName = (providerId: string) => {
-    const p = providers.find((p) => p.id === providerId);
-    return p?.name || providerId;
+  const getProviderName = (providerSlug: string) => {
+    const p = providers.find((p) => p.slug === providerSlug);
+    return p?.name || providerSlug;
   };
 
-  // 根据 slug 获取提供商对应的品牌颜色
-  const getProviderColor = (providerId: string) => {
+  const getProviderColor = (providerSlug: string) => {
     const colors: Record<string, string> = {
       openai: '#10A37F', anthropic: '#D97706', google: '#4285F4', deepseek: '#6366F1',
     };
-    const p = providers.find((p) => p.id === providerId);
-    return (p && colors[p.slug]) || '#A1A1AA';
+    return colors[providerSlug] || '#A1A1AA';
   };
 
-  // 格式化上下文窗口大小（K/M 单位）
   const formatContext = (cw: number) => {
     if (cw >= 1_000_000) return `${(cw / 1_000_000).toFixed(0)}M`;
     if (cw >= 1000) return `${(cw / 1000).toFixed(0)}K`;
     return String(cw);
   };
 
-  // 重置表单为空
   const resetForm = () => {
     setFormName('');
     setFormSlug('');
@@ -74,6 +63,7 @@ export default function Models() {
     setFormProviderId('');
     setFormContext('');
     setFormCaps('');
+    setFormError('');
   };
 
   const openAddModal = () => {
@@ -82,6 +72,7 @@ export default function Models() {
   };
 
   const openEditModal = (m: AdminModel) => {
+    setFormError('');
     setFormName(m.name);
     setFormSlug(m.slug);
     setFormModelId(m.model_id);
@@ -93,6 +84,7 @@ export default function Models() {
 
   const handleAddModel = async () => {
     if (!formName.trim() || !formProviderId) return;
+    setFormError('');
     try {
       await createModel({
         provider_id: formProviderId,
@@ -104,13 +96,14 @@ export default function Models() {
       });
       setShowAddModal(false);
       loadData();
-    } catch {
-      // Error handling
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Failed to create model');
     }
   };
 
   const handleEditModel = async () => {
     if (!editModel || !formName.trim()) return;
+    setFormError('');
     try {
       await updateModel(editModel.id, {
         name: formName,
@@ -122,8 +115,8 @@ export default function Models() {
       });
       setEditModel(null);
       loadData();
-    } catch {
-      // Error handling
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Failed to update model');
     }
   };
 
@@ -133,8 +126,8 @@ export default function Models() {
       await deleteModel(deleteTarget.id);
       setDeleteTarget(null);
       loadData();
-    } catch {
-      // Error handling
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Failed to delete model');
     }
   };
 
@@ -243,6 +236,7 @@ export default function Models() {
           context={formContext} setContext={setFormContext}
           caps={formCaps} setCaps={setFormCaps}
           providers={providers}
+          error={formError}
           t={t}
           onSubmit={handleAddModel}
           onCancel={() => setShowAddModal(false)}
@@ -259,6 +253,7 @@ export default function Models() {
           context={formContext} setContext={setFormContext}
           caps={formCaps} setCaps={setFormCaps}
           providers={providers}
+          error={formError}
           t={t}
           onSubmit={handleEditModel}
           onCancel={() => setEditModel(null)}
@@ -268,6 +263,9 @@ export default function Models() {
 
       <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={t('common.delete')} width={380}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {formError && (
+            <div style={errorStyle}>{formError}</div>
+          )}
           <p style={{ fontSize: '13px', color: '#71717A', margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
             {t('common.deleteConfirm')}
           </p>
@@ -285,10 +283,20 @@ export default function Models() {
   );
 }
 
+const errorStyle: React.CSSProperties = {
+  padding: '10px 14px',
+  backgroundColor: 'rgba(239, 68, 68, 0.06)',
+  border: '1px solid rgba(239, 68, 68, 0.15)',
+  borderRadius: '10px',
+  fontSize: '13px',
+  color: '#EF4444',
+  fontFamily: "'DM Sans', sans-serif",
+};
+
 function ModelForm({
   name, setName, slug, setSlug, modelId, setModelId,
   providerId, setProviderId, context, setContext, caps, setCaps,
-  providers, t, onSubmit, onCancel, submitLabel,
+  providers, error, t, onSubmit, onCancel, submitLabel,
 }: {
   name: string; setName: (v: string) => void;
   slug: string; setSlug: (v: string) => void;
@@ -297,6 +305,7 @@ function ModelForm({
   context: string; setContext: (v: string) => void;
   caps: string; setCaps: (v: string) => void;
   providers: AdminProvider[];
+  error: string;
   t: (key: string, params?: Record<string, string | number>) => string;
   onSubmit: () => void;
   onCancel: () => void;
@@ -304,6 +313,7 @@ function ModelForm({
 }) {
   return (
     <div style={formStyles.form}>
+      {error && <div style={errorStyle}>{error}</div>}
       <div style={formStyles.field}>
         <label style={formStyles.label}>{t('models.nameLabel')}</label>
         <input
@@ -324,7 +334,7 @@ function ModelForm({
         >
           <option value="" disabled>{t('models.selectProvider')}</option>
           {providers.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>
           ))}
         </select>
       </div>
