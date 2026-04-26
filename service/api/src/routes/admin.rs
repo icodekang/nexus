@@ -607,7 +607,7 @@ async fn create_provider_key(
     let existing_keys = state.db.list_provider_keys().await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to check existing keys: {}", e)))?;
 
-    if let Some(existing) = existing_keys.iter().find(|k| k.provider_slug == body.provider_slug) {
+    if let Some(_existing) = existing_keys.iter().find(|k| k.provider_slug == body.provider_slug) {
         return Err(ApiError::InvalidRequest(
             format!("Provider key for '{}' already exists. Please edit the existing key instead.", body.provider_slug)
         ));
