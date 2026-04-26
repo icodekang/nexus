@@ -10,6 +10,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PID_DIR="${PROJECT_ROOT}/.pids"
 
+# ── 兼容 Linux/macOS ──────────────────────────────────────────────────────────
+
+# ss -tlnp 的 Linux 实现；macOS 用 lsof
+_ss_listen_port() {
+    local port="$1"
+    if command_exists ss; then
+        ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1 {print $NF}' | sed 's/.*pid=//' | grep -oE '[0-9]+' | head -1
+    elif command_exists lsof; then
+        lsof -ti ":${port}" 2>/dev/null | head -1
+    fi
+}
+
 # ── 公共函数 ───────────────────────────────────────────────────────────────────
 
 if [[ -t 1 ]]; then
@@ -85,7 +97,7 @@ main() {
     # 兜底：清理可能残留的端口占用
     for port in 8080 3000 3001; do
         local pid
-        pid=$(ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1 {print $NF}' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+        pid=$(_ss_listen_port "$port" || true)
         if [[ -n "$pid" ]]; then
             log_warn "端口 ${port} 仍有进程 (PID ${pid})，强制清理"
             kill -9 "$pid" 2>/dev/null || true

@@ -128,7 +128,7 @@ detect_redis() {
     HAS_REDIS=false
     if command_exists redis-cli; then
         HAS_REDIS=true
-        REDIS_VERSION=$(redis-cli --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
+        REDIS_VERSION=$(redis-cli --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_ok "Redis: ${REDIS_VERSION} (已安装)"
     else
         log_warn "Redis: 未安装"
@@ -237,8 +237,12 @@ install_postgres() {
 start_postgres() {
     pg_isready &>/dev/null && return 0
     log_cmd "启动 PostgreSQL 服务"
-    sudo systemctl start postgresql 2>/dev/null || sudo systemctl start postgresql-16 2>/dev/null || sudo service postgresql start 2>/dev/null || true
-    sudo systemctl enable postgresql 2>/dev/null || sudo systemctl enable postgresql-16 2>/dev/null || true
+    if [[ "$OS_FAMILY" == "macos" ]]; then
+        brew services start postgresql@16 2>/dev/null || brew services start postgresql 2>/dev/null || true
+    else
+        sudo systemctl start postgresql 2>/dev/null || sudo systemctl start postgresql-16 2>/dev/null || sudo service postgresql start 2>/dev/null || true
+        sudo systemctl enable postgresql 2>/dev/null || sudo systemctl enable postgresql-16 2>/dev/null || true
+    fi
     local retries=10
     while ! pg_isready &>/dev/null && (( retries-- > 0 )); do sleep 1; done
     if pg_isready &>/dev/null; then
@@ -267,8 +271,12 @@ install_redis() {
 start_redis() {
     redis-cli ping &>/dev/null 2>&1 && return 0
     log_cmd "启动 Redis 服务"
-    sudo systemctl start redis-server 2>/dev/null || sudo systemctl start redis 2>/dev/null || true
-    sudo systemctl enable redis-server 2>/dev/null || sudo systemctl enable redis 2>/dev/null || true
+    if [[ "$OS_FAMILY" == "macos" ]]; then
+        brew services start redis 2>/dev/null || true
+    else
+        sudo systemctl start redis-server 2>/dev/null || sudo systemctl start redis 2>/dev/null || true
+        sudo systemctl enable redis-server 2>/dev/null || sudo systemctl enable redis 2>/dev/null || true
+    fi
     local retries=10
     while ! redis-cli ping &>/dev/null 2>&1 && (( retries-- > 0 )); do sleep 1; done
     if redis-cli ping &>/dev/null 2>&1; then
@@ -351,6 +359,28 @@ _append_missing_fields() {
     done
 }
 
+# postgres 连接方式：Linux 用 sudo -u postgres，macOS 用 brew 路径或直接连接
+_pg_cmd() {
+    local cmd
+    if [[ "$OS_FAMILY" == "macos" ]]; then
+        if [[ -x "/opt/homebrew/bin/psql" ]]; then
+            cmd="/opt/homebrew/bin/psql"
+        elif [[ -x "/usr/local/bin/psql" ]]; then
+            cmd="/usr/local/bin/psql"
+        else
+            cmd="psql"
+        fi
+    else
+        cmd="sudo -u postgres psql"
+    fi
+    # 如果没有指定 -d，默认连接 postgres 数据库
+    if [[ "$*" != *"-d "* && "$*" != *"--dbname"* ]]; then
+        "$cmd" -d postgres "$@"
+    else
+        "$cmd" "$@"
+    fi
+}
+
 # ── 初始化数据库 ───────────────────────────────────────────────────────────────
 
 setup_database() {
@@ -362,23 +392,23 @@ setup_database() {
 
     # 创建用户
     log_cmd "检查数据库用户 nexus"
-    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='nexus'" 2>/dev/null | grep -q 1; then
+    if _pg_cmd -tAc "SELECT 1 FROM pg_roles WHERE rolname='nexus'" 2>/dev/null | grep -q 1; then
         log_cmd_ok "用户 nexus 已存在"
     else
-        sudo -u postgres psql -c "CREATE USER nexus WITH PASSWORD 'nexus_dev_password' CREATEDB;" 2>&1 >/dev/null
+        _pg_cmd -c "CREATE USER nexus WITH PASSWORD 'nexus_dev_password' CREATEDB;" 2>&1 >/dev/null
         log_cmd_ok "用户 nexus 创建完成"
     fi
 
     # 创建数据库
     log_cmd "检查数据库 nexus"
-    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='nexus'" 2>/dev/null | grep -q 1; then
+    if _pg_cmd -tAc "SELECT 1 FROM pg_database WHERE datname='nexus'" 2>/dev/null | grep -q 1; then
         log_cmd_ok "数据库 nexus 已存在"
     else
-        sudo -u postgres psql -c "CREATE DATABASE nexus OWNER nexus;" 2>&1 >/dev/null
+        _pg_cmd -c "CREATE DATABASE nexus OWNER nexus;" 2>&1 >/dev/null
         log_cmd_ok "数据库 nexus 创建完成"
     fi
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE nexus TO nexus;" 2>/dev/null || true
-    sudo -u postgres psql -d nexus -c "GRANT ALL ON SCHEMA public TO nexus;" 2>/dev/null || true
+    _pg_cmd -c "GRANT ALL PRIVILEGES ON DATABASE nexus TO nexus;" 2>/dev/null || true
+    _pg_cmd -d nexus -c "GRANT ALL ON SCHEMA public TO nexus;" 2>/dev/null || true
 
     # 迁移跟踪表
     PGPASSWORD=nexus_dev_password psql -U nexus -d nexus -h localhost -c "

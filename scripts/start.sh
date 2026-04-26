@@ -10,6 +10,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PID_DIR="${PROJECT_ROOT}/.pids"
 
+# ── 兼容 Linux/macOS ──────────────────────────────────────────────────────────
+
+# ss -tlnp 的 Linux 实现；macOS 用 lsof
+_ss_listen_port() {
+    local port="$1"
+    if command_exists ss; then
+        ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1 {print $NF}' | sed 's/.*pid=//' | grep -oE '[0-9]+' | head -1
+    elif command_exists lsof; then
+        lsof -ti ":${port}" 2>/dev/null | head -1
+    fi
+}
+
+# hostname -I 的 Linux 实现；macOS 用 ifconfig
+_get_local_ips() {
+    if command_exists hostname && hostname -I &>/dev/null; then
+        hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.'
+    elif command_exists ifconfig; then
+        ifconfig 2>/dev/null | grep 'inet ' | awk '{print $2}' | grep -v '^127\.'
+    fi
+}
+
+# 检测当前系统类型
+_detect_os_family() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        OS_FAMILY="macos"
+    elif [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        case "${ID:-}" in
+            ubuntu|debian|linuxmint|pop)    OS_FAMILY="debian" ;;
+            centos|rhel|rocky|almalinux|ol) OS_FAMILY="rhel" ;;
+            fedora)  OS_FAMILY="fedora" ;;
+            arch*)   OS_FAMILY="arch" ;;
+            *)       OS_FAMILY="unknown" ;;
+        esac
+    else
+        OS_FAMILY="unknown"
+    fi
+}
+
 # ── 公共函数 ───────────────────────────────────────────────────────────────────
 
 if [[ -t 1 ]]; then
@@ -99,7 +138,7 @@ load_env() {
 check_and_free_port() {
     local port="$1"
     local pid
-    pid=$(ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1 {print $NF}' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+    pid=$(_ss_listen_port "$port" || true)
 
     if [[ -n "$pid" ]]; then
         log_warn "端口 ${port} 已被进程 (PID ${pid}) 占用，正在清理..."
@@ -139,18 +178,26 @@ start_backend() {
     # 确保数据库和 Redis 运行
     if ! pg_isready &>/dev/null; then
         log_warn "PostgreSQL 未运行，尝试启动..."
-        sudo systemctl start postgresql 2>/dev/null || sudo service postgresql start 2>/dev/null || true
+        if [[ "$OS_FAMILY" == "macos" ]]; then
+            brew services start postgresql@16 2>/dev/null || brew services start postgresql 2>/dev/null || true
+        else
+            sudo systemctl start postgresql 2>/dev/null || sudo systemctl start postgresql-16 2>/dev/null || sudo service postgresql start 2>/dev/null || true
+        fi
         sleep 2
     fi
     if ! redis-cli ping &>/dev/null 2>&1; then
         log_warn "Redis 未运行，尝试启动..."
-        sudo systemctl start redis-server 2>/dev/null || sudo systemctl start redis 2>/dev/null || true
+        if [[ "$OS_FAMILY" == "macos" ]]; then
+            brew services start redis 2>/dev/null || true
+        else
+            sudo systemctl start redis-server 2>/dev/null || sudo systemctl start redis 2>/dev/null || true
+        fi
         sleep 2
     fi
 
     # 自动检测本机 IP，添加到 CORS 允许列表
     local host_ips
-    host_ips=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -5 || true)
+    host_ips=$(_get_local_ips | head -5 || true)
     local cors_origins="${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}"
     for ip in $host_ips; do
         for p in 3000 3001; do
@@ -219,6 +266,7 @@ start_frontend_client() {
 main() {
     banner "Nexus Start"
     cd "$PROJECT_ROOT"
+    _detect_os_family
     load_env
 
     cleanup_old_processes
