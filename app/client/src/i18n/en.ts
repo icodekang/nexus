@@ -146,6 +146,7 @@ export const en = {
     lastUsed: 'Last used {{date}}',
     toggleVisibility: 'Toggle visibility',
     deleteKey: 'Delete key',
+    copiedSuccess: 'Copied!',
   },
   subscription: {
     title: 'Subscription Plans',

@@ -146,6 +146,7 @@ export const zh = {
     lastUsed: '最后使用 {{date}}',
     toggleVisibility: '切换可见性',
     deleteKey: '删除密钥',
+    copiedSuccess: '复制成功',
   },
   subscription: {
     title: '订阅套餐',
