@@ -264,6 +264,146 @@ impl HeadlessBrowserManager {
         Ok(session.current_url.clone())
     }
 
+    /// 用账号密码登录并获取 cookies
+    ///
+    /// 1. 启动无头浏览器导航到登录页
+    /// 2. 填写 email/password 表单并提交
+    /// 3. 等待登录完成（URL 变化检测）
+    /// 4. 返回捕获的 cookies JSON 字符串
+    pub async fn login_with_password(
+        &self,
+        provider: &str,
+        email: &str,
+        password: &str,
+    ) -> Result<String, ProviderError> {
+        let login_url = Self::get_login_url(provider)?;
+
+        // 启动无头浏览器
+        let browser = Browser::default()
+            .map_err(|e| ProviderError::InternalError(format!("Failed to launch browser: {}", e)))?;
+
+        // 创建新标签页并导航到登录页
+        let tab = browser.new_tab()
+            .map_err(|e| ProviderError::InternalError(format!("Failed to create tab: {}", e)))?;
+
+        tab.navigate_to(&login_url)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to navigate: {}", e)))?;
+
+        // 等待页面加载（动态等待）
+        self.wait_for_element(&tab, "input[type='email'], input[type='text']").await?;
+
+        // 填写表单字段
+        self.fill_input(&tab, "input[type='email'], input[type='text']", email).await?;
+        self.fill_input(&tab, "input[type='password']", password).await?;
+
+        // 提交表单 - 尝试点击登录按钮或直接按回车
+        self.submit_form(&tab).await?;
+
+        // 等待登录完成（URL 变化）
+        self.wait_for_login_complete(&tab, provider).await?;
+
+        // 获取所有 cookies
+        let cookies_json = self.get_cookies(&tab).await?;
+
+        // 关闭浏览器
+        drop(browser);
+
+        Ok(cookies_json)
+    }
+
+    /// 等待页面元素出现
+    async fn wait_for_element(&self, tab: &headless_chrome::Tab, selector: &str) -> Result<(), ProviderError> {
+        let max_attempts = 30;
+        let mut attempts = 0;
+
+        while attempts < max_attempts {
+            match tab.evaluate(selector, true) {
+                Ok(result) => {
+                    if result.value.and_then(|v| v.as_bool()).unwrap_or(false) {
+                        return Ok(());
+                    }
+                }
+                Err(_) => {}
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            attempts += 1;
+        }
+
+        Err(ProviderError::InternalError("Timeout waiting for element".to_string()))
+    }
+
+    /// 填写输入框
+    async fn fill_input(&self, tab: &headless_chrome::Tab, selector: &str, value: &str) -> Result<(), ProviderError> {
+        let escaped_value = value.replace("'", "\\'");
+        let script = format!(
+            "const el = document.querySelector('{}'); if (el) {{ el.value = '{}'; el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); }}",
+            selector,
+            escaped_value
+        );
+        tab.evaluate(&script, false)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to fill input: {}", e)))?;
+        Ok(())
+    }
+
+    /// 提交表单
+    async fn submit_form(&self, tab: &headless_chrome::Tab) -> Result<(), ProviderError> {
+        // 尝试点击登录按钮
+        let click_script = "const btn = document.querySelector('button[type=\"submit\"], button[data-action=\"login\"]'); if (btn) { btn.click(); return true; } return false;";
+
+        let clicked = tab.evaluate(click_script, false)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to click submit: {}", e)))?
+            .value.and_then(|v| v.as_bool()).unwrap_or(false);
+
+        if !clicked {
+            // 尝试按回车键
+            let enter_script = "const inputs = document.querySelectorAll('input[type=\"password\"]'); if (inputs.length > 0) { inputs[inputs.length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })); }";
+            tab.evaluate(enter_script, false)
+                .map_err(|e| ProviderError::InternalError(format!("Failed to submit: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
+    /// 等待登录完成（检测 URL 变化）
+    async fn wait_for_login_complete(&self, tab: &headless_chrome::Tab, provider: &str) -> Result<(), ProviderError> {
+        let max_attempts = 60; // 最多等 30 秒
+
+        for _ in 0..max_attempts {
+            let current_url = tab.get_url();
+
+            if Self::detect_login_success(provider, &current_url) {
+                return Ok(());
+            }
+
+            // 检查是否有错误提示
+            let error_script = "const err = document.querySelector('.error, .alert-danger, [data-error]'); if (err && err.offsetParent !== null) return err.innerText; return '';";
+            if let Ok(result) = tab.evaluate(error_script, false) {
+                if let Some(value) = result.value {
+                    if let Some(text) = value.as_str() {
+                        if !text.is_empty() {
+                            return Err(ProviderError::AuthenticationError(text.to_string()));
+                        }
+                    }
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+
+        Err(ProviderError::AuthenticationError("Login timeout".to_string()))
+    }
+
+    /// 获取页面所有 cookies
+    async fn get_cookies(&self, tab: &headless_chrome::Tab) -> Result<String, ProviderError> {
+        let cookies_script = "document.cookie.split(';').reduce(function(acc, c) { var parts = c.trim().split('='); if (parts.length >= 2) { acc[parts[0]] = parts.slice(1).join('='); } return acc; }, {})";
+
+        let result = tab.evaluate(cookies_script, false)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to get cookies: {}", e)))?;
+
+        serde_json::to_string(&result.value)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to serialize cookies: {}", e)))
+    }
+
     /// 检查所有活跃会话的登录状态
     pub async fn check_all_sessions(&self) {
         let session_ids: Vec<Uuid> = {

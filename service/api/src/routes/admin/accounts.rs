@@ -35,6 +35,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/accounts", get(list_accounts).post(create_account))
         .route("/accounts/:id", delete(delete_account))
         .route("/accounts/:id/start-login", post(start_login))
+        .route("/accounts/:id/password-login", post(password_login))
         .route("/accounts/:id/login-url", get(get_login_url))
         .route("/accounts/:id/status", get(get_account_status))
         .route("/accounts/complete-login", post(complete_login))
@@ -152,6 +153,18 @@ struct StartLoginRequest {
     use_headless: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct PasswordLoginRequest {
+    email: String,
+    password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PasswordLoginResponse {
+    success: bool,
+    message: String,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -212,6 +225,58 @@ async fn start_login(
         code: Some(code),
         expires_at: Some(expires_at.to_rfc3339()),
         waiting: true,
+    }))
+}
+
+/// POST /admin/accounts/:id/password-login
+///
+/// 使用账号密码登录（无头浏览器填表）
+async fn password_login(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<PasswordLoginRequest>,
+) -> Result<Json<PasswordLoginResponse>, ApiError> {
+    let account_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    // Get account from database
+    let account = state.db.get_browser_account(account_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
+
+    // Use headless browser to login with password
+    let cookies_json = state.headless_browser.login_with_password(
+        &account.provider,
+        &body.email,
+        &body.password,
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Login failed: {}", e)))?;
+
+    // Parse cookies into PersistedSession
+    let session_data: provider_client::PersistedSession =
+        serde_json::from_str(&cookies_json)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
+
+    // Update database with session data and set status to active
+    state.db.update_browser_account_session(
+        account_id,
+        &cookies_json,
+        Some(&body.email),
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
+
+    // Register account in pool
+    state.account_pool.register_account(
+        account_id,
+        account.provider.clone(),
+        session_data,
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+
+    Ok(Json(PasswordLoginResponse {
+        success: true,
+        message: "Login successful".to_string(),
     }))
 }
 

@@ -592,6 +592,27 @@ export async function startLogin(accountId: string): Promise<LoginUrlResponse> {
 }
 
 /**
+ * loginWithBrowserAccount - 使用账号密码登录浏览器账号
+ * @param accountId - 账号 ID
+ * @param email - 邮箱
+ * @param password - 密码
+ * @returns 登录结果
+ */
+export async function loginWithBrowserAccount(
+  accountId: string,
+  email: string,
+  password: string,
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/admin/accounts/${accountId}/password-login`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    },
+  );
+}
+
+/**
  * getLoginUrl - 获取当前登录页面 URL
  * @param accountId - 账号 ID
  * @returns 当前登录 URL 和状态

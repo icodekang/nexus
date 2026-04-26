@@ -7,8 +7,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import QrCodeModal from '../components/QrCodeModal';
+// QrCodeModal 现在是账号密码登录弹窗（原名保留）
 import {
-  fetchBrowserAccounts, createBrowserAccount, deleteBrowserAccount, startLogin,
+  fetchBrowserAccounts, createBrowserAccount, deleteBrowserAccount,
   fetchProviders,
   type BrowserAccount, type QrCodeData, type AdminProvider,
 } from '../api/admin';
@@ -113,20 +114,9 @@ export default function BrowserAccounts() {
     }
   };
 
-  const handleQrGenerated = async (account: BrowserAccount) => {
-    try {
-      const loginData = await startLogin(account.id);
-      const qrData: QrCodeData = {
-        session_id: account.id,
-        qr_code_data: '',
-        code: loginData.code || '',
-        expires_at: loginData.expires_at || '',
-        auth_url: loginData.login_url,
-      };
-      setQrModalData({ account, qrData });
-    } catch (err) {
-      setError(getErrorMessage(err, t));
-    }
+  const handlePasswordLogin = (account: BrowserAccount) => {
+    // 直接打开账号密码登录弹窗，无需先调用 API
+    setQrModalData({ account, qrData: { session_id: account.id, qr_code_data: '', code: '', expires_at: '', auth_url: '' } });
   };
 
   const handleAuthSuccess = () => {
@@ -212,13 +202,9 @@ export default function BrowserAccounts() {
                       {isPending && (
                         <button
                           style={{ ...styles.actionBtn, backgroundColor: style.text, color: '#fff', flex: 1 }}
-                          onClick={() => handleQrGenerated(account)}
+                          onClick={() => handlePasswordLogin(account)}
                         >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
-                            <rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
-                          </svg>
-                          扫码认证
+                          账号密码登录
                         </button>
                       )}
                       <button
