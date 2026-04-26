@@ -552,22 +552,24 @@ function KeyForm({
         {isEdit ? (
           <input type="text" value={provider} disabled style={{ ...formStyles.input, backgroundColor: '#F5F5F4', color: '#A1A1AA' }} />
         ) : (
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            style={formStyles.input}
-          >
-            <option value="">{t('providerKeys.selectProvider')}</option>
-            {providers.map((p) => (
-              <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>
-            ))}
-            {/* Fallback options for known providers not yet in DB */}
-            {['openai', 'anthropic', 'google', 'deepseek'].filter(
-              (s) => !providers.find((p) => p.slug === s)
-            ).map((s) => (
-              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-            ))}
-          </select>
+          <>
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              style={formStyles.input}
+              disabled={providers.length === 0}
+            >
+              <option value="">{providers.length === 0 ? t('providerKeys.noProviders') : t('providerKeys.selectProvider')}</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>
+              ))}
+            </select>
+            {providers.length === 0 && (
+              <span style={{ fontSize: '12px', color: '#EF4444', marginTop: '4px' }}>
+                {t('providerKeys.addProviderFirst')}
+              </span>
+            )}
+          </>
         )}
       </div>
       <div style={formStyles.field}>

@@ -200,6 +200,8 @@ export const en = {
     thActions: 'Actions',
     noKeys: 'No provider keys configured yet',
     noKeysDesc: 'Add API keys for LLM providers to enable model routing.',
+    noProviders: 'Please add a provider first',
+    addProviderFirst: 'Please add a provider in "Providers" page first',
     tabProvider: 'Provider Keys',
     tabUser: 'User Keys',
     filterByEmail: 'Search by user email...',

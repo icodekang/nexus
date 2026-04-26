@@ -200,6 +200,8 @@ export const zh = {
     thActions: '操作',
     noKeys: '暂未配置服务商密钥',
     noKeysDesc: '添加 LLM 服务商的 API 密钥以启用模型路由。',
+    noProviders: '请先添加服务商',
+    addProviderFirst: '请先在「服务商管理」中添加服务商',
     tabProvider: '服务商密钥',
     tabUser: '用户密钥',
     filterByEmail: '按用户邮箱搜索...',
