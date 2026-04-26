@@ -22,7 +22,7 @@
 //! - /accounts/* - 浏览器账户管理（嵌套路由）
 
 use axum::{
-    routing::{get, post, put},
+    routing::{get, post, put, delete},
     Router, Json, Extension,
     extract::{Query, Path, State},
 };
@@ -56,6 +56,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/provider-keys", get(list_provider_keys).post(create_provider_key))
         .route("/provider-keys/:id", put(update_provider_key).delete(delete_provider_key))
         .route("/provider-keys/:id/test", post(test_provider_key))
+        .route("/user-keys", get(list_user_api_keys))
+        .route("/user-keys/:id", delete(delete_user_api_key))
         .route("/models", get(list_models).post(create_model))
         .route("/models/:id", put(update_model).delete(delete_model))
         .route("/transactions", get(list_transactions))
@@ -730,6 +732,56 @@ async fn test_provider_key(
             })))
         }
     }
+}
+
+// ============ User API Keys ============
+
+#[derive(Debug, Deserialize)]
+struct UserApiKeyQuery {
+    user_id: Option<String>,
+    user_email: Option<String>,
+}
+
+async fn list_user_api_keys(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Query(query): Query<UserApiKeyQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let keys = state.db.list_all_api_keys_with_users().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list user API keys: {}", e)))?;
+
+    let data: Vec<serde_json::Value> = keys.iter().filter(|(k, email)| {
+        let matches_user_id = query.user_id.as_ref().map_or(true, |uid| k.user_id.to_string() == *uid);
+        let matches_email = query.user_email.as_ref().map_or(true, |em| email.contains(em));
+        matches_user_id && matches_email
+    }).map(|(k, email)| {
+        serde_json::json!({
+            "id": k.id.to_string(),
+            "user_id": k.user_id.to_string(),
+            "user_email": email,
+            "name": k.name,
+            "key_prefix": k.key_prefix,
+            "is_active": k.is_active,
+            "last_used_at": k.last_used_at,
+            "created_at": k.created_at.to_rfc3339(),
+        })
+    }).collect();
+
+    Ok(Json(serde_json::json!({ "data": data })))
+}
+
+async fn delete_user_api_key(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let key_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
+
+    state.db.delete_api_key(key_id).await
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete API key")))?;
+
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
 // ============ Transactions ============

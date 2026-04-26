@@ -166,8 +166,36 @@ impl PostgresPool {
             .bind(user_id)
             .fetch_all(self.inner())
             .await?;
-        
+
         Ok(rows.iter().map(|r| self.row_to_api_key(r)).collect())
+    }
+
+    pub async fn list_all_api_keys_with_users(&self) -> Result<Vec<(ApiKey, String)>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT ak.*, u.email as user_email
+            FROM api_keys ak
+            JOIN users u ON ak.user_id = u.id
+            ORDER BY ak.created_at DESC
+            "#,
+        )
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.iter().map(|r| {
+            let api_key = ApiKey {
+                id: r.get("id"),
+                user_id: r.get("user_id"),
+                key_hash: r.get("key_hash"),
+                key_prefix: r.get("key_prefix"),
+                name: r.get("name"),
+                is_active: r.get("is_active"),
+                last_used_at: r.get("last_used_at"),
+                created_at: r.get("created_at"),
+            };
+            let user_email: String = r.get("user_email");
+            (api_key, user_email)
+        }).collect())
     }
 
     pub async fn delete_api_key(&self, key_id: Uuid) -> Result<(), DbError> {

@@ -407,6 +407,54 @@ export async function testProviderKey(id: string): Promise<{ success: boolean; m
   });
 }
 
+// ============ User API Keys 用户密钥管理 ============
+
+/**
+ * UserApiKey - 用户 API 密钥信息
+ */
+export interface UserApiKey {
+  id: string;
+  user_id: string;
+  user_email: string;
+  name: string | null;
+  key_prefix: string;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+/**
+ * UserApiKeysResponse - 用户密钥列表响应
+ */
+export interface UserApiKeysResponse {
+  data: UserApiKey[];
+}
+
+/**
+ * fetchUserApiKeys - 获取所有用户 API 密钥列表
+ * @param userId - 可选，按用户 ID 过滤
+ * @param userEmail - 可选，按用户邮箱过滤（模糊匹配）
+ * @returns 用户密钥列表
+ */
+export async function fetchUserApiKeys(userId?: string, userEmail?: string): Promise<UserApiKeysResponse> {
+  const params = new URLSearchParams();
+  if (userId) params.set('user_id', userId);
+  if (userEmail) params.set('user_email', userEmail);
+  const query = params.toString();
+  return request<UserApiKeysResponse>(`/admin/user-keys${query ? `?${query}` : ''}`);
+}
+
+/**
+ * deleteUserApiKey - 删除用户 API 密钥
+ * @param id - 密钥 ID
+ * @returns 删除是否成功
+ */
+export async function deleteUserApiKey(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/user-keys/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 // ============ Transactions 交易记录 ============
 
 /**

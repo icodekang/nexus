@@ -1,15 +1,17 @@
 /**
  * @file ProviderKeys - 提供商密钥管理页面
  * 管理 AI 服务提供商的 API 密钥，支持添加、编辑、删除和测试密钥
- * 密钥可设置为显示/隐藏，测试连接状态实时反馈
+ * 支持查看所有用户 API 密钥，支持按用户邮箱过滤
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import {
   fetchProviderKeys, createProviderKey, updateProviderKey, deleteProviderKey, testProviderKey,
-  fetchProviders, type ProviderKey, type AdminProvider,
+  fetchProviders, fetchUserApiKeys, deleteUserApiKey,
+  type ProviderKey, type AdminProvider, type UserApiKey,
 } from '../api/admin';
+import { Key, Trash2, Eye, EyeOff, Users, Server } from 'lucide-react';
 
 // 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
@@ -30,18 +32,23 @@ function getColor(slug: string): string {
  */
 export default function ProviderKeys() {
   const { t } = useI18n();
+  const [activeTab, setActiveTab] = useState<'provider' | 'user'>('provider');
   const [keys, setKeys] = useState<ProviderKey[]>([]);
+  const [userKeys, setUserKeys] = useState<UserApiKey[]>([]);
   const [providers, setProviders] = useState<AdminProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editKey, setEditKey] = useState<ProviderKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProviderKey | null>(null);
+  const [deleteUserKeyTarget, setDeleteUserKeyTarget] = useState<UserApiKey | null>(null);
   // 密钥显示/隐藏状态集合
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   // 当前正在测试的密钥 ID
   const [testingId, setTestingId] = useState<string | null>(null);
   // 测试结果
   const [testResult, setTestResult] = useState<{ id: string; success: boolean; message?: string } | null>(null);
+  // 用户过滤
+  const [userFilter, setUserFilter] = useState('');
 
   // 表单状态
   const [formProvider, setFormProvider] = useState('');
@@ -61,9 +68,32 @@ export default function ProviderKeys() {
       .finally(() => setLoading(false));
   }, []);
 
+  // 加载用户 API 密钥
+  const loadUserKeys = useCallback(() => {
+    setLoading(true);
+    fetchUserApiKeys(undefined, userFilter || undefined)
+      .then((res) => setUserKeys(res.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [userFilter]);
+
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (activeTab === 'provider') {
+      loadData();
+    } else {
+      loadUserKeys();
+    }
+  }, [activeTab, loadData, loadUserKeys]);
+
+  // 用户过滤搜索
+  useEffect(() => {
+    if (activeTab === 'user') {
+      const timer = setTimeout(() => {
+        loadUserKeys();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [userFilter, activeTab, loadUserKeys]);
 
   const resetForm = () => {
     setFormProvider('');
@@ -134,6 +164,17 @@ export default function ProviderKeys() {
     }
   };
 
+  const handleDeleteUserKey = async () => {
+    if (!deleteUserKeyTarget) return;
+    try {
+      await deleteUserApiKey(deleteUserKeyTarget.id);
+      setDeleteUserKeyTarget(null);
+      loadUserKeys();
+    } catch {
+      // Error handling
+    }
+  };
+
   const handleTest = async (id: string) => {
     setTestingId(id);
     setTestResult(null);
@@ -167,6 +208,37 @@ export default function ProviderKeys() {
           </p>
         </div>
       </header>
+
+      {/* Tabs */}
+      <div style={styles.tabs}>
+        <button
+          style={{ ...styles.tab, ...(activeTab === 'provider' ? styles.tabActive : {}) }}
+          onClick={() => setActiveTab('provider')}
+        >
+          <Server size={14} />
+          {t('providerKeys.tabProvider')}
+        </button>
+        <button
+          style={{ ...styles.tab, ...(activeTab === 'user' ? styles.tabActive : {}) }}
+          onClick={() => setActiveTab('user')}
+        >
+          <Users size={14} />
+          {t('providerKeys.tabUser')}
+        </button>
+      </div>
+
+      {/* User Keys Filter */}
+      {activeTab === 'user' && (
+        <div style={styles.filterBar}>
+          <input
+            type="text"
+            placeholder={t('providerKeys.filterByEmail')}
+            value={userFilter}
+            onChange={(e) => setUserFilter(e.target.value)}
+            style={styles.filterInput}
+          />
+        </div>
+      )}
 
       {/* Table */}
       <div style={styles.tableCard}>
@@ -306,6 +378,79 @@ export default function ProviderKeys() {
         )}
       </div>
 
+      {/* User API Keys Table */}
+      {activeTab === 'user' && (
+        <div style={styles.tableCard}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>{t('providerKeys.thUser')}</th>
+                <th style={styles.th}>{t('providerKeys.thKeyName')}</th>
+                <th style={styles.th}>{t('providerKeys.thKey')}</th>
+                <th style={styles.th}>{t('providerKeys.thStatus')}</th>
+                <th style={styles.th}>{t('providerKeys.thLastUsed')}</th>
+                <th style={styles.th}>{t('providerKeys.thCreated')}</th>
+                <th style={{ ...styles.th, textAlign: 'right' }}>{t('providerKeys.thActions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userKeys.map((k) => (
+                <tr key={k.id} style={styles.tr}>
+                  <td style={styles.td}>
+                    <div style={styles.userCell}>
+                      <div style={styles.userAvatar}>{k.user_email.charAt(0).toUpperCase()}</div>
+                      <span style={styles.userEmail}>{k.user_email}</span>
+                    </div>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={styles.keyName}>{k.name || t('providerKeys.unnamed')}</span>
+                  </td>
+                  <td style={styles.td}>
+                    <code style={styles.keyCode}>{k.key_prefix}••••••</code>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{
+                      ...styles.statusBadge,
+                      color: k.is_active ? '#22C55E' : '#EF4444',
+                      backgroundColor: k.is_active ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                    }}>
+                      <span style={{ ...styles.statusDot, backgroundColor: k.is_active ? '#22C55E' : '#EF4444' }} />
+                      {k.is_active ? t('common.active') : t('common.inactive')}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={styles.dateText}>
+                      {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : '-'}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={styles.dateText}>
+                      {new Date(k.created_at).toLocaleDateString()}
+                    </span>
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'right' }}>
+                    <button
+                      style={{ ...styles.actionBtn, color: '#EF4444' }}
+                      onClick={() => setDeleteUserKeyTarget(k)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {!loading && userKeys.length === 0 && (
+            <div style={styles.empty}>
+              <Users size={28} strokeWidth={1.5} style={{ marginBottom: '12px', color: '#A8A29E' }} />
+              <h3 style={styles.emptyTitle}>{t('providerKeys.noUserKeys')}</h3>
+              <p style={styles.emptyDesc}>{t('providerKeys.noUserKeysDesc')}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Add Modal */}
       <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title={t('providerKeys.addKey')}>
         <KeyForm
@@ -349,6 +494,23 @@ export default function ProviderKeys() {
               {t('common.cancel')}
             </button>
             <button style={{ ...formStyles.submitBtn, backgroundColor: '#EF4444' }} onClick={handleDelete}>
+              {t('common.delete')}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete User Key Confirmation */}
+      <Modal open={!!deleteUserKeyTarget} onClose={() => setDeleteUserKeyTarget(null)} title={t('common.delete')} width={380}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontSize: '13px', color: '#71717A', margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
+            {t('providerKeys.deleteUserKeyConfirm')}
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <button style={formStyles.cancelBtn} onClick={() => setDeleteUserKeyTarget(null)}>
+              {t('common.cancel')}
+            </button>
+            <button style={{ ...formStyles.submitBtn, backgroundColor: '#EF4444' }} onClick={handleDeleteUserKey}>
               {t('common.delete')}
             </button>
           </div>
@@ -685,6 +847,84 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#A1A1AA',
     margin: 0,
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  tabs: {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '20px',
+    backgroundColor: '#F5F5F4',
+    padding: '4px',
+    borderRadius: '10px',
+    width: 'fit-content',
+  },
+  tab: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    borderRadius: '7px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#71717A',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    transition: 'all 0.15s ease',
+  },
+  tabActive: {
+    backgroundColor: '#FFFFFF',
+    color: '#18181B',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+  },
+  filterBar: {
+    marginBottom: '16px',
+  },
+  filterInput: {
+    padding: '9px 14px',
+    borderRadius: '8px',
+    border: '1px solid #E7E5E4',
+    fontSize: '13px',
+    fontFamily: "'DM Sans', sans-serif",
+    backgroundColor: '#FFFFFF',
+    color: '#18181B',
+    outline: 'none',
+    width: '300px',
+    transition: 'border-color 0.15s ease',
+  },
+  userCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  userAvatar: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '8px',
+    backgroundColor: '#6366F1',
+    color: '#FFFFFF',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '13px',
+    fontWeight: '600',
+    fontFamily: "'Instrument Sans', sans-serif",
+    flexShrink: 0,
+  },
+  userEmail: {
+    fontSize: '13px',
+    color: '#18181B',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  keyName: {
+    fontSize: '13px',
+    color: '#18181B',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  dateText: {
+    fontSize: '12px',
+    color: '#A8A29E',
     fontFamily: "'DM Sans', sans-serif",
   },
 };
