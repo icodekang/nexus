@@ -125,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── 需要认证的用户管理路由 ─────────────────────────────────────────
     let me = Router::new()
-        .nest("/me", routes::me::routes())
+        .nest("/v1/me", routes::me::routes())
         .layer(auth_mw.clone());
 
     // ── 管理员路由 ────────────────────────────────────────────────────
