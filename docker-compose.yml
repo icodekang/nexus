@@ -23,6 +23,8 @@ services:
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - PORT=8080
       - MIGRATIONS_PATH=/app/db/migrations
+      # AES-256-GCM encryption key for provider API keys (64 hex chars = 32 bytes)
+      - API_KEY_ENCRYPTION_KEY=67624753dd089e39692a86953633a1c73d3d63e749c56e81285a9653d7004cc1
       # Provider API Keys
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -30,6 +32,8 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       # Custom Providers (JSON array)
       - CUSTOM_PROVIDERS=${CUSTOM_PROVIDERS:-}
+      # AES-256-GCM encryption key for provider API keys (32 bytes = 64 hex chars)
+      - API_KEY_ENCRYPTION_KEY=${API_KEY_ENCRYPTION_KEY:-67624753dd089e39692a86953633a1c73d3d63e749c56e81285a9653d7004cc1}
     env_file:
       - .env
     depends_on:
