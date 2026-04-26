@@ -9,14 +9,13 @@
 //! - POST /send-sms - 发送短信验证码
 //! - POST /verify-sms - 验证短信验证码
 
-use axum::{routing::post, Router, Json, extract::State, Extension};
+use axum::{routing::post, Router, Json, extract::State};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use rand::Rng;
 
 use crate::state::AppState;
 use crate::error::ApiError;
-use crate::middleware::auth::AuthContext;
 use models::User;
 use auth::{hash_password, verify_password, JwtService};
 
@@ -247,7 +246,6 @@ pub async fn admin_login(
 /// 将 JWT Token 加入黑名单，使其失效
 pub async fn logout(
     State(state): State<Arc<AppState>>,
-    Extension(_auth): Extension<AuthContext>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Get the token from the request body or extract from auth context

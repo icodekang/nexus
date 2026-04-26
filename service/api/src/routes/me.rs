@@ -244,7 +244,7 @@ pub async fn create_key(
     let generator = ApiKeyGenerator::new("sk-nexus");
     let (plain_key, hashed_key) = generator.generate();
 
-    let mut api_key = ApiKey::new(auth.user.id, hashed_key, format!("sk-nexus-{}", &plain_key[..15]));
+    let mut api_key = ApiKey::new(auth.user.id, hashed_key, format!("sk-nexus-{}", &plain_key[9..20]));
     
     if let Some(name) = request.name {
         api_key = api_key.with_name(name);

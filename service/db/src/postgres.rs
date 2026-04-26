@@ -143,7 +143,11 @@ impl PostgresPool {
         .bind(key.last_used_at)
         .bind(key.created_at)
         .execute(self.inner())
-        .await?;
+        .await
+        .map_err(|e| {
+            tracing::error!("create_api_key failed: id={}, user_id={}, key_prefix={}, error={:?}", key.id, key.user_id, key.key_prefix, e);
+            e
+        })?;
         
         Ok(())
     }

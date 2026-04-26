@@ -9,10 +9,20 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-    sourcemap: true,  // 生成 sourcemap 便于调试
+    sourcemap: true,
   },
   server: {
     host: '0.0.0.0',
-    port: 3001,       // 开发服务器端口（与 admin 端 3000 区分）
+    port: 3001,
+    proxy: {
+      '/v1': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
 });

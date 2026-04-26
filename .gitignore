@@ -51,6 +51,10 @@ Thumbs.db
 logs/
 *.log
 
+# Local run pids
+.run/
+.pids/
+
 # Database
 *.db
 *.sqlite

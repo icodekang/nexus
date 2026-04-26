@@ -46,34 +46,66 @@
 
 ## Quick Start
 
-```bash
-# Start all services
-docker-compose up -d
+### Docker 部署
 
-# Or for development
-cd service && cargo build --release
-cd service/adapters && pip install -r requirements.txt
+```bash
+# 启动所有服务（含 PostgreSQL + Redis）
+docker-compose up -d
 ```
+
+### 本地部署
+
+自动安装依赖（Rust、Node.js、PostgreSQL、Redis），无需预先手动安装。
+
+```bash
+# 1. 一键部署（检测/安装依赖 → 生成配置 → 建库 → 编译后端 → 安装前端依赖 → 启动服务）
+./scripts/setup.sh
+
+# 或使用根目录入口
+./deploy.sh
+
+# 或只启动后端
+./scripts/start.sh --no-frontend
+
+# 启动前重新构建
+./scripts/start.sh --build
+
+# 3. 停止所有服务
+./scripts/stop.sh
+```
+
+启动后:
+- API Gateway: http://localhost:8080
+- Admin 面板: http://localhost:3000
+- Client 客户端: http://localhost:3001
+- 默认管理员: admin@nexus.io / admin123
+
+配置文件为 `.env.local`，可自定义数据库连接、端口、API Keys 等。
 
 ## Project Structure
 
 ```
 nexus/
+├── deploy.sh              # 一键部署入口
 ├── app/
-│   ├── client/          # React Native mobile app
-│   └── admin/            # React admin dashboard
+│   ├── client/            # React client
+│   └── admin/             # React admin dashboard
 ├── service/
-│   ├── api/             # API Gateway (Rust)
-│   ├── auth/            # Authentication (Rust)
-│   ├── router/          # Router engine (Rust)
-│   ├── billing/         # Billing service (Rust)
-│   ├── models/          # Shared models (Rust)
-│   ├── db/              # Database layer (Rust)
-│   └── adapters/         # Python LLM adapters
+│   ├── api/               # API Gateway (Rust)
+│   ├── auth/              # Authentication (Rust)
+│   ├── router/            # Router engine (Rust)
+│   ├── billing/           # Billing service (Rust)
+│   ├── models/            # Shared models (Rust)
+│   ├── db/                # Database layer (Rust)
+│   └── adapters/          # LLM provider adapters
+├── scripts/
+│   ├── setup.sh           # 一键部署（环境检测 → 安装依赖 → 配置 → 建库 → 编译 → 启动）
+│   ├── start.sh           # 启动所有服务
+│   └── stop.sh            # 停止所有服务
 ├── infra/
-│   ├── k8s/             # Kubernetes configs
-│   └── terraform/       # Terraform configs
-└── docs/               # Documentation
+│   ├── k8s/               # Kubernetes configs
+│   └── terraform/         # Terraform configs
+└── docs/                  # Documentation
 ```
 
 ## Documentation
