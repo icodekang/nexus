@@ -28,7 +28,6 @@ export default function KeysPage() {
   // 密钥前缀显示/完整显示的状态集合
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
-  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
   // 加载密钥列表
   const loadKeys = useCallback(async () => {
@@ -87,11 +86,7 @@ export default function KeysPage() {
       document.body.removeChild(textarea);
     }
     setCopied(true);
-    setToast({ show: true, message: t('keys.copiedSuccess') || '复制成功' });
-    setTimeout(() => {
-      setCopied(false);
-      setToast({ show: false, message: '' });
-    }, 2000);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const toggleVisibility = (keyId: string) => {
@@ -140,9 +135,15 @@ export default function KeysPage() {
           </div>
           <div className="keys-new-reveal-value">
             <code>{newKey}</code>
-            <button className="keys-copy-btn" onClick={() => handleCopy(newKey)}>
+            <button className={`keys-copy-btn ${copied ? 'copied' : ''}`} onClick={() => handleCopy(newKey)}>
               {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
+            {copied && (
+              <span className="keys-copied-inline">
+                <Check size={12} />
+                {t('keys.copiedSuccess')}
+              </span>
+            )}
           </div>
           <button className="keys-new-reveal-dismiss" onClick={() => setNewKey(null)}>
             {t('common.dismiss')}
@@ -215,16 +216,6 @@ export default function KeysPage() {
           ))
         )}
       </div>
-
-      {/* Toast notification */}
-      {toast.show && (
-        <div className="keys-toast">
-          <div className="keys-toast-icon">
-            <Check size={16} />
-          </div>
-          <span className="keys-toast-message">{toast.message}</span>
-        </div>
-      )}
     </div>
   );
 }
