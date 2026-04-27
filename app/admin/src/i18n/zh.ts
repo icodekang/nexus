@@ -37,7 +37,7 @@ export const zh = {
     update_failed: '更新失败，请重试。',
     delete_failed: '删除失败，请重试。',
     // Browser account errors
-    qr_generate_failed: '二维码生成失败，请重试。',
+    qr_generate_failed: '认证失败，请重试。',
     auth_failed: '认证失败，请重试。',
     account_add_failed: '添加账号失败，请重试。',
     account_delete_failed: '删除账号失败，请重试。',
@@ -222,9 +222,8 @@ export const zh = {
     email: '邮箱',
     requests: '请求次数',
     lastUsed: '最后使用',
-    generateQr: '生成二维码',
     noAccounts: '暂无浏览器账号',
-    noAccountsDesc: '添加浏览器账号并扫描二维码完成认证。',
+    noAccountsDesc: '添加浏览器账号并使用账号密码登录完成认证。',
     deleteConfirm: '确定要删除此浏览器账号吗？',
     status: {
       pending: '待认证',
@@ -232,15 +231,7 @@ export const zh = {
       expired: '已过期',
       error: '错误',
     },
-  },
-  qrModal: {
-    title: '扫描二维码',
-    generating: '正在生成二维码...',
-    step1: '在手机上打开此链接：',
-    step2: '或手动输入验证码：',
-    or: '或者',
-    expiresAt: '有效期至 {{time}}',
-    waitingAuth: '等待认证完成...',
+    passwordLogin: '账号密码登录',
   },
   loginModal: {
     title: '账号密码登录',

@@ -6,12 +6,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
-import QrCodeModal from '../components/QrCodeModal';
-// QrCodeModal 现在是账号密码登录弹窗（原名保留）
+import LoginModal from '../components/LoginModal';
 import {
   fetchBrowserAccounts, createBrowserAccount, deleteBrowserAccount,
   fetchProviders,
-  type BrowserAccount, type QrCodeData, type AdminProvider,
+  type BrowserAccount, type AdminProvider,
 } from '../api/admin';
 import { getErrorMessage } from '../utils/errors';
 
@@ -47,7 +46,7 @@ export default function BrowserAccounts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<BrowserAccount | null>(null);
-  const [qrModalData, setQrModalData] = useState<{ account: BrowserAccount; qrData: QrCodeData } | null>(null);
+  const [loginModalData, setLoginModalData] = useState<BrowserAccount | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<ProviderSlot | null>(null);
 
@@ -116,11 +115,11 @@ export default function BrowserAccounts() {
 
   const handlePasswordLogin = (account: BrowserAccount) => {
     // 直接打开账号密码登录弹窗，无需先调用 API
-    setQrModalData({ account, qrData: { session_id: account.id, qr_code_data: '', code: '', expires_at: '', auth_url: '' } });
+    setLoginModalData(account);
   };
 
   const handleAuthSuccess = () => {
-    setQrModalData(null);
+    setLoginModalData(null);
     loadData();
   };
 
@@ -316,11 +315,10 @@ export default function BrowserAccounts() {
       </Modal>
 
       {/* QR 码弹窗 */}
-      {qrModalData && (
-        <QrCodeModal
-          account={qrModalData.account}
-          qrData={qrModalData.qrData}
-          onClose={() => setQrModalData(null)}
+      {loginModalData && (
+        <LoginModal
+          account={loginModalData}
+          onClose={() => setLoginModalData(null)}
           onSuccess={handleAuthSuccess}
         />
       )}

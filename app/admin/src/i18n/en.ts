@@ -222,9 +222,8 @@ export const en = {
     email: 'Email',
     requests: 'Requests',
     lastUsed: 'Last Used',
-    generateQr: 'Generate QR',
     noAccounts: 'No browser accounts yet',
-    noAccountsDesc: 'Add a browser account and scan the QR code to authenticate.',
+    noAccountsDesc: 'Add a browser account and sign in with your password to authenticate.',
     deleteConfirm: 'Are you sure you want to delete this browser account?',
     status: {
       pending: 'Pending',
@@ -232,15 +231,7 @@ export const en = {
       expired: 'Expired',
       error: 'Error',
     },
-  },
-  qrModal: {
-    title: 'Scan QR Code',
-    generating: 'Generating QR code...',
-    step1: 'Open this URL on your phone:',
-    step2: 'Or enter this code manually:',
-    or: 'or',
-    expiresAt: 'Expires at {{time}}',
-    waitingAuth: 'Waiting for authentication...',
+    passwordLogin: 'Password Login',
   },
   loginModal: {
     title: 'Password Login',

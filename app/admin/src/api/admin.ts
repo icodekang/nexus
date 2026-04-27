@@ -516,18 +516,6 @@ export interface BrowserAccount {
 }
 
 /**
- * QrCodeData - 二维码数据
- * @description 用于 ZeroToken 认证的二维码和会话信息
- */
-export interface QrCodeData {
-  session_id: string;
-  qr_code_data: string;  // base64 PNG
-  code: string;
-  expires_at: string;
-  auth_url: string;
-}
-
-/**
  * LoginUrlResponse - 登录 URL 响应
  * @description 无头浏览器登录流程返回的 URL 信息
  */
@@ -567,27 +555,6 @@ export async function createBrowserAccount(provider: string): Promise<BrowserAcc
 export async function deleteBrowserAccount(id: string): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(`/admin/accounts/${id}`, {
     method: 'DELETE',
-  });
-}
-
-/**
- * generateQrCode - 为浏览器账号生成认证二维码
- * @param accountId - 账号 ID
- * @returns 二维码数据（base64 PNG）和会话信息
- */
-export async function generateQrCode(accountId: string): Promise<QrCodeData> {
-  return request<QrCodeData>(`/admin/accounts/${accountId}/qrcode`);
-}
-
-/**
- * startLogin - 启动无头浏览器登录流程
- * @param accountId - 账号 ID
- * @returns 登录 URL 和会话信息
- */
-export async function startLogin(accountId: string): Promise<LoginUrlResponse> {
-  return request<LoginUrlResponse>(`/admin/accounts/${accountId}/start-login`, {
-    method: 'POST',
-    body: JSON.stringify({ use_headless: true }),
   });
 }
 
