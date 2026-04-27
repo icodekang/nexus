@@ -242,6 +242,15 @@ export const en = {
     expiresAt: 'Expires at {{time}}',
     waitingAuth: 'Waiting for authentication...',
   },
+  loginModal: {
+    title: 'Password Login',
+    email: 'Email',
+    password: 'Password',
+    loginBtn: 'Sign in',
+    hint: 'Headless browser will automatically fill the form and sign in',
+    loginSuccess: 'Login successful',
+    loginFailed: 'Login failed. Please check your credentials.',
+  },
   lang: {
     label: 'EN',
   },

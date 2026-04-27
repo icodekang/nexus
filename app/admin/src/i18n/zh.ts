@@ -242,6 +242,15 @@ export const zh = {
     expiresAt: '有效期至 {{time}}',
     waitingAuth: '等待认证完成...',
   },
+  loginModal: {
+    title: '账号密码登录',
+    email: '邮箱',
+    password: '密码',
+    loginBtn: '登录',
+    hint: '无头浏览器将自动填写表单并登录',
+    loginSuccess: '登录成功',
+    loginFailed: '登录失败，请检查账号密码。',
+  },
   lang: {
     label: '中文',
   },
