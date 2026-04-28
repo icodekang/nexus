@@ -982,13 +982,14 @@ impl PostgresPool {
     pub async fn create_browser_account(&self, account: &BrowserAccount) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO browser_accounts (id, provider, email, session_data_encrypted, status,
+            INSERT INTO browser_accounts (id, provider, name, email, session_data_encrypted, status,
                                           request_count, last_used_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(account.id)
         .bind(&account.provider)
+        .bind(&account.name)
         .bind(&account.email)
         .bind(&account.session_data_encrypted)
         .bind(account.status.as_str())
@@ -1024,13 +1025,17 @@ impl PostgresPool {
         id: Uuid,
         session_data: &str,
         email: Option<&str>,
+        name: Option<&str>,
     ) -> Result<(), DbError> {
         sqlx::query(
             r#"
             UPDATE browser_accounts
             SET session_data_encrypted = $2,
                 email = COALESCE($3, email),
+                name = COALESCE($4, name),
                 status = 'active',
+                session_status = 'active',
+                session_expires_at = NOW() + INTERVAL '30 days',
                 updated_at = NOW()
             WHERE id = $1
             "#,
@@ -1038,6 +1043,7 @@ impl PostgresPool {
         .bind(id)
         .bind(session_data)
         .bind(email)
+        .bind(name)
         .execute(self.inner())
         .await?;
 
@@ -1085,9 +1091,12 @@ impl PostgresPool {
         BrowserAccount {
             id: row.get("id"),
             provider: row.get("provider"),
+            name: row.get("name"),
             email: row.get("email"),
             session_data_encrypted: row.get("session_data_encrypted"),
             status: BrowserAccountStatus::from_str(&row.get::<String, _>("status")),
+            session_status: row.get("session_status"),
+            session_expires_at: row.get("session_expires_at"),
             request_count: row.get("request_count"),
             last_used_at: row.get("last_used_at"),
             created_at: row.get("created_at"),

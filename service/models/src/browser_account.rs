@@ -46,38 +46,31 @@ impl BrowserAccountStatus {
 /// 零 Token 浏览器账户（通过二维码认证）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserAccount {
-    /// 账户 ID
     pub id: Uuid,
-    /// 提供商（"claude", "chatgpt"）
     pub provider: String,
-    /// 登录邮箱（如果有）
+    pub name: Option<String>,
     pub email: Option<String>,
-    /// 加密的会话数据（Cookie/Token 的 JSON）
     pub session_data_encrypted: String,
-    /// 账户状态
     pub status: BrowserAccountStatus,
-    /// 已服务的请求总数
+    pub session_status: String,
+    pub session_expires_at: Option<DateTime<Utc>>,
     pub request_count: i64,
-    /// 最后使用时间
     pub last_used_at: Option<DateTime<Utc>>,
-    /// 创建时间
     pub created_at: DateTime<Utc>,
-    /// 更新时间
     pub updated_at: DateTime<Utc>,
 }
 
 impl BrowserAccount {
-    /// 创建新的浏览器账户
-    ///
-    /// # 参数
-    /// * `provider` - 提供商标识符
     pub fn new(provider: String) -> Self {
         Self {
             id: Uuid::new_v4(),
             provider,
+            name: None,
             email: None,
             session_data_encrypted: String::new(),
             status: BrowserAccountStatus::Pending,
+            session_status: "pending".to_string(),
+            session_expires_at: None,
             request_count: 0,
             last_used_at: None,
             created_at: Utc::now(),
@@ -85,7 +78,11 @@ impl BrowserAccount {
         }
     }
 
-    /// 设置邮箱
+    pub fn with_name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
     pub fn with_email(mut self, email: String) -> Self {
         self.email = Some(email);
         self
@@ -100,23 +97,24 @@ impl BrowserAccount {
         self
     }
 
-    /// 激活账户
     pub fn activate(mut self) -> Self {
         self.status = BrowserAccountStatus::Active;
+        self.session_status = "active".to_string();
+        self.session_expires_at = Some(Utc::now() + chrono::Duration::days(30));
         self.updated_at = Utc::now();
         self
     }
 
-    /// 标记为错误状态
     pub fn mark_error(mut self) -> Self {
         self.status = BrowserAccountStatus::Error;
+        self.session_status = "error".to_string();
         self.updated_at = Utc::now();
         self
     }
 
-    /// 标记为过期
     pub fn mark_expired(mut self) -> Self {
         self.status = BrowserAccountStatus::Expired;
+        self.session_status = "expired".to_string();
         self.updated_at = Utc::now();
         self
     }

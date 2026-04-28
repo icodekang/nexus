@@ -33,6 +33,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 api = { path = "api" }
 db = { path = "db" }
+router = { path = "router" }
 
 [workspace.dependencies]
 # Async runtime

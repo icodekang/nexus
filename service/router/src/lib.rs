@@ -12,12 +12,14 @@ pub mod strategy;
 pub mod context;
 pub mod error;
 pub mod key_scheduler;
+pub mod session_health_checker;
 
 pub use selector::*;
 pub use strategy::*;
 pub use context::*;
 pub use error::*;
 pub use key_scheduler::*;
+pub use session_health_checker::*;
 
 use models::{Provider, LlmModel, BuiltinModels, Providers};
 

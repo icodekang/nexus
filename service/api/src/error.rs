@@ -81,6 +81,18 @@ pub enum ApiError {
     #[error("User not found")]
     UserNotFound,
 
+    #[error("Login failed: {0}")]
+    LoginFailed(String),
+
+    #[error("Session expired")]
+    SessionExpired,
+
+    #[error("Page structure changed, manual intervention required")]
+    PageStructureChanged,
+
+    #[error("Cloudflare challenge detected, manual intervention required")]
+    CloudflareChallenge,
+
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -167,6 +179,26 @@ impl IntoResponse for ApiError {
                 StatusCode::NOT_FOUND,
                 "user_not_found",
                 "User not found.".to_string(),
+            ),
+            ApiError::LoginFailed(msg) => (
+                StatusCode::UNAUTHORIZED,
+                "login_failed",
+                msg.clone(),
+            ),
+            ApiError::SessionExpired => (
+                StatusCode::UNAUTHORIZED,
+                "session_expired",
+                "Session expired. Please login again.".to_string(),
+            ),
+            ApiError::PageStructureChanged => (
+                StatusCode::BAD_GATEWAY,
+                "page_structure_changed",
+                "Login page structure changed. Please update selectors.".to_string(),
+            ),
+            ApiError::CloudflareChallenge => (
+                StatusCode::BAD_GATEWAY,
+                "cloudflare_challenge",
+                "Cloudflare challenge detected. Manual browser login required.".to_string(),
             ),
             ApiError::Internal(e) => {
                 tracing::error!("Internal error: {:?}", e);

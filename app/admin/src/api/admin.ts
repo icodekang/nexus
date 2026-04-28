@@ -508,6 +508,7 @@ export async function fetchTransactions(page = 1, perPage = 20, type = '', statu
 export interface BrowserAccount {
   id: string;
   provider: string;
+  name: string | null;
   email: string | null;
   status: 'pending' | 'active' | 'expired' | 'error';
   request_count: number;
@@ -540,10 +541,10 @@ export async function fetchBrowserAccounts(): Promise<{ data: BrowserAccount[] }
  * @param provider - 服务商名称（如 claude、chatgpt）
  * @returns 创建的浏览器账号信息
  */
-export async function createBrowserAccount(provider: string): Promise<BrowserAccount> {
+export async function createBrowserAccount(provider: string, name?: string): Promise<BrowserAccount> {
   return request<BrowserAccount>('/admin/accounts', {
     method: 'POST',
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({ provider, name: name || null }),
   });
 }
 
@@ -559,7 +560,7 @@ export async function deleteBrowserAccount(id: string): Promise<{ deleted: boole
 }
 
 /**
- * loginWithBrowserAccount - 使用账号密码登录浏览器账号
+ * loginWithBrowserAccount - 使用账号密码自动登录浏览器账号
  * @param accountId - 账号 ID
  * @param email - 邮箱
  * @param password - 密码
@@ -575,6 +576,59 @@ export async function loginWithBrowserAccount(
     {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    },
+  );
+}
+
+/**
+ * injectBrowserSession - 手动注入 Cookie 会话
+ * @param accountId - 账号 ID
+ * @param cookiesJson - Cookie JSON 字符串
+ * @param email - 可选的邮箱（用于记录）
+ * @returns 注入结果
+ */
+export async function injectBrowserSession(
+  accountId: string,
+  cookiesJson: string,
+  email?: string,
+  name?: string,
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/admin/accounts/${accountId}/inject-session`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ cookies_json: cookiesJson, email: email || null, name: name || null }),
+    },
+  );
+}
+
+export interface PhoneLoginInitResponse {
+  session_id: string;
+  message: string;
+}
+
+export async function initiatePhoneLogin(
+  accountId: string,
+  phone: string,
+): Promise<PhoneLoginInitResponse> {
+  return request<PhoneLoginInitResponse>(
+    `/admin/accounts/${accountId}/phone-login/init`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    },
+  );
+}
+
+export async function completePhoneLogin(
+  accountId: string,
+  code: string,
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/admin/accounts/${accountId}/phone-login/verify`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ code }),
     },
   );
 }

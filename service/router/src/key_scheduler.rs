@@ -217,8 +217,6 @@ pub struct SelectedKey {
 // ---------------------------------------------------------------------------
 
 pub struct ProviderKeyScheduler {
-    #[allow(dead_code)]
-    provider_slug: String,
     keys: HashMap<uuid::Uuid, ProviderKey>,
     loads: HashMap<uuid::Uuid, KeyLoad>,
     /// session_id → binding
@@ -230,9 +228,8 @@ pub struct ProviderKeyScheduler {
 }
 
 impl ProviderKeyScheduler {
-    pub fn new(provider_slug: String) -> Self {
+    pub fn new(_provider_slug: String) -> Self {
         Self {
-            provider_slug,
             keys: HashMap::new(),
             loads: HashMap::new(),
             session_bindings: HashMap::new(),

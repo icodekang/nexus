@@ -190,10 +190,6 @@ struct CustomProviderDef {
     base_url: String,
     #[serde(default)]
     auth: String,
-    #[serde(rename = "apiKeyEnv")]
-    #[serde(default)]
-    #[allow(dead_code)]
-    api_key_env: Option<String>,
     #[serde(rename = "chatPath")]
     #[serde(default)]
     chat_path: Option<String>,

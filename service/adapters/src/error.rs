@@ -1,47 +1,51 @@
-//! 提供商客户端错误模块
-//!
-//! 定义了与 LLM 提供商通信时可能发生的各种错误
+//! Provider client error types
 
 use thiserror::Error;
 
-/// 提供商错误枚举
-///
-/// 包含与提供商通信过程中可能出现的各种错误情况
 #[derive(Error, Debug)]
 pub enum ProviderError {
-    /// 指定的提供商不存在或不可用
-    #[error("提供商不可用: {0}")]
+    #[error("Provider not available: {0}")]
     ProviderNotFound(String),
 
-    /// 未设置提供商的 API Key
-    #[error("未设置提供商 {0} 的 API Key")]
+    #[error("API key not set for provider {0}")]
     ApiKeyNotSet(String),
 
-    /// HTTP 请求失败
-    #[error("HTTP 请求失败: {0}")]
+    #[error("HTTP request failed: {0}")]
     RequestFailed(#[from] reqwest::Error),
 
-    /// 提供商返回了无效的响应
-    #[error("无效的响应: {0}")]
+    #[error("Invalid response: {0}")]
     InvalidResponse(String),
 
-    /// 该提供商不支持流式响应
-    #[error("该提供商不支持流式响应")]
+    #[error("Streaming not supported for this provider")]
     StreamingNotSupported,
 
-    /// 该提供商不支持嵌入请求
-    #[error("该提供商不支持嵌入请求")]
+    #[error("Embeddings not supported for this provider")]
     EmbeddingsNotSupported,
 
-    /// 提供商返回了错误
-    #[error("提供商错误: {0}")]
+    #[error("Provider error: {0}")]
     ProviderError(String),
 
-    /// 认证失败
-    #[error("认证失败: {0}")]
+    #[error("Authentication failed: {0}")]
     AuthenticationError(String),
 
-    /// 内部错误（用于非 HTTP 错误）
-    #[error("内部错误: {0}")]
+    #[error("Login failed: {0}")]
+    LoginFailed(String),
+
+    #[error("Session expired")]
+    SessionExpired,
+
+    #[error("Page structure changed, selectors need update")]
+    PageStructureChanged(String),
+
+    #[error("Cloudflare challenge detected, manual intervention required")]
+    CloudflareChallenge,
+
+    #[error("Chrome/Chromium browser not found on system")]
+    ChromeNotFound,
+
+    #[error("Provider blocked headless browser (CAPTCHA / Cloudflare / bot detection)")]
+    BlockedByProvider,
+
+    #[error("Internal error: {0}")]
     InternalError(String),
 }

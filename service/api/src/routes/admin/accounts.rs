@@ -36,6 +36,9 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/accounts/:id", delete(delete_account))
         .route("/accounts/:id/start-login", post(start_login))
         .route("/accounts/:id/password-login", post(password_login))
+        .route("/accounts/:id/inject-session", post(inject_session))
+        .route("/accounts/:id/phone-login/init", post(initiate_phone_login))
+        .route("/accounts/:id/phone-login/verify", post(complete_phone_login))
         .route("/accounts/:id/login-url", get(get_login_url))
         .route("/accounts/:id/status", get(get_account_status))
         .route("/accounts/complete-login", post(complete_login))
@@ -48,6 +51,7 @@ pub fn routes() -> Router<Arc<AppState>> {
 struct AccountResponse {
     id: String,
     provider: String,
+    name: Option<String>,
     email: Option<String>,
     status: String,
     request_count: i64,
@@ -55,12 +59,12 @@ struct AccountResponse {
     created_at: String,
 }
 
-/// 从 BrowserAccount 转换为 AccountResponse
 impl From<BrowserAccount> for AccountResponse {
     fn from(acc: BrowserAccount) -> Self {
         Self {
             id: acc.id.to_string(),
             provider: acc.provider,
+            name: acc.name,
             email: acc.email,
             status: acc.status.as_str().to_string(),
             request_count: acc.request_count,
@@ -85,8 +89,9 @@ async fn list_accounts(
 /// 创建账户请求体
 #[derive(Debug, Deserialize)]
 struct CreateAccountRequest {
-    /// Provider 名称（deepseek、claude 或 chatgpt）
     provider: String,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 /// POST /admin/accounts
@@ -107,7 +112,10 @@ async fn create_account(
         ));
     }
 
-    let account = BrowserAccount::new(provider);
+    let mut account = BrowserAccount::new(provider);
+    if let Some(ref name) = body.name {
+        account = account.with_name(name.clone());
+    }
 
     state.db.create_browser_account(&account).await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create account: {}", e)))?;
@@ -146,10 +154,10 @@ async fn delete_account(
 
 /// 启动登录请求体
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct StartLoginRequest {
     /// 是否使用无头浏览器（默认 true）
     #[serde(default = "default_true")]
+    #[allow(dead_code)]
     use_headless: bool,
 }
 
@@ -240,33 +248,55 @@ async fn password_login(
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
-    // Get account from database
     let account = state.db.get_browser_account(account_id).await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
-    // Use headless browser to login with password
     let cookies_json = state.headless_browser.login_with_password(
         &account.provider,
         &body.email,
         &body.password,
     ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Login failed: {}", e)))?;
+    .map_err(|e| match e {
+        provider_client::ProviderError::ChromeNotFound => {
+            ApiError::InvalidRequest("Chrome/Chromium browser not installed on server. Use manual session injection instead.".to_string())
+        }
+        provider_client::ProviderError::BlockedByProvider => {
+            ApiError::InvalidRequest("Login page blocked by CAPTCHA / Cloudflare. Use 'Manual Injection' tab: log in via your browser, export Cookie JSON from DevTools, and paste here.".to_string())
+        }
+        provider_client::ProviderError::AuthenticationError(msg) => {
+            ApiError::LoginFailed(msg)
+        }
+        provider_client::ProviderError::SessionExpired => {
+            ApiError::SessionExpired
+        }
+        provider_client::ProviderError::PageStructureChanged(_) => {
+            ApiError::PageStructureChanged
+        }
+        provider_client::ProviderError::CloudflareChallenge => {
+            ApiError::CloudflareChallenge
+        }
+        provider_client::ProviderError::LoginFailed(msg) => {
+            ApiError::LoginFailed(msg)
+        }
+        _ => {
+            tracing::error!("Login failed with unexpected error: {:?}", e);
+            ApiError::LoginFailed(format!("{}", e))
+        }
+    })?;
 
-    // Parse cookies into PersistedSession
     let session_data: provider_client::PersistedSession =
         serde_json::from_str(&cookies_json)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
 
-    // Update database with session data and set status to active
     state.db.update_browser_account_session(
         account_id,
         &cookies_json,
         Some(&body.email),
+        None,
     ).await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
 
-    // Register account in pool
     state.account_pool.register_account(
         account_id,
         account.provider.clone(),
@@ -277,6 +307,182 @@ async fn password_login(
     Ok(Json(PasswordLoginResponse {
         success: true,
         message: "Login successful".to_string(),
+    }))
+}
+
+/// 手动注入会话请求体
+#[derive(Debug, Deserialize)]
+struct InjectSessionRequest {
+    email: Option<String>,
+    name: Option<String>,
+    cookies_json: String,
+}
+
+/// POST /admin/accounts/:id/inject-session
+///
+/// 手动注入浏览器会话（Cookie/Token）
+///
+/// # 使用场景
+/// 当自动化无头浏览器登录被反爬机制阻挡时，管理员可以：
+/// 1. 在本地普通浏览器中手动登录目标平台
+/// 2. 使用浏览器开发者工具导出 Cookie JSON
+/// 3. 通过此接口注入 Cookie 到平台
+async fn inject_session(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<InjectSessionRequest>,
+) -> Result<Json<PasswordLoginResponse>, ApiError> {
+    let account_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    let account = state.db.get_browser_account(account_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
+
+    let session_data: provider_client::PersistedSession =
+        serde_json::from_str(&body.cookies_json)
+            .map_err(|e| ApiError::InvalidRequest(format!("Invalid cookies JSON: {}", e)))?;
+
+    state.db.update_browser_account_session(
+        account_id,
+        &body.cookies_json,
+        body.email.as_deref(),
+        body.name.as_deref(),
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
+
+    state.account_pool.register_account(
+        account_id,
+        account.provider.clone(),
+        session_data,
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+
+    tracing::info!("Session injected for account {} (provider: {})", account_id, account.provider);
+
+    Ok(Json(PasswordLoginResponse {
+        success: true,
+        message: "Session injected successfully".to_string(),
+    }))
+}
+
+/// 手机验证码登录 - 发起请求体
+#[derive(Debug, Deserialize)]
+struct PhoneLoginInitRequest {
+    phone: String,
+}
+
+/// 手机验证码登录 - 验证请求体
+#[derive(Debug, Deserialize)]
+struct PhoneLoginVerifyRequest {
+    code: String,
+}
+
+/// 手机验证码登录 - 发起响应
+#[derive(Debug, Serialize)]
+struct PhoneLoginInitResponse {
+    session_id: String,
+    message: String,
+}
+
+/// POST /admin/accounts/:id/phone-login/init
+///
+/// 发起手机验证码登录：headless 浏览器填写手机号并点击发送验证码，
+/// 返回会话 ID，前端用此 ID 轮询状态或等待管理员输入验证码后调用 verify
+async fn initiate_phone_login(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<PhoneLoginInitRequest>,
+) -> Result<Json<PhoneLoginInitResponse>, ApiError> {
+    let account = state.db.get_browser_account(
+        Uuid::parse_str(&id).map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+    .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
+
+    let session = state.headless_browser.initiate_phone_login(
+        &account.provider,
+        &body.phone,
+    ).await
+    .map_err(|e| match e {
+        provider_client::ProviderError::ChromeNotFound => ApiError::InvalidRequest(
+            "Chrome/Chromium browser not installed on server. Use manual session injection instead.".to_string()
+        ),
+        provider_client::ProviderError::BlockedByProvider => ApiError::InvalidRequest(
+            "Login page blocked by CAPTCHA / Cloudflare. Use 'Manual Injection' tab instead.".to_string()
+        ),
+        other => ApiError::LoginFailed(format!("{}", other)),
+    })?;
+
+
+    let redis_key = format!("phone_login:{}", id);
+    state.redis.set_with_ttl(&redis_key, &session.id.to_string(), 600).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
+
+    Ok(Json(PhoneLoginInitResponse {
+        session_id: session.id.to_string(),
+        message: "Verification code sent. Check your phone.".to_string(),
+    }))
+}
+
+/// POST /admin/accounts/:id/phone-login/verify
+///
+/// 完成手机验证码登录：headless 浏览器填写验证码、点击提交、等待登录完成、提取 Cookie
+async fn complete_phone_login(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<PhoneLoginVerifyRequest>,
+) -> Result<Json<PasswordLoginResponse>, ApiError> {
+    let account_id = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
+
+    let account = state.db.get_browser_account(account_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
+
+    let redis_key = format!("phone_login:{}", id);
+    let session_id = state.redis.get(&redis_key).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?
+        .and_then(|s| Uuid::parse_str(&s).ok())
+        .ok_or(ApiError::InvalidRequest("Phone login session expired. Please initiate again.".to_string()))?;
+
+    let cookies_json = state.headless_browser.complete_phone_login(
+        session_id,
+        &body.code,
+    ).await
+    .map_err(|e| match e {
+        provider_client::ProviderError::AuthenticationError(msg) => ApiError::LoginFailed(msg),
+        provider_client::ProviderError::LoginFailed(msg) => ApiError::LoginFailed(msg),
+        other => ApiError::LoginFailed(format!("{}", other)),
+    })?;
+
+    let session_data: provider_client::PersistedSession =
+        serde_json::from_str(&cookies_json)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
+
+    state.db.update_browser_account_session(
+        account_id,
+        &cookies_json,
+        None,
+        None,
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
+
+    state.account_pool.register_account(
+        account_id,
+        account.provider.clone(),
+        session_data,
+    ).await
+    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+
+    let _ = state.redis.delete(&redis_key).await;
+
+    Ok(Json(PasswordLoginResponse {
+        success: true,
+        message: "Phone login successful".to_string(),
     }))
 }
 
@@ -382,6 +588,7 @@ async fn get_account_status(
                                     account_id,
                                     &cookies_json,
                                     email.as_deref(),
+                                    None,
                                 ).await;
 
                                 // Store session in Redis
