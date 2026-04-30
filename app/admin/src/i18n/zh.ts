@@ -122,6 +122,11 @@ export const zh = {
     apiKeyLabel: 'API 密钥',
     apiKeyPlaceholder: 'sk-...',
     priorityLabel: '优先级',
+    deleteErrorTitle: '无法删除服务商',
+    deleteErrorKeys: '该服务商仍有有效的 API 密钥。请先在「密钥管理」页面删除所有密钥。',
+    deleteErrorAccounts: '该服务商仍有有效的浏览器账号。请先在「浏览器账号」页面删除所有账号。',
+    deleteErrorBoth: '该服务商仍有有效的 API 密钥和浏览器账号。请先在「密钥管理」和「浏览器账号」页面删除所有密钥和账号。',
+    deleteErrorModels: '该服务商仍有模型配置。请先在「模型」页面删除所有模型。',
   },
   models: {
     title: '模型',

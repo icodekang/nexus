@@ -122,6 +122,11 @@ export const en = {
     apiKeyLabel: 'API Key',
     apiKeyPlaceholder: 'sk-...',
     priorityLabel: 'Priority',
+    deleteErrorTitle: 'Cannot Delete Provider',
+    deleteErrorKeys: 'This provider still has active API keys. Please delete all keys first in the Provider Keys page.',
+    deleteErrorAccounts: 'This provider still has active browser accounts. Please delete all accounts first in the Browser Accounts page.',
+    deleteErrorBoth: 'This provider still has active API keys and browser accounts. Please delete all keys and accounts first.',
+    deleteErrorModels: 'This provider still has models configured. Please delete all models first in the Models page.',
   },
   models: {
     title: 'Models',

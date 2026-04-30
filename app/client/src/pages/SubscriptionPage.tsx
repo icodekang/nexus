@@ -66,6 +66,46 @@ export default function SubscriptionPage() {
     }
   };
 
+  // Plan key 映射：将 API 返回的 snake_case 转换为 camelCase
+  const planKeyMap: Record<string, string> = {
+    'zero_token': 'zeroToken',
+    'zerotoken': 'zeroToken',
+    'monthly': 'monthly',
+    'yearly': 'yearly',
+    'team': 'team',
+    'enterprise': 'enterprise',
+    'none': 'none',
+    'autoRenew': 'autoRenew',
+    'quarterly': 'quarterly',
+    'zeroToken': 'zeroToken',
+  };
+
+  // Feature 翻译映射
+  const featureMap: Record<string, string> = {
+    '完整 API 访问': t('subscription.featApiAccess'),
+    'Full API access': t('subscription.featApiAccess'),
+    '包含所有模型': t('subscription.featAllModels'),
+    'All models included': t('subscription.featAllModels'),
+    '邮件支持': t('subscription.featSupport'),
+    'Email support': t('subscription.featSupport'),
+    '优先支持': t('subscription.featPriority'),
+    'Priority support': t('subscription.featPriority'),
+    '使用统计分析': t('subscription.featAnalytics'),
+    'Usage analytics': t('subscription.featAnalytics'),
+    '自定义速率限制': t('subscription.featCustomLimits'),
+    'Custom rate limits': t('subscription.featCustomLimits'),
+    '浏览器模拟访问大模型': t('subscription.featBrowserAccess'),
+    'Browser-based LLM access': t('subscription.featBrowserAccess'),
+    '无需 API Key': t('subscription.featNoApiKey'),
+    'No API key needed': t('subscription.featNoApiKey'),
+    '10万 tokens/月': t('subscription.feat100kTokens'),
+    '100K tokens/month': t('subscription.feat100kTokens'),
+    '支持 Claude.ai': t('subscription.featClaudeSupport'),
+    'Claude.ai support': t('subscription.featClaudeSupport'),
+    '支持 ChatGPT': t('subscription.featChatGPTSupport'),
+    'ChatGPT support': t('subscription.featChatGPTSupport'),
+  };
+
   // 将 API PlanInfo 映射为本地 Plan 格式
   const mapApiPlanToLocal = (apiPlan: PlanInfo, index: number): Plan => {
     const period = t('subscription.perMonth');
@@ -85,6 +125,9 @@ export default function SubscriptionPage() {
       badgeType = 'best';
     }
 
+    // 翻译 features
+    const translatedFeatures = apiPlan.features?.map(feat => featureMap[feat] || feat) || [];
+
     return {
       key: apiPlan.plan,
       price: apiPlan.plan.includes('yearly') ? `$${apiPlan.price_yearly}` : `$${apiPlan.price_monthly}`,
@@ -92,7 +135,7 @@ export default function SubscriptionPage() {
       badge,
       badgeType,
       billedLabel,
-      features: apiPlan.features || [],
+      features: translatedFeatures,
       highlighted,
     };
   };
@@ -176,10 +219,10 @@ export default function SubscriptionPage() {
     },
   ];
 
-  // 使用 API 数据或兜底硬编码
-  const displayPlans: Plan[] = availablePlans.length > 0
+  // 使用 API 数据或兜底硬编码 (过滤掉 enterprise)
+  const displayPlans: Plan[] = (availablePlans.length > 0
     ? availablePlans.map(mapApiPlanToLocal)
-    : defaultPlans;
+    : defaultPlans).filter(plan => plan.key !== 'enterprise');
 
   // 获取按钮文字：当前套餐/切换/订阅
   const getButtonLabel = (planKey: string) => {
@@ -253,10 +296,10 @@ export default function SubscriptionPage() {
 
             <div className="subscription-card-top">
               <h3 className="subscription-plan-name">
-                {t(`subscription.${plan.key}`)}
+                {t(`subscription.${planKeyMap[plan.key] || plan.key}`)}
               </h3>
               <p className="subscription-plan-desc">
-                {t(`subscription.${plan.key}Desc`)}
+                {t(`subscription.${planKeyMap[plan.key] || plan.key}Desc`)}
               </p>
 
               <div className="subscription-price-row">

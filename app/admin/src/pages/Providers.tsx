@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
-import { fetchProviders, createProvider, updateProvider, deleteProvider, type AdminProvider } from '../api/admin';
+import { fetchProviders, createProvider, updateProvider, deleteProvider, fetchProviderKeys, fetchBrowserAccounts, fetchModels, type AdminProvider } from '../api/admin';
 
 // 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
@@ -34,6 +34,10 @@ export default function Providers() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editProvider, setEditProvider] = useState<AdminProvider | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminProvider | null>(null);
+  const [deleteError, setDeleteError] = useState<string>('');
+  const [allKeys, setAllKeys] = useState<{provider_slug: string}[]>([]);
+  const [allAccounts, setAllAccounts] = useState<{provider: string}[]>([]);
+  const [allModels, setAllModels] = useState<{provider_id: string}[]>([]);
 
   // 表单状态
   const [formName, setFormName] = useState('');
@@ -45,8 +49,13 @@ export default function Providers() {
   // 加载提供商列表
   const loadProviders = useCallback(() => {
     setLoading(true);
-    fetchProviders()
-      .then((res) => setProviders(res.data))
+    Promise.all([fetchProviders(), fetchProviderKeys(), fetchBrowserAccounts(), fetchModels()])
+      .then(([res, keysRes, accountsRes, modelsRes]) => {
+        setProviders(res.data);
+        setAllKeys(keysRes.data.map(k => ({ provider_slug: k.provider_slug })));
+        setAllAccounts(accountsRes.data.map(a => ({ provider: a.provider })));
+        setAllModels(modelsRes.data.map(m => ({ provider_id: m.provider_id })));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -115,12 +124,24 @@ export default function Providers() {
 
   const handleDeleteProvider = async () => {
     if (!deleteTarget) return;
+    const hasKeys = allKeys.some(k => k.provider_slug === deleteTarget.slug);
+    const hasAccounts = allAccounts.some(a => a.provider === deleteTarget.slug);
+    const hasModels = allModels.some(m => m.provider_id === deleteTarget.id);
+    const errors: string[] = [];
+    if (hasKeys) errors.push(t('providers.deleteErrorKeys'));
+    if (hasAccounts) errors.push(t('providers.deleteErrorAccounts'));
+    if (hasModels) errors.push(t('providers.deleteErrorModels'));
+    if (errors.length > 0) {
+      setDeleteError(errors.join('\n'));
+      return;
+    }
     try {
       await deleteProvider(deleteTarget.id);
       setDeleteTarget(null);
+      setDeleteError('');
       loadProviders();
-    } catch {
-      // Error handling
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -226,18 +247,26 @@ export default function Providers() {
         />
       </Modal>
 
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={t('common.delete')} width={380}>
+      <Modal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteError(''); }} title={deleteError ? t('providers.deleteErrorTitle') : t('common.delete')} width={380}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <p style={{ fontSize: '13px', color: '#71717A', margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
-            {t('common.deleteConfirm')}
-          </p>
+          {deleteError ? (
+            <p style={{ fontSize: '13px', color: '#EF4444', margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
+              {deleteError}
+            </p>
+          ) : (
+            <p style={{ fontSize: '13px', color: '#71717A', margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
+              {t('common.deleteConfirm')}
+            </p>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <button style={formStyles.cancelBtn} onClick={() => setDeleteTarget(null)}>
-              {t('common.cancel')}
+            <button style={formStyles.cancelBtn} onClick={() => { setDeleteTarget(null); setDeleteError(''); }}>
+              {deleteError ? t('common.close') : t('common.cancel')}
             </button>
-            <button style={{ ...formStyles.submitBtn, backgroundColor: '#EF4444' }} onClick={handleDeleteProvider}>
-              {t('common.delete')}
-            </button>
+            {!deleteError && (
+              <button style={{ ...formStyles.submitBtn, backgroundColor: '#EF4444' }} onClick={handleDeleteProvider}>
+                {t('common.delete')}
+              </button>
+            )}
           </div>
         </div>
       </Modal>

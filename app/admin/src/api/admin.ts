@@ -397,6 +397,15 @@ export async function deleteProviderKey(id: string): Promise<{ deleted: boolean 
 }
 
 /**
+ * fetchProviderKeysByProvider - 获取指定服务商的密钥列表
+ * @param providerSlug - 服务商 slug
+ * @returns 密钥列表
+ */
+export async function fetchProviderKeysByProvider(providerSlug: string): Promise<ProviderKeysResponse> {
+  return request<ProviderKeysResponse>(`/admin/provider-keys?provider=${providerSlug}`);
+}
+
+/**
  * testProviderKey - 测试服务商密钥连接
  * @param id - 密钥 ID
  * @returns 测试是否成功及消息
