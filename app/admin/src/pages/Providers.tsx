@@ -43,6 +43,7 @@ export default function Providers() {
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
   const [formApiUrl, setFormApiUrl] = useState('');
+  const [formApiType, setFormApiType] = useState('openai');
   const [formPriority, setFormPriority] = useState('1');
   const [formActive, setFormActive] = useState(true);
 
@@ -68,6 +69,7 @@ export default function Providers() {
     setFormName('');
     setFormSlug('');
     setFormApiUrl('');
+    setFormApiType('openai');
     setFormPriority('1');
     setFormActive(true);
   };
@@ -83,6 +85,7 @@ export default function Providers() {
     setFormName(p.name);
     setFormSlug(p.slug);
     setFormApiUrl(p.api_base_url);
+    setFormApiType(p.api_type || 'openai');
     setFormPriority(String(p.priority));
     setFormActive(p.is_active);
     setEditProvider(p);
@@ -95,13 +98,13 @@ export default function Providers() {
         name: formName,
         slug: formSlug || formName.toLowerCase().replace(/\s+/g, '-'),
         api_base_url: formApiUrl || undefined,
+        api_type: formApiType,
         priority: parseInt(formPriority) || undefined,
         is_active: formActive,
       });
       setShowAddModal(false);
       loadProviders();
     } catch {
-      // Error handling
     }
   };
 
@@ -112,13 +115,13 @@ export default function Providers() {
         name: formName,
         slug: formSlug,
         api_base_url: formApiUrl,
+        api_type: formApiType,
         priority: parseInt(formPriority) || editProvider.priority,
         is_active: formActive,
       });
       setEditProvider(null);
       loadProviders();
     } catch {
-      // Error handling
     }
   };
 
@@ -224,6 +227,7 @@ export default function Providers() {
           name={formName} setName={setFormName}
           slug={formSlug} setSlug={setFormSlug}
           apiUrl={formApiUrl} setApiUrl={setFormApiUrl}
+          apiType={formApiType} setApiType={setFormApiType}
           priority={formPriority} setPriority={setFormPriority}
           isActive={formActive} setIsActive={setFormActive}
           t={t}
@@ -238,6 +242,7 @@ export default function Providers() {
           name={formName} setName={setFormName}
           slug={formSlug} setSlug={setFormSlug}
           apiUrl={formApiUrl} setApiUrl={setFormApiUrl}
+          apiType={formApiType} setApiType={setFormApiType}
           priority={formPriority} setPriority={setFormPriority}
           isActive={formActive} setIsActive={setFormActive}
           t={t}
@@ -275,12 +280,13 @@ export default function Providers() {
 }
 
 function ProviderForm({
-  name, setName, slug, setSlug, apiUrl, setApiUrl, priority, setPriority, isActive, setIsActive,
+  name, setName, slug, setSlug, apiUrl, setApiUrl, apiType, setApiType, priority, setPriority, isActive, setIsActive,
   t, onSubmit, onCancel, submitLabel,
 }: {
   name: string; setName: (v: string) => void;
   slug: string; setSlug: (v: string) => void;
   apiUrl: string; setApiUrl: (v: string) => void;
+  apiType: string; setApiType: (v: string) => void;
   priority: string; setPriority: (v: string) => void;
   isActive: boolean; setIsActive: (v: boolean) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
@@ -320,6 +326,17 @@ function ProviderForm({
           placeholder="https://api.example.com/v1"
           style={formStyles.input}
         />
+      </div>
+      <div style={formStyles.field}>
+        <label style={formStyles.label}>API Type</label>
+        <select
+          value={apiType}
+          onChange={(e) => setApiType(e.target.value)}
+          style={{ ...formStyles.input, cursor: 'pointer' }}
+        >
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
       </div>
       <div style={formStyles.field}>
         <label style={formStyles.label}>{t('providers.priorityLabel')}</label>

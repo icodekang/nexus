@@ -7,21 +7,14 @@ use uuid::Uuid;
 /// LLM 提供商（OpenAI, Anthropic, Google 等）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Provider {
-    /// 提供商 ID
     pub id: Uuid,
-    /// 提供商名称
     pub name: String,
-    /// 提供商标识符（URL 友好）
     pub slug: String,
-    /// Logo URL
     pub logo_url: Option<String>,
-    /// API 基础 URL
     pub api_base_url: String,
-    /// 是否激活
+    pub api_type: String,
     pub is_active: bool,
-    /// 优先级（数值越低越优先）
     pub priority: i32,
-    /// 创建时间
     pub created_at: DateTime<Utc>,
 }
 
@@ -39,10 +32,16 @@ impl Provider {
             slug,
             logo_url: None,
             api_base_url,
+            api_type: "openai".to_string(),
             is_active: true,
             priority: 100,
             created_at: Utc::now(),
         }
+    }
+
+    pub fn with_api_type(mut self, api_type: String) -> Self {
+        self.api_type = api_type;
+        self
     }
 
     /// 设置 Logo URL
@@ -82,12 +81,14 @@ impl Providers {
                 Self::OPENAI.to_string(),
                 "https://api.openai.com/v1".to_string(),
             )
+            .with_api_type("openai".to_string())
             .with_priority(10),
             Provider::new(
                 "Anthropic".to_string(),
                 Self::ANTHROPIC.to_string(),
                 "https://api.anthropic.com/v1".to_string(),
             )
+            .with_api_type("anthropic".to_string())
             .with_priority(20),
             Provider::new(
                 "Google".to_string(),

@@ -201,6 +201,7 @@ export interface AdminProvider {
   slug: string;
   logo_url: string | null;
   api_base_url: string;
+  api_type: string;
   is_active: boolean;
   priority: number;
   created_at: string;
@@ -226,7 +227,7 @@ export async function fetchProviders(): Promise<ProvidersResponse> {
  * @param data - 服务商配置（名称、slug、API 基础 URL、优先级）
  * @returns 创建的服务商信息
  */
-export async function createProvider(data: { name: string; slug: string; api_base_url?: string; priority?: number; is_active?: boolean }): Promise<AdminProvider> {
+export async function createProvider(data: { name: string; slug: string; api_base_url?: string; api_type?: string; priority?: number; is_active?: boolean }): Promise<AdminProvider> {
   return request<AdminProvider>('/admin/providers', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -239,7 +240,7 @@ export async function createProvider(data: { name: string; slug: string; api_bas
  * @param data - 要更新的字段
  * @returns 更新是否成功
  */
-export async function updateProvider(id: string, data: { name?: string; slug?: string; api_base_url?: string; is_active?: boolean; priority?: number }): Promise<{ updated: boolean }> {
+export async function updateProvider(id: string, data: { name?: string; slug?: string; api_base_url?: string; api_type?: string; is_active?: boolean; priority?: number }): Promise<{ updated: boolean }> {
   return request<{ updated: boolean }>(`/admin/providers/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),

@@ -219,13 +219,10 @@ async fn update_user(
 /// 创建 Provider 请求体
 #[derive(Debug, Deserialize)]
 struct CreateProviderRequest {
-    /// Provider 名称
     name: String,
-    /// Provider slug（唯一标识）
     slug: String,
-    /// API 基础 URL（可选）
     api_base_url: Option<String>,
-    /// 优先级（可选，数字越大优先级越高）
+    api_type: Option<String>,
     priority: Option<i32>,
 }
 
@@ -246,6 +243,7 @@ async fn list_providers(
             "slug": p.slug,
             "logo_url": p.logo_url,
             "api_base_url": p.api_base_url,
+            "api_type": p.api_type,
             "is_active": p.is_active,
             "priority": p.priority,
             "created_at": p.created_at.to_rfc3339(),
@@ -271,6 +269,9 @@ async fn create_provider(
     if let Some(p) = body.priority {
         provider = provider.with_priority(p);
     }
+    if let Some(t) = body.api_type {
+        provider = provider.with_api_type(t);
+    }
 
     state.db.create_provider(&provider).await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create provider: {}", e)))?;
@@ -280,6 +281,7 @@ async fn create_provider(
         "name": provider.name,
         "slug": provider.slug,
         "api_base_url": provider.api_base_url,
+        "api_type": provider.api_type,
         "is_active": provider.is_active,
         "priority": provider.priority,
         "created_at": provider.created_at.to_rfc3339(),
@@ -292,6 +294,7 @@ struct UpdateProviderRequest {
     name: Option<String>,
     slug: Option<String>,
     api_base_url: Option<String>,
+    api_type: Option<String>,
     is_active: Option<bool>,
     priority: Option<i32>,
 }
@@ -313,6 +316,7 @@ async fn update_provider(
         body.name.as_deref(),
         body.slug.as_deref(),
         body.api_base_url.as_deref(),
+        body.api_type.as_deref(),
         body.is_active,
         body.priority,
     ).await

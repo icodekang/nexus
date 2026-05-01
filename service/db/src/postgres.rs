@@ -232,8 +232,8 @@ impl PostgresPool {
     pub async fn create_provider(&self, provider: &Provider) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO providers (id, name, slug, logo_url, api_base_url, is_active, priority, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO providers (id, name, slug, logo_url, api_base_url, api_type, is_active, priority, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
         )
         .bind(provider.id)
@@ -241,6 +241,7 @@ impl PostgresPool {
         .bind(&provider.slug)
         .bind(&provider.logo_url)
         .bind(&provider.api_base_url)
+        .bind(&provider.api_type)
         .bind(provider.is_active)
         .bind(provider.priority)
         .bind(provider.created_at)
@@ -265,6 +266,7 @@ impl PostgresPool {
             slug: row.get("slug"),
             logo_url: row.get("logo_url"),
             api_base_url: row.get("api_base_url"),
+            api_type: row.get("api_type"),
             is_active: row.get("is_active"),
             priority: row.get("priority"),
             created_at: row.get("created_at"),
@@ -697,6 +699,7 @@ impl PostgresPool {
         name: Option<&str>,
         slug: Option<&str>,
         api_base_url: Option<&str>,
+        api_type: Option<&str>,
         is_active: Option<bool>,
         priority: Option<i32>,
     ) -> Result<(), DbError> {
@@ -706,8 +709,9 @@ impl PostgresPool {
                 name = COALESCE($2, name),
                 slug = COALESCE($3, slug),
                 api_base_url = COALESCE($4, api_base_url),
-                is_active = COALESCE($5, is_active),
-                priority = COALESCE($6, priority)
+                api_type = COALESCE($5, api_type),
+                is_active = COALESCE($6, is_active),
+                priority = COALESCE($7, priority)
             WHERE id = $1
             "#,
         )
@@ -715,6 +719,7 @@ impl PostgresPool {
         .bind(name)
         .bind(slug)
         .bind(api_base_url)
+        .bind(api_type)
         .bind(is_active)
         .bind(priority)
         .execute(self.inner())
