@@ -1,22 +1,27 @@
 /**
  * @file SearchPage - 多模型搜索对比页面
- * 编辑风格的搜索界面：同时查询多个 AI 模型，按评分排序展示
- * 桌面端采用双栏布局（最佳回答 + 其余排名列表）
+ * 流程：选择模型回答 → 先随机展示 → 评委打分 → 按分数动态重排
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore } from '../stores/chatStore';
-import { fetchBatchChat, type ModelResult } from '../api/client';
+import { fetchBatchChat, fetchBatchJudge, type ModelResult } from '../api/client';
 import { useI18n } from '../i18n';
 import './SearchPage.css';
-
-// ── 常量 ───────────────────────────────────────────────────────────────
 
 const PROVIDER_META: Record<string, { name: string; color: string }> = {
   openai:    { name: 'OpenAI',    color: '#10B981' },
   anthropic: { name: 'Anthropic', color: '#D97706' },
   google:    { name: 'Google',    color: '#3B82F6' },
   deepseek:  { name: 'DeepSeek',  color: '#8B5CF6' },
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+  code:     '编程',
+  creative: '创意写作',
+  analysis: '分析推理',
+  general:  '通用',
+  manual:   '手动选择',
 };
 
 function getScoreColor(score: number): string {
@@ -33,7 +38,7 @@ function getScoreLabel(score: number): string {
   return '较差';
 }
 
-function formatContent(text: string, maxLen: number): string {
+function clampContent(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   const slice = text.slice(0, maxLen);
   const lastNewline = slice.lastIndexOf('\n');
@@ -53,50 +58,224 @@ const SUGGESTIONS = [
   '写一篇关于人工智能未来的短文',
 ];
 
-// ── 主组件 ─────────────────────────────────────────────────────────────
+// ── 子组件：评分环 ────────────────────────────────────────────────────────
+
+function ScoreRing({ score, size = 28 }: { score: number; size?: number }) {
+  const color = getScoreColor(score);
+  const radius = (size - 6) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (score / 10) * circumference;
+
+  return (
+    <div className="score-ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#F0EFED" strokeWidth="2.5" />
+        <circle
+          cx={size / 2} cy={size / 2} r={radius}
+          fill="none" stroke={color} strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          className="score-ring-progress"
+        />
+      </svg>
+      <span className="score-ring-value" style={{ color, fontSize: 11 }}>
+        {score.toFixed(1)}
+      </span>
+    </div>
+  );
+}
+
+// ── 子组件：模型卡片 ─────────────────────────────────────────────────────
+
+function ModelCard({
+  result,
+  scoring,
+  expanded,
+  onToggle,
+}: {
+  result: ModelResult;
+  scoring: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const meta = PROVIDER_META[result.provider] || { name: result.provider, color: '#78716C' };
+  const hasScore = result.score > 0;
+  const preview = clampContent(result.content, 400);
+  const isLong = result.content.length > 400;
+  const readTime = estimateReadTime(result.content);
+
+  return (
+    <div className={`model-card ${!result.success ? 'model-card-error' : ''}`}>
+      <div className="model-card-header">
+        <div className="model-card-header-left">
+          <span className="provider-dot" style={{ background: meta.color }} />
+          <span className="model-card-name">{result.model}</span>
+          <span className="model-card-provider">{meta.name}</span>
+        </div>
+        <div className="model-card-header-right">
+          {scoring && !hasScore && (
+            <span className="model-card-scoring-pulse" title="评委正在评分…" />
+          )}
+          {hasScore && (
+            <div className="model-card-score">
+              <ScoreRing score={result.score} size={30} />
+              <span className="model-card-score-label" style={{ color: getScoreColor(result.score) }}>
+                {getScoreLabel(result.score)}
+              </span>
+            </div>
+          )}
+          {!result.success && <span className="model-card-fail-icon">!</span>}
+        </div>
+      </div>
+
+      <div className="model-card-meta">
+        <span className="model-card-latency">{result.latency_ms}ms</span>
+        {result.success && (
+          <>
+            <span className="meta-sep">·</span>
+            <span className="model-card-read-time">{readTime} min read</span>
+            {result.usage.total_tokens > 0 && (
+              <>
+                <span className="meta-sep">·</span>
+                <span className="model-card-tokens">{result.usage.total_tokens} tokens</span>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className={`model-card-content ${expanded ? 'expanded' : ''}`}>
+        {result.success ? (
+          <>
+            {expanded ? result.content : preview}
+            {!expanded && isLong && <span className="content-ellipsis">...</span>}
+          </>
+        ) : (
+          <span className="model-card-error-msg">{result.error || '请求失败'}</span>
+        )}
+      </div>
+
+      {result.success && (
+        <div className="model-card-actions">
+          {isLong && (
+            <button className="model-card-toggle" onClick={onToggle}>
+              {expanded ? '收起回答' : '展开完整回答'}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                   strokeLinecap="round" strokeLinejoin="round"
+                   style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          )}
+          {result.reason && (
+            <button
+              className="model-card-reason-btn"
+              onClick={(e) => {
+                const el = (e.target as HTMLElement).closest('.model-card')?.querySelector('.model-card-reason');
+                el?.classList.toggle('visible');
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                   strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+              评分说明
+            </button>
+          )}
+        </div>
+      )}
+
+      {result.reason && (
+        <div className="model-card-reason">
+          <span className="reason-label">评分依据：</span>
+          {result.reason}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 主组件 ─────────────────────────────────────────────────────────────────
 
 export default function SearchPage() {
   const { t } = useI18n();
-  const { isSearching, currentResult, setSearching, setSearchResult, clearResult, addToHistory } = useChatStore();
+  const {
+    isSearching, currentResult, selectedModel, setSelectedModel,
+    setSearching, setSearchResult, clearResult, addToHistory,
+  } = useChatStore();
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const [scoring, setScoring] = useState(false);
+  const [judgeModel, setJudgeModel] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!currentResult) inputRef.current?.focus();
   }, [currentResult]);
 
-  const handleSearch = async (query?: string) => {
+  const handleSearch = useCallback(async (query?: string) => {
     const q = (query || input).trim();
     if (!q || isSearching) return;
     setError('');
     setSearching(true);
+    setScoring(false);
+    setJudgeModel('');
     setExpandedCards(new Set());
+
+    const preSelected = selectedModel;
+    setSelectedModel(null);
+
     try {
-      const resp = await fetchBatchChat([{ role: 'user', content: q }]);
-      setSearchResult({
+      const modelsParam = preSelected ? [preSelected] : undefined;
+      const resp = await fetchBatchChat([{ role: 'user', content: q }], modelsParam);
+
+      const resultData = {
         id: resp.id,
         query: resp.query,
         results: resp.results,
         judgeModel: resp.judge_model,
         totalLatency: resp.total_latency_ms,
         timestamp: Date.now(),
-      });
-      addToHistory({
-        id: resp.id,
-        query: resp.query,
-        results: resp.results,
-        judgeModel: resp.judge_model,
-        totalLatency: resp.total_latency_ms,
-        timestamp: Date.now(),
-      });
+        selectionCategory: resp.selection_category,
+        selectedModels: resp.selected_models,
+        hasScoring: resp.has_scoring,
+      };
+      setSearchResult(resultData);
+      addToHistory(resultData);
+      setSearching(false);
+
+      // If scoring is available, call judge endpoint asynchronously
+      if (resp.has_scoring && resp.results.some((r: ModelResult) => r.success)) {
+        setScoring(true);
+        try {
+          const judgeResp = await fetchBatchJudge({ query: resp.query, results: resp.results });
+          setJudgeModel(judgeResp.judge_model);
+
+          const updated = resp.results.map((r: ModelResult) => {
+            const scoreInfo = judgeResp.scores.find((s) => s.model === r.model);
+            if (scoreInfo) {
+              return { ...r, score: scoreInfo.score, reason: scoreInfo.reason };
+            }
+            return r;
+          });
+          updated.sort((a: ModelResult, b: ModelResult) => b.score - a.score);
+          setSearchResult({
+            ...resultData,
+            results: updated,
+            judgeModel: judgeResp.judge_model,
+          });
+        } catch {
+          // Scoring failed silently — show results without scores
+        } finally {
+          setScoring(false);
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e) || t('common.requestFailed'));
-    } finally {
       setSearching(false);
     }
-  };
+  }, [input, isSearching, selectedModel, setSelectedModel, setSearching, setSearchResult, addToHistory, t]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -116,18 +295,17 @@ export default function SearchPage() {
   const handleNewSearch = () => {
     clearResult();
     setError('');
+    setScoring(false);
+    setJudgeModel('');
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  // ── 结果视图 ─────────────────────────────────────────────────────────
+  // ── 结果视图 ────────────────────────────────────────────────────────────
 
   if (currentResult) {
     const successResults = currentResult.results.filter((r) => r.success);
     const failedResults = currentResult.results.filter((r) => !r.success);
-    const featured = successResults[0] ?? null;
-    const rest = successResults.slice(1);
-    const hasSideList = rest.length > 0 || failedResults.length > 0;
-    const useSplitLayout = featured && hasSideList;
+    const categoryLabel = CATEGORY_LABELS[currentResult.selectionCategory] || currentResult.selectionCategory;
 
     return (
       <div className="search-page results-mode">
@@ -145,11 +323,14 @@ export default function SearchPage() {
                 {isSearching ? (
                   <span className="search-topbar-spinner" />
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                       strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></svg>
                 )}
               </button>
             </div>
-            <span className="search-meta">{currentResult.results.length} 个模型 · {currentResult.totalLatency}ms</span>
+            <span className="search-meta">
+              {currentResult.results.length} 个模型 · {currentResult.totalLatency}ms
+            </span>
           </div>
         </div>
 
@@ -161,57 +342,64 @@ export default function SearchPage() {
               <div className="search-loading-ring">
                 <svg className="loading-ring-svg" viewBox="0 0 48 48">
                   <circle cx="24" cy="24" r="20" fill="none" stroke="#E7E5E4" strokeWidth="3" />
-                  <circle cx="24" cy="24" r="20" fill="none" stroke="#4F46E5" strokeWidth="3" strokeLinecap="round" strokeDasharray="80 126" />
+                  <circle cx="24" cy="24" r="20" fill="none" stroke="#4F46E5" strokeWidth="3"
+                          strokeLinecap="round" strokeDasharray="80 126" />
                 </svg>
-              </div>
-              <p className="search-loading-text">正在对比多个 AI 模型的回答</p>
-              <div className="search-loading-models">
-                {Object.values(PROVIDER_META).map((p, i) => (
-                  <span key={p.name} className="loading-model-tag" style={{ animationDelay: `${i * 0.25}s` }}>
-                    <span className="loading-model-dot" style={{ background: p.color }} />
-                    {p.name}
-                  </span>
-                ))}
               </div>
             </div>
           )}
 
+          {/* Selection info banner */}
+          {!isSearching && currentResult.selectedModels.length > 0 && (
+            <div className="selection-banner">
+              <div className="selection-banner-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                     strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+              </div>
+              <span>
+                针对 <strong>{categoryLabel}</strong> 类问题，选择了{' '}
+                <strong>{currentResult.selectedModels.length}</strong> 个最擅长的模型回答
+              </span>
+            </div>
+          )}
+
+          {/* Scoring status banner */}
+          {!isSearching && scoring && (
+            <div className="selection-banner scoring-banner">
+              <div className="scoring-pulse-dot" />
+              <span>评委 <strong>{currentResult.judgeModel || 'GPT-4o'}</strong> 正在对回答进行评分排序…</span>
+            </div>
+          )}
+
+          {/* Results grid */}
           {!isSearching && successResults.length > 0 && (
-            <div className={`results-layout ${useSplitLayout ? 'split' : 'single'}`}>
-              {featured && (
-                <div className="results-featured">
-                  <FeaturedCard
-                    result={featured}
-                    index={0}
-                    expanded={expandedCards.has(0)}
-                    onToggle={() => toggleCard(0)}
-                  />
-                </div>
-              )}
-              {hasSideList && (
-                <div className="results-side">
-                  {rest.map((r, i) => (
-                    <SideCard
-                      key={r.model}
-                      result={r}
-                      rank={i + 2}
-                      index={i + 1}
-                      expanded={expandedCards.has(i + 1)}
-                      onToggle={() => toggleCard(i + 1)}
-                    />
-                  ))}
-                  {failedResults.map((r) => (
-                    <div key={r.model} className="side-card error">
-                      <div className="side-card-header">
-                        <span className="side-rank">✗</span>
-                        <ScoreRing score={0} size={30} />
-                        <span className="side-model" style={{ color: '#A8A29E' }}>{r.model}</span>
-                      </div>
-                      <div className="side-error">{r.error || '请求失败'}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="results-grid">
+              {successResults.map((r, i) => (
+                <ModelCard
+                  key={r.model}
+                  result={r}
+                  scoring={scoring}
+                  expanded={expandedCards.has(i)}
+                  onToggle={() => toggleCard(i)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Failed results */}
+          {!isSearching && failedResults.length > 0 && (
+            <div className="results-grid">
+              {failedResults.map((r) => (
+                <ModelCard
+                  key={r.model}
+                  result={r}
+                  scoring={false}
+                  expanded={false}
+                  onToggle={() => {}}
+                />
+              ))}
             </div>
           )}
 
@@ -221,8 +409,12 @@ export default function SearchPage() {
 
           {!isSearching && currentResult.results.length > 0 && (
             <div className="search-footer">
-              <span>由 {currentResult.judgeModel} 评分排序</span>
-              <span className="footer-dot">·</span>
+              {currentResult.hasScoring && (
+                <>
+                  <span>由 {judgeModel || currentResult.judgeModel || 'GPT-4o'} 评分排序</span>
+                  <span className="footer-dot">·</span>
+                </>
+              )}
               <span>总耗时 {(currentResult.totalLatency / 1000).toFixed(1)}s</span>
               <span className="footer-dot">·</span>
               <span onClick={handleNewSearch} className="search-new">发起新搜索</span>
@@ -233,15 +425,16 @@ export default function SearchPage() {
     );
   }
 
-  // ── 首页视图 ─────────────────────────────────────────────────────────
+  // ── 首页视图 ────────────────────────────────────────────────────────────
 
   return (
     <div className="search-page home-mode">
       <div className="search-home">
         <div className="search-home-logo">
           <div className="home-logo-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+                 strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
           </div>
         </div>
@@ -264,7 +457,8 @@ export default function SearchPage() {
             disabled={isSearching || !input.trim()}
           >
             {isSearching ? <span className="search-topbar-spinner" /> : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                   strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></svg>
             )}
           </button>
         </div>
@@ -276,17 +470,9 @@ export default function SearchPage() {
             <div className="search-loading-ring">
               <svg className="loading-ring-svg" viewBox="0 0 48 48">
                 <circle cx="24" cy="24" r="20" fill="none" stroke="#E7E5E4" strokeWidth="3" />
-                <circle cx="24" cy="24" r="20" fill="none" stroke="#4F46E5" strokeWidth="3" strokeLinecap="round" strokeDasharray="80 126" />
+                <circle cx="24" cy="24" r="20" fill="none" stroke="#4F46E5" strokeWidth="3"
+                        strokeLinecap="round" strokeDasharray="80 126" />
               </svg>
-            </div>
-            <p className="search-loading-text">正在对比多个 AI 模型的回答</p>
-            <div className="search-loading-models">
-              {Object.values(PROVIDER_META).map((p, i) => (
-                <span key={p.name} className="loading-model-tag" style={{ animationDelay: `${i * 0.25}s` }}>
-                  <span className="loading-model-dot" style={{ background: p.color }} />
-                  {p.name}
-                </span>
-              ))}
             </div>
           </div>
         )}
@@ -296,7 +482,8 @@ export default function SearchPage() {
             {SUGGESTIONS.map((s) => (
               <button key={s} className="search-suggestion" onClick={() => { setInput(s); handleSearch(s); }}>
                 <span className="suggestion-icon">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                       strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 </span>
                 <span className="suggestion-text">{s}</span>
               </button>
@@ -304,158 +491,6 @@ export default function SearchPage() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── 子组件 ─────────────────────────────────────────────────────────────
-
-function ScoreRing({ score, size = 40 }: { score: number; size?: number }) {
-  const color = getScoreColor(score);
-  const radius = (size - 6) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 10) * circumference;
-
-  return (
-    <div className="score-ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#F0EFED" strokeWidth="3" />
-        <circle
-          cx={size / 2} cy={size / 2} r={radius}
-          fill="none" stroke={color} strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          className="score-ring-progress"
-        />
-      </svg>
-      <span className="score-ring-value" style={{ color, fontSize: size < 36 ? '11px' : '13px' }}>
-        {score.toFixed(1)}
-      </span>
-    </div>
-  );
-}
-
-function FeaturedCard({ result, index, expanded, onToggle }: {
-  result: ModelResult;
-  index: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const meta = PROVIDER_META[result.provider] || { name: result.provider, color: '#78716C' };
-  const scoreLabel = getScoreLabel(result.score);
-  const preview = formatContent(result.content, 600);
-  const isLong = result.content.length > 600;
-  const readTime = estimateReadTime(result.content);
-
-  return (
-    <div className="featured-card">
-      <div className="featured-badge-wrap">
-        <div className="featured-badge">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          最佳回答
-        </div>
-      </div>
-
-      <div className="featured-header">
-        <div className="featured-header-left">
-          <div className="featured-model-info">
-            <span className="provider-dot" style={{ background: meta.color }} />
-            <span className="featured-model">{result.model}</span>
-            <span className="featured-provider">{meta.name}</span>
-          </div>
-          <div className="featured-meta-row">
-            <span className="featured-latency">{result.latency_ms}ms</span>
-            <span className="meta-sep">·</span>
-            <span className="featured-read-time">{readTime} min read</span>
-          </div>
-        </div>
-        <div className="featured-score-wrap">
-          <ScoreRing score={result.score} size={48} />
-          <span className="score-label" style={{ color: getScoreColor(result.score) }}>{scoreLabel}</span>
-        </div>
-      </div>
-
-      <div className={`featured-content ${expanded ? 'expanded' : ''}`}>
-        {expanded ? result.content : preview}
-        {!expanded && isLong && <span className="content-ellipsis">...</span>}
-      </div>
-
-      <div className="featured-actions">
-        {isLong && (
-          <button className="expand-btn" onClick={onToggle}>
-            {expanded ? '收起回答' : '展开完整回答'}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-        )}
-        {result.reason && (
-          <button className="reason-toggle" onClick={(e) => {
-            const el = (e.target as HTMLElement).closest('.featured-card')?.querySelector('.featured-reason');
-            el?.classList.toggle('visible');
-          }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-            评分说明
-          </button>
-        )}
-      </div>
-
-      {result.reason && (
-        <div className="featured-reason">
-          <span className="reason-label">评分依据：</span>
-          {result.reason}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SideCard({ result, rank, index, expanded, onToggle }: {
-  result: ModelResult;
-  rank: number;
-  index: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const meta = PROVIDER_META[result.provider] || { name: result.provider, color: '#78716C' };
-  const preview = formatContent(result.content, 200);
-  const isLong = result.content.length > 200;
-
-  return (
-    <div className="side-card">
-      <div className="side-card-header">
-        <span className="side-rank">#{rank}</span>
-        <ScoreRing score={result.score} size={32} />
-        <div className="side-card-info">
-          <span className="side-model">{result.model}</span>
-          <span className="side-provider">
-            <span className="provider-dot" style={{ background: meta.color }} />
-            {meta.name}
-          </span>
-        </div>
-        <span className="side-latency">{result.latency_ms}ms</span>
-      </div>
-      <div className={`side-content ${expanded ? 'expanded' : ''}`}>
-        {expanded ? result.content : preview}
-        {!expanded && isLong && '...'}
-      </div>
-      <div className="side-actions">
-        {isLong && (
-          <button className="side-expand" onClick={onToggle}>
-            {expanded ? '收起' : '展开'}
-          </button>
-        )}
-        {result.reason && (
-          <span className="side-reason-hint" title={result.reason}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-          </span>
-        )}
-      </div>
-      {result.reason && expanded && (
-        <div className="side-reason">{result.reason}</div>
-      )}
     </div>
   );
 }

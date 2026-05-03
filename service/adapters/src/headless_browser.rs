@@ -108,7 +108,7 @@ impl HeadlessBrowserManager {
         }
     }
 
-    fn detect_chrome_binary() -> Result<(), ProviderError> {
+    pub fn detect_chrome_binary() -> Result<(), ProviderError> {
         if std::env::var("CHROME_PATH").is_ok() {
             return Ok(());
         }
@@ -1128,7 +1128,99 @@ impl HeadlessBrowserManager {
             .map_err(|e| ProviderError::InternalError(format!("Failed to serialize session: {}", e)))
     }
 
-    /// 检查所有活跃会话的登录状态
+    /// 通过无头浏览器执行 JS 聊天请求（用于 DeepSeek 等需要浏览器执行 JS 的提供商）
+    ///
+    /// 使用浏览器会话发送消息并获取回复
+    pub async fn execute_js_chat(
+        &self,
+        account_id: Uuid,
+        messages: Vec<crate::types::Message>,
+        model: &str,
+    ) -> Result<String, ProviderError> {
+        use std::collections::HashMap;
+
+        let browser = {
+            let browsers = self.browsers.read().await;
+            browsers.get(&account_id)
+                .ok_or_else(|| ProviderError::InternalError("Browser not found for account".to_string()))?
+                .clone()
+        };
+
+        let tab = {
+            let tabs = browser.get_tabs();
+            let tabs_guard = tabs.lock().map_err(|_| ProviderError::InternalError("Failed to lock tabs".to_string()))?;
+            tabs_guard.first()
+                .ok_or_else(|| ProviderError::InternalError("No tab found".to_string()))?
+                .clone()
+        };
+
+        let messages_json = serde_json::to_string(&messages)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to serialize messages: {}", e)))?;
+
+        let chat_script = format!(r#"
+            (async () => {{
+                const messages = {messages_json};
+                const model = "{model}";
+
+                // Find the chat input textarea
+                const textarea = document.querySelector('textarea, [placeholder*="Message"], [data-node-id]');
+                if (!textarea) {{
+                    return JSON.stringify({{ error: "Chat input not found" }});
+                }}
+
+                // Build the prompt from messages
+                const prompt = messages.map(m => `${{m.role}}: ${{m.content}}`).join('\n');
+
+                // Type into the input
+                textarea.focus();
+                textarea.value = prompt;
+                textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+                // Wait a moment
+                await new Promise(r => setTimeout(r, 100));
+
+                // Find and click send button
+                const sendBtn = Array.from(document.querySelectorAll('button, [role="button"]'))
+                    .find(btn => btn.textContent.includes('Send') || btn.textContent.includes('发送') || btn.querySelector('svg'));
+                if (sendBtn) {{
+                    sendBtn.click();
+                }} else {{
+                    // Try pressing Enter
+                    textarea.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                }}
+
+                // Wait for response
+                await new Promise(r => setTimeout(r, 3000));
+
+                // Try to get the last response
+                const responseDivs = document.querySelectorAll('[data-node-id]');
+                const lastResponse = responseDivs[responseDivs.length - 1];
+                if (lastResponse) {{
+                    return JSON.stringify({{ content: lastResponse.textContent }});
+                }}
+
+                return JSON.stringify({{ error: "No response found" }});
+            }})();
+        "#);
+
+        let result = tab.evaluate(&chat_script, false)
+            .map_err(|e| ProviderError::InternalError(format!("Failed to execute chat JS: {}", e)))?;
+
+        let response_text = result.value
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "{\"error\":\"No response\"}".to_string());
+
+        // Parse the JSON response
+        let response_json: HashMap<String, serde_json::Value> = serde_json::from_str(&response_text)
+            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+        response_json.get("content")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| ProviderError::InvalidResponse("No content in response".to_string()))
+    }
+
+/// 检查所有活跃会话的登录状态
     pub async fn check_all_sessions(&self) {
         let session_ids: Vec<Uuid> = {
             let sessions = self.sessions.read().await;
@@ -1140,6 +1232,20 @@ impl HeadlessBrowserManager {
                 tracing::warn!("Failed to refresh session {}: {}", session_id, e);
             }
         }
+    }
+
+    /// Get browser for a specific account_id
+    pub async fn get_browser(&self, account_id: Uuid) -> Option<Arc<Browser>> {
+        let browsers = self.browsers.read().await;
+        browsers.get(&account_id).cloned()
+    }
+
+    /// Get account_id by provider from registered accounts
+    pub async fn get_account_id_by_provider(&self, provider: &str) -> Option<Uuid> {
+        let sessions = self.sessions.read().await;
+        sessions.iter()
+            .find(|(_, session)| session.provider == provider && session.state == BrowserSessionState::LoggedIn)
+            .map(|(id, _)| *id)
     }
 }
 

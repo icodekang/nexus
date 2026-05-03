@@ -157,7 +157,7 @@ _pkg_install() {
         yum)     sudo yum install -y -q "$@" ;;
         dnf)     sudo dnf install -y -q "$@" ;;
         pacman)  sudo pacman -S --noconfirm "$@" ;;
-        brew)    brew install "$@" ;;
+        brew)    brew install --quiet "$@" 2>/dev/null ;;
     esac
 }
 

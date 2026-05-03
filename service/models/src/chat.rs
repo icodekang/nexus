@@ -368,10 +368,45 @@ pub struct BatchChatResponse {
     pub id: String,
     /// 用户问题
     pub query: String,
-    /// 各模型结果（已按评分降序排列）
+    /// 各模型结果（未排序，前端先随机展示）
     pub results: Vec<ModelResult>,
-    /// 评分使用的模型
+    /// 评分使用的模型（仅在 has_scoring 为 true 时有值）
     pub judge_model: String,
     /// 总耗时（毫秒）
     pub total_latency_ms: u64,
+    /// 问题分类（code / creative / analysis / general）
+    pub selection_category: String,
+    /// 被选中的模型 slug 列表
+    pub selected_models: Vec<String>,
+    /// 是否有评分环节（available_models >= 4 时启用）
+    pub has_scoring: bool,
+}
+
+/// 批量评分请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchJudgeRequest {
+    /// 用户问题
+    pub query: String,
+    /// 各模型结果
+    pub results: Vec<ModelResult>,
+}
+
+/// 批量评分响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchJudgeResponse {
+    /// 评分结果列表
+    pub scores: Vec<JudgeScoreInfo>,
+    /// 评委模型
+    pub judge_model: String,
+}
+
+/// 单个评分信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JudgeScoreInfo {
+    /// 模型标识
+    pub model: String,
+    /// 评分
+    pub score: f64,
+    /// 评分理由
+    pub reason: String,
 }

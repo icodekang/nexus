@@ -22,7 +22,8 @@ use serde::Deserialize;
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::middleware::auth::AuthContext;
-use models::{ChatRequest, ChatResponse, Message, Usage, User, SubscriptionPlan};
+use models::{ChatRequest, ChatResponse, Message, Usage, User, SubscriptionPlan,
+    BatchChatRequest, BatchChatResponse, BatchJudgeRequest, BatchJudgeResponse, JudgeScoreInfo, ModelResult};
 use provider_client::{
     ChatRequest as ProviderChatRequest,
     Message as ProviderMessage,
@@ -128,11 +129,10 @@ fn is_zero_token_user(subscription_plan: SubscriptionPlan) -> bool {
 
 /// 根据模型 Provider 获取对应的浏览器模拟器 Provider
 fn get_zero_token_provider(model_provider: &str) -> &'static str {
-    // Map model providers to browser emulator providers
     match model_provider {
         "openai" | "chatgpt" => "chatgpt",
         "anthropic" | "claude" => "claude",
-        // Default to claude for unknown providers
+        "deepseek" => "deepseek",
         _ => "claude",
     }
 }
@@ -444,21 +444,47 @@ pub async fn chat_completions(
         // client is Arc<dyn ProviderClient> (already unwrapped from Result)
         let mut req = provider_request.clone();
         req.provider = used_provider.clone();
-        match client.chat(req).await {
-            Ok(resp) => {
-                provider_resp = Some(resp);
-                let latency_ms = start_time.elapsed().as_millis() as i32;
-                // Only record key result for non-ZeroToken (API key) requests
-                if !is_zero_token {
-                    record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+
+        // Special handling for DeepSeek: use JS-based browser chat instead of HTTP
+        // DeepSeek requires browser execution since it doesn't have a public API
+        if provider_for_request == "deepseek" || zero_token_provider == Some("deepseek") {
+            let pc_messages: Vec<provider_client::Message> = request.messages.iter().map(|m| {
+                provider_client::Message { role: m.role.clone(), content: m.content.clone() }
+            }).collect();
+            match state.account_pool.execute_browser_chat(&used_provider, pc_messages, &model.model_id).await {
+                Ok(content) => {
+                    let response = provider_client::ChatResponse {
+                        id: format!("deepseek-{}", uuid::Uuid::new_v4()),
+                        model: model.model_id.clone(),
+                        message: provider_client::Message {
+                            role: "assistant".to_string(),
+                            content,
+                        },
+                        usage: std::collections::HashMap::new(),
+                        latency_ms: start_time.elapsed().as_millis() as i32,
+                    };
+                    provider_resp = Some(response);
+                }
+                Err(e) => {
+                    tracing::warn!("DeepSeek browser chat failed: {}", e);
+                    last_error = Some(ApiError::Internal(anyhow::anyhow!("Browser chat failed: {}", e)));
                 }
             }
-            Err(e) => {
-                tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
-                last_error = Some(e);
-                // Only record key result for non-ZeroToken (API key) requests
-                if !is_zero_token {
-                    record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+        } else {
+            match client.chat(req).await {
+                Ok(resp) => {
+                    provider_resp = Some(resp);
+                    let latency_ms = start_time.elapsed().as_millis() as i32;
+                    if !is_zero_token {
+                        record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
+                    last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
+                    if !is_zero_token {
+                        record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+                    }
                 }
             }
         }
@@ -487,14 +513,13 @@ pub async fn chat_completions(
                     }
                     Err(e) => {
                         tracing::warn!("Fallback provider {} failed: {}", try_provider, e);
-                        last_error = Some(e);
+                        last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
                         record_key_result(&state, try_provider, key_id, 0, false).await;
                     }
                 }
             }
-        } else if provider_resp.is_none() && is_zero_token {
-            // ZeroToken fallback: try other browser emulator providers
-            let fallback_providers = vec!["claude", "chatgpt"];
+} else if provider_resp.is_none() && is_zero_token {
+            let fallback_providers = vec!["claude", "chatgpt", "deepseek"];
             for zt_provider in fallback_providers {
                 if zt_provider == zero_token_provider.unwrap_or("") {
                     continue;
@@ -511,7 +536,7 @@ pub async fn chat_completions(
                     }
                     Err(e) => {
                         tracing::warn!("ZeroToken fallback provider {} failed: {}", zt_provider, e);
-                        last_error = Some(e);
+                        last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
                     }
                 }
             }
@@ -549,16 +574,18 @@ pub async fn chat_completions(
             },
         };
 
-        log_api_call(
-            &state,
-            &auth,
-            &used_provider,
-            &model.slug,
-            "chat",
-            prompt_tokens,
-            completion_tokens,
-            latency_ms,
-        ).await;
+        if !provider_resp.usage.is_empty() {
+            log_api_call(
+                &state,
+                &auth,
+                &used_provider,
+                &model.slug,
+                "chat",
+                prompt_tokens,
+                completion_tokens,
+                latency_ms,
+            ).await;
+        }
 
         let mut http_response = Json(response).into_response();
         add_rate_limit_headers(&mut http_response, rpm, remaining, reset_time);
@@ -809,9 +836,7 @@ fn validate_chat_request(request: &ChatRequest, context_window: i32) -> Result<(
 // 批量查询（多模型对比）
 // ═══════════════════════════════════════════════════════════════════════════════
 
-use models::{BatchChatRequest, BatchChatResponse, ModelResult};
-
-/// POST /v1/chat/batch — 多模型并行查询 + LLM-as-Judge 评分
+/// POST /v1/chat/batch — 多模型并行查询，评分由前端异步调用 /chat/batch/judge
 pub async fn chat_batch(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
@@ -847,21 +872,30 @@ pub async fn chat_batch(
         .map(|m| m.content.clone())
         .unwrap_or_default();
 
-    // 5. Select models
+    // 5. Select models based on availability
     let all_models = state.db.list_models().await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list models: {}", e)))?;
 
-    let selected_model_slugs = if let Some(ref models) = request.models {
-        models.clone()
-    } else {
-        smart_select_models(&user_query, &all_models)
-    };
+    let total_available = all_models.len();
+
+    let (selection_category, selected_model_slugs, has_scoring, judge_model) =
+        if let Some(ref models) = request.models {
+            ("manual".to_string(), models.clone(), total_available >= 4, String::new())
+        } else if total_available < 4 {
+            // < 4 models: use all, no scoring
+            ("general".to_string(), all_models.iter().map(|m| m.slug.clone()).collect(), false, String::new())
+        } else {
+            // >= 4 models: select 3 best to answer, pick 1 different as judge
+            let (cat, answers) = smart_select_models(&user_query, &all_models);
+            let judge = select_judge_model(&answers, &all_models);
+            (cat, answers, true, judge)
+        };
 
     if selected_model_slugs.is_empty() {
         return Err(ApiError::InvalidRequest("No models available".to_string()));
     }
 
-    // 6. Query all models in parallel
+    // 6. Query selected models in parallel (no scoring yet)
     let session_id = extract_session_id(&headers)
         .or_else(|| Some(auth.user.id.to_string()));
 
@@ -874,7 +908,6 @@ pub async fn chat_batch(
         let max_tokens = request.max_tokens;
         let sid = session_id.clone();
 
-        // Find model info
         let model_info = all_models.iter().find(|m| m.slug == *slug).cloned();
 
         let task = tokio::spawn(async move {
@@ -897,14 +930,12 @@ pub async fn chat_batch(
 
             let provider_slug = model.provider_id.clone();
 
-            // Select key
             let selected_key = {
                 let mut scheduler = state_clone.key_scheduler.write().await;
                 scheduler.tick();
                 sid.as_ref().and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
             };
 
-            // Create client
             let client_result = match &selected_key {
                 Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
                     .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
@@ -929,7 +960,6 @@ pub async fn chat_batch(
                 },
             };
 
-            // Build provider request
             let provider_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
                 provider_client::Message {
                     role: m.role.clone(),
@@ -947,7 +977,6 @@ pub async fn chat_batch(
                 extra: std::collections::HashMap::new(),
             };
 
-            // Execute
             match client.chat(provider_request).await {
                 Ok(response) => {
                     let latency = start.elapsed().as_millis() as u64;
@@ -990,7 +1019,6 @@ pub async fn chat_batch(
         tasks.push(task);
     }
 
-    // Await all tasks
     let mut results = Vec::new();
     for task in tasks {
         match task.await {
@@ -999,48 +1027,108 @@ pub async fn chat_batch(
         }
     }
 
-    // 7. Filter successful results for scoring
-    let successful: Vec<&ModelResult> = results.iter().filter(|r| r.success).collect();
-
-    if !successful.is_empty() {
-        // 8. LLM-as-Judge scoring
-        match judge_responses(&state, &user_query, &successful).await {
-            Ok(scores) => {
-                for result in results.iter_mut() {
-                    if let Some(score_info) = scores.iter().find(|s| s.model == result.model) {
-                        result.score = score_info.score;
-                        result.reason = score_info.reason.clone();
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Judge scoring failed, using default: {}", e);
-                for result in results.iter_mut() {
-                    if result.success {
-                        result.score = (result.content.len() as f64 / 100.0).min(9.0).max(5.0);
-                        result.reason = "评分服务不可用".to_string();
-                    }
-                }
-            }
-        }
-    }
-
-    // 9. Sort by score descending
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-
+    // Results returned unsorted — frontend shows random order first
     Ok(Json(BatchChatResponse {
         id: format!("batch-{}", uuid::Uuid::new_v4()),
         query: user_query,
         results,
-        judge_model: "gpt-4o".to_string(),
+        judge_model,
         total_latency_ms: total_start.elapsed().as_millis() as u64,
+        selection_category,
+        selected_models: selected_model_slugs,
+        has_scoring,
     }))
+}
+
+/// POST /v1/chat/batch/judge — 异步评分端点
+/// 前端先展示随机排序的结果，然后调用此端点获取评分
+pub async fn chat_batch_judge(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Json(request): Json<BatchJudgeRequest>,
+) -> Result<Json<BatchJudgeResponse>, ApiError> {
+    // Rate limiting
+    let user_id = auth.user.id.to_string();
+    let (allowed, _, _) = state.redis
+        .check_rate_limit(&user_id, 30, 60)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Rate limit check failed: {}", e)))?;
+    if !allowed {
+        return Err(ApiError::RateLimitExceeded);
+    }
+
+    check_subscription(&auth.user)?;
+    check_token_quota(&state, &auth.user).await?;
+
+    let successful: Vec<&ModelResult> = request.results.iter().filter(|r| r.success).collect();
+
+    let (scores, judge_model) = if !successful.is_empty() {
+        match judge_responses(&state, &request.query, &successful).await {
+            Ok(s) => {
+                let judge = state.db.get_model_by_slug("gpt-4o").await
+                    .map(|m| m.map(|x| x.name).unwrap_or_else(|| "gpt-4o".to_string()))
+                    .unwrap_or_else(|_| "gpt-4o".to_string());
+                (s, judge)
+            }
+            Err(e) => {
+                tracing::warn!("Judge scoring failed: {}", e);
+                let fallback: Vec<JudgeScore> = successful.iter().map(|r| JudgeScore {
+                    model: r.model.clone(),
+                    score: ((r.content.len() as f64 / 100.0).min(9.0).max(5.0) * 10.0).round() / 10.0,
+                    reason: "评分服务不可用，使用默认评分".to_string(),
+                }).collect();
+                (fallback, "gpt-4o".to_string())
+            }
+        }
+    } else {
+        (Vec::new(), String::new())
+    };
+
+    let score_infos: Vec<JudgeScoreInfo> = scores.into_iter().map(|s| JudgeScoreInfo {
+        model: s.model,
+        score: s.score,
+        reason: s.reason,
+    }).collect();
+
+    Ok(Json(BatchJudgeResponse { scores: score_infos, judge_model }))
 }
 
 // ── 智能选模型 ─────────────────────────────────────────────────────────────
 
-/// 根据用户问题特征选择 3-4 个最合适的模型
-fn smart_select_models(query: &str, models: &[models::LlmModel]) -> Vec<String> {
+/// 从剩余模型中选一个评委（不同于已回答的模型）
+fn select_judge_model(answer_slugs: &[String], all_models: &[models::LlmModel]) -> String {
+    let answer_providers: std::collections::HashSet<&str> = answer_slugs.iter()
+        .filter_map(|s| all_models.iter().find(|m| m.slug == *s))
+        .map(|m| m.provider_id.as_str())
+        .collect();
+
+    // 优先选 gpt-4o（如果不在回答列表中）
+    if !answer_slugs.iter().any(|s| s == "gpt-4o") {
+        if all_models.iter().any(|m| m.slug == "gpt-4o") {
+            return "gpt-4o".to_string();
+        }
+    }
+
+    // 选一个不同 provider 的模型
+    for model in all_models {
+        if !answer_slugs.contains(&model.slug) && !answer_providers.contains(model.provider_id.as_str()) {
+            return model.slug.clone();
+        }
+    }
+
+    // 退而求其次：选任意不同的模型
+    for model in all_models {
+        if !answer_slugs.contains(&model.slug) {
+            return model.slug.clone();
+        }
+    }
+
+    String::new()
+}
+
+/// 根据用户问题特征选择 3 个最合适的模型
+/// 返回 (问题分类, 选中的模型 slug 列表)
+fn smart_select_models(query: &str, models: &[models::LlmModel]) -> (String, Vec<String>) {
     let q = query.to_lowercase();
 
     let code_keywords = ["代码", "编程", "函数", "bug", "debug", "code", "program", "function", "class", "api", "sql", "python", "rust", "java", "javascript", "typescript"];
@@ -1050,6 +1138,16 @@ fn smart_select_models(query: &str, models: &[models::LlmModel]) -> Vec<String> 
     let is_code = code_keywords.iter().any(|k| q.contains(k));
     let is_creative = creative_keywords.iter().any(|k| q.contains(k));
     let is_analysis = analysis_keywords.iter().any(|k| q.contains(k));
+
+    let category = if is_code {
+        "code"
+    } else if is_creative {
+        "creative"
+    } else if is_analysis {
+        "analysis"
+    } else {
+        "general"
+    };
 
     let mut selected: Vec<String> = Vec::new();
     let mut used_providers: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1061,11 +1159,11 @@ fn smart_select_models(query: &str, models: &[models::LlmModel]) -> Vec<String> 
     } else if is_analysis {
         vec!["gpt-4o", "claude-3-5-sonnet", "gemini-1-5-pro"]
     } else {
-        vec!["gpt-4o", "claude-3-5-sonnet", "gemini-1-5-pro", "deepseek-chat"]
+        vec!["gpt-4o", "claude-3-5-sonnet", "gemini-1-5-pro"]
     };
 
     for slug in priority_order {
-        if selected.len() >= 4 { break; }
+        if selected.len() >= 3 { break; }
         if let Some(model) = models.iter().find(|m| m.slug == slug) {
             if !used_providers.contains(&model.provider_id) {
                 selected.push(slug.to_string());
@@ -1076,7 +1174,7 @@ fn smart_select_models(query: &str, models: &[models::LlmModel]) -> Vec<String> 
 
     if selected.len() < 3 {
         for model in models {
-            if selected.len() >= 4 { break; }
+            if selected.len() >= 3 { break; }
             if !selected.contains(&model.slug) && !used_providers.contains(&model.provider_id) {
                 selected.push(model.slug.clone());
                 used_providers.insert(model.provider_id.clone());
@@ -1084,7 +1182,7 @@ fn smart_select_models(query: &str, models: &[models::LlmModel]) -> Vec<String> 
         }
     }
 
-    selected
+    (category.to_string(), selected)
 }
 
 // ── LLM-as-Judge 评分 ─────────────────────────────────────────────────────

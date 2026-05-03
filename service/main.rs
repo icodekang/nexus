@@ -128,7 +128,9 @@ async fn main() -> anyhow::Result<()> {
     //   /v1/openai/models             — OpenAI SDK 兼容
     //   /v1/anthropic/messages       — Anthropic SDK 兼容
     //   /v1/anthropic/models          — Anthropic SDK 兼容
-    let v1 = routes::v1::routes().layer(auth_mw.clone());
+    let v1 = Router::new()
+        .nest("/v1", routes::v1::routes())
+        .layer(auth_mw.clone());
 
     // ── 需要认证的用户管理路由 ─────────────────────────────────────────
     let me = Router::new()

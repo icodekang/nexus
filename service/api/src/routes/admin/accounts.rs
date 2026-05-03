@@ -28,7 +28,6 @@ use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use models::BrowserAccount;
 use provider_client::headless_browser::{LoginEvent, BrowserSessionState};
-
 /// 创建浏览器账户路由
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -358,6 +357,57 @@ async fn inject_session(
         session_data,
     ).await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+
+    if account.provider == "deepseek" {
+        match provider_client::headless_browser::HeadlessBrowserManager::detect_chrome_binary() {
+            Ok(_) => {
+                match headless_chrome::Browser::default() {
+                    Ok(browser) => {
+                        tracing::info!("Chrome launched successfully for DeepSeek");
+                        if let Ok(tab) = browser.new_tab() {
+                            if tab.navigate_to("https://chat.deepseek.com/chat").is_ok() {
+                                tracing::info!("Navigated to DeepSeek chat page");
+                                std::thread::sleep(std::time::Duration::from_secs(3));
+
+                                let cookie_str = body.cookies_json.replace("{", "").replace("}", "").replace("\"cookies\":", "");
+                                let cookies_script = format!(r#"
+                                    (function() {{
+                                        const cookieStr = '{}';
+                                        if (typeof cookieStr === 'string') {{
+                                            cookieStr.split(';').forEach(function(c) {{
+                                                const parts = c.trim().split('=');
+                                                if (parts.length >= 2) {{
+                                                    document.cookie = parts[0] + '=' + parts.slice(1).join('=') + '; path=/; domain=.deepseek.com';
+                                                }}
+                                            }});
+                                        }}
+                                        return document.cookie;
+                                    }})();
+                                "#, cookie_str);
+                                let _ = tab.evaluate(&cookies_script, false);
+                                tracing::info!("Cookies injected via JS");
+
+                                let browser_arc = Arc::new(browser);
+                                tracing::info!("Registering browser for account {}", account_id);
+                                state.account_pool.register_browser(account_id, browser_arc.clone()).await;
+                                tracing::info!("DeepSeek browser registered for account {}", account_id);
+                            } else {
+                                tracing::warn!("Failed to navigate to DeepSeek chat");
+                            }
+                        } else {
+                            tracing::warn!("Failed to create new tab");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to launch Chrome for DeepSeek: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Chrome not found for DeepSeek browser chat: {}", e);
+            }
+        }
+    }
 
     tracing::info!("Session injected for account {} (provider: {})", account_id, account.provider);
 

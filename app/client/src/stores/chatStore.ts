@@ -16,6 +16,9 @@ export interface SearchResult {
   judgeModel: string;
   totalLatency: number;
   timestamp: number;
+  selectionCategory: string;
+  selectedModels: string[];
+  hasScoring: boolean;
 }
 
 /**
@@ -27,6 +30,7 @@ interface ChatState {
   searchQuery: string;
   currentResult: SearchResult | null;
   searchHistory: SearchResult[];
+  selectedModel: string | null;
 
   // Actions
   setSearching: (loading: boolean) => void;
@@ -34,6 +38,7 @@ interface ChatState {
   setSearchResult: (result: SearchResult) => void;
   clearResult: () => void;
   addToHistory: (result: SearchResult) => void;
+  setSelectedModel: (model: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -41,6 +46,7 @@ export const useChatStore = create<ChatState>((set) => ({
   searchQuery: '',
   currentResult: null,
   searchHistory: [],
+  selectedModel: null,
 
   setSearching: (loading) => set({ isSearching: loading }),
   setSearchQuery: (query) => set({ searchQuery: query }),
@@ -58,4 +64,6 @@ export const useChatStore = create<ChatState>((set) => ({
   addToHistory: (result) => set((state) => ({
     searchHistory: [result, ...state.searchHistory].slice(0, 20),
   })),
+
+  setSelectedModel: (model) => set({ selectedModel: model }),
 }));

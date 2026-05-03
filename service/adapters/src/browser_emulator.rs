@@ -100,6 +100,7 @@ impl BrowserEmulatorClient {
         let base_url = match provider {
             "claude" => "https://claude.ai",
             "chatgpt" => "https://chat.openai.com",
+            "deepseek" => "https://chat.deepseek.com",
             _ => return Err(ProviderError::ProviderNotFound(provider.to_string())),
         };
 
@@ -194,6 +195,7 @@ impl BrowserEmulatorClient {
         match self.provider.as_str() {
             "claude" => format!("{}/api/chat", self.base_url),
             "chatgpt" => format!("{}/api/chat", self.base_url),
+            "deepseek" => format!("{}/chat", self.base_url),
             _ => format!("{}/chat", self.base_url),
         }
     }
@@ -372,6 +374,17 @@ impl BrowserEmulatorClient {
                     .to_string();
                 (id, content)
             }
+            "deepseek" => {
+                let id = data["id"].as_str().unwrap_or("unknown").to_string();
+                let content = data["choices"]
+                    .get(0)
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("content"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                (id, content)
+            }
             _ => {
                 return Err(ProviderError::InvalidResponse(
                     "Unknown browser provider".to_string()
@@ -429,6 +442,10 @@ impl BrowserEmulatorClient {
             ),
             "chatgpt" => format!(
                 "https://chat.openai.com/auth/login?next={}",
+                urlencoding::encode(callback_url)
+            ),
+            "deepseek" => format!(
+                "https://chat.deepseek.com/login?return_to={}",
                 urlencoding::encode(callback_url)
             ),
             _ => String::new(),
@@ -497,6 +514,6 @@ impl BrowserEmulatorFactory {
 
     /// List supported browser emulator providers
     pub fn supported_providers() -> Vec<&'static str> {
-        vec!["claude", "chatgpt"]
+        vec!["claude", "chatgpt", "deepseek"]
     }
 }

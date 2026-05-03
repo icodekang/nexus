@@ -99,6 +99,7 @@ impl SubscriptionPlanInfo {
                     "10万 tokens/月".to_string(),
                     "支持 Claude.ai".to_string(),
                     "支持 ChatGPT".to_string(),
+                    "支持 DeepSeek".to_string(),
                 ],
             },
             Self {

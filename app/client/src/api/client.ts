@@ -355,13 +355,41 @@ export interface BatchChatResponse {
   results: ModelResult[];
   judge_model: string;
   total_latency_ms: number;
+  selection_category: string;
+  selected_models: string[];
+  has_scoring: boolean;
+}
+
+/**
+ * BatchJudgeRequest - 评分请求
+ */
+export interface BatchJudgeRequest {
+  query: string;
+  results: ModelResult[];
+}
+
+/**
+ * JudgeScoreInfo - 单个评分
+ */
+export interface JudgeScoreInfo {
+  model: string;
+  score: number;
+  reason: string;
+}
+
+/**
+ * BatchJudgeResponse - 评分响应
+ */
+export interface BatchJudgeResponse {
+  scores: JudgeScoreInfo[];
+  judge_model: string;
 }
 
 /**
  * fetchBatchChat - 多模型并行查询
  * @param messages - 消息列表
  * @param models - 可选指定模型列表
- * @returns 各模型回答结果（已按评分排序）
+ * @returns 各模型回答结果（未排序，评分由 judge 端点单独获取）
  */
 export async function fetchBatchChat(
   messages: ChatMessage[],
@@ -374,5 +402,16 @@ export async function fetchBatchChat(
   return request<BatchChatResponse>('/v1/chat/batch', {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * fetchBatchJudge - 异步获取评分
+ * @returns 各模型评分结果
+ */
+export async function fetchBatchJudge(req: BatchJudgeRequest): Promise<BatchJudgeResponse> {
+  return request<BatchJudgeResponse>('/v1/chat/batch/judge', {
+    method: 'POST',
+    body: JSON.stringify(req),
   });
 }
