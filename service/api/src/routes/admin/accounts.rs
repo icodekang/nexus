@@ -354,7 +354,7 @@ async fn inject_session(
     state.account_pool.register_account(
         account_id,
         account.provider.clone(),
-        session_data,
+        session_data.clone(),
     ).await
     .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
 
@@ -369,23 +369,47 @@ async fn inject_session(
                                 tracing::info!("Navigated to DeepSeek chat page");
                                 std::thread::sleep(std::time::Duration::from_secs(3));
 
-                                let cookie_str = body.cookies_json.replace("{", "").replace("}", "").replace("\"cookies\":", "");
+                                let cookie_pairs_json = serde_json::to_string(
+                                    &session_data.cookies.iter()
+                                        .map(|(k, v)| [k.as_str(), v.as_str()])
+                                        .collect::<Vec<_>>()
+                                ).unwrap_or_else(|_| "[]".to_string());
+                                tracing::info!("Injecting {} DeepSeek cookies", session_data.cookies.len());
                                 let cookies_script = format!(r#"
                                     (function() {{
-                                        const cookieStr = '{}';
-                                        if (typeof cookieStr === 'string') {{
-                                            cookieStr.split(';').forEach(function(c) {{
-                                                const parts = c.trim().split('=');
-                                                if (parts.length >= 2) {{
-                                                    document.cookie = parts[0] + '=' + parts.slice(1).join('=') + '; path=/; domain=.deepseek.com';
-                                                }}
-                                            }});
-                                        }}
+                                        const pairs = {cookie_pairs_json};
+                                        pairs.forEach(function(pair) {{
+                                            const name = pair[0];
+                                            const value = pair[1];
+                                            document.cookie = name + '=' + value + '; path=/; domain=.deepseek.com';
+                                        }});
                                         return document.cookie;
                                     }})();
-                                "#, cookie_str);
+                                "#, cookie_pairs_json = cookie_pairs_json);
                                 let _ = tab.evaluate(&cookies_script, false);
                                 tracing::info!("Cookies injected via JS");
+
+                                // Reload page so cookies are sent to the server and session is activated
+                                let _ = tab.navigate_to("https://chat.deepseek.com/");
+                                tracing::info!("Reloading DeepSeek page with cookies");
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+
+                                // Verify we're on the chat page (not login)
+                                let check_script = r#"
+                                    (function() {
+                                        return JSON.stringify({
+                                            url: window.location.href,
+                                            title: document.title,
+                                            hasTextarea: !!document.querySelector('textarea'),
+                                            bodySnippet: (document.body?.innerText || '').substring(0, 300)
+                                        });
+                                    })();
+                                "#;
+                                if let Ok(result) = tab.evaluate(check_script, false) {
+                                    if let Some(serde_json::Value::String(s)) = &result.value {
+                                        tracing::info!("DeepSeek page after reload: {}", s);
+                                    }
+                                }
 
                                 let browser_arc = Arc::new(browser);
                                 tracing::info!("Registering browser for account {}", account_id);

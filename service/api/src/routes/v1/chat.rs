@@ -865,6 +865,9 @@ pub async fn chat_batch(
     check_subscription(&auth.user)?;
     check_token_quota(&state, &auth.user).await?;
 
+    // 3a. ZeroToken users use browser accounts instead of API keys
+    let is_zero_token = is_zero_token_user(auth.user.subscription_plan);
+
     // 4. Get the user's last question
     let user_query = request.messages.iter()
         .rev()
@@ -930,87 +933,190 @@ pub async fn chat_batch(
 
             let provider_slug = model.provider_id.clone();
 
-            let selected_key = {
-                let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.tick();
-                sid.as_ref().and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
-            };
+            tracing::debug!("Batch task for {} (provider={}, zero_token={})", slug, provider_slug, is_zero_token);
 
-            let client_result = match &selected_key {
-                Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
-                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                    .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-                None => HttpProviderClient::new(&provider_slug)
-                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                    .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-            };
+            if is_zero_token {
+                let zt_provider = get_zero_token_provider(&provider_slug);
 
-            let (client, key_id) = match client_result {
-                Ok(v) => v,
-                Err(e) => return ModelResult {
-                    model: slug.clone(),
-                    provider: provider_slug,
-                    content: String::new(),
-                    score: 0.0,
-                    reason: String::new(),
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    success: false,
-                    error: Some(format!("Client error: {}", e)),
-                    usage: Usage::new(0, 0),
-                },
-            };
-
-            let provider_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
-                provider_client::Message {
-                    role: m.role.clone(),
-                    content: m.content.clone(),
-                }
-            }).collect();
-
-            let provider_request = provider_client::ChatRequest {
-                provider: provider_slug.clone(),
-                model: model.model_id.clone(),
-                messages: provider_messages,
-                temperature: 0.7,
-                max_tokens,
-                stream: false,
-                extra: std::collections::HashMap::new(),
-            };
-
-            match client.chat(provider_request).await {
-                Ok(response) => {
-                    let latency = start.elapsed().as_millis() as u64;
-                    let prompt_tokens = response.usage.get("prompt_tokens").copied().unwrap_or(0);
-                    let completion_tokens = response.usage.get("completion_tokens").copied().unwrap_or(0);
-
-                    record_key_result(&state_clone, &provider_slug, key_id, latency as i32, true).await;
-
-                    ModelResult {
-                        model: slug.clone(),
-                        provider: provider_slug,
-                        content: response.message.content,
-                        score: 0.0,
-                        reason: String::new(),
-                        latency_ms: latency,
-                        success: true,
-                        error: None,
-                        usage: Usage::new(prompt_tokens, completion_tokens),
+                if zt_provider == "deepseek" {
+                    let pc_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
+                        provider_client::Message { role: m.role.clone(), content: m.content.clone() }
+                    }).collect();
+                    match state_clone.account_pool.execute_browser_chat(&provider_slug, pc_messages, &model.model_id).await {
+                        Ok(content) => {
+                            return ModelResult {
+                                model: slug.clone(),
+                                provider: provider_slug,
+                                content,
+                                score: 0.0,
+                                reason: String::new(),
+                                latency_ms: start.elapsed().as_millis() as u64,
+                                success: true,
+                                error: None,
+                                usage: Usage::new(0, 0),
+                            };
+                        }
+                        Err(e) => {
+                            return ModelResult {
+                                model: slug.clone(),
+                                provider: provider_slug,
+                                content: String::new(),
+                                score: 0.0,
+                                reason: String::new(),
+                                latency_ms: start.elapsed().as_millis() as u64,
+                                success: false,
+                                error: Some(format!("Browser chat failed: {}", e)),
+                                usage: Usage::new(0, 0),
+                            };
+                        }
                     }
                 }
-                Err(e) => {
-                    let latency = start.elapsed().as_millis() as u64;
-                    record_key_result(&state_clone, &provider_slug, key_id, latency as i32, false).await;
 
-                    ModelResult {
+                match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
+                    Ok((client, _)) => {
+                        let provider_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
+                            provider_client::Message { role: m.role.clone(), content: m.content.clone() }
+                        }).collect();
+
+                        let provider_request = provider_client::ChatRequest {
+                            provider: provider_slug.clone(),
+                            model: model.model_id.clone(),
+                            messages: provider_messages,
+                            temperature: 0.7,
+                            max_tokens,
+                            stream: false,
+                            extra: std::collections::HashMap::new(),
+                        };
+
+                        match client.chat(provider_request).await {
+                            Ok(response) => {
+                                let latency = start.elapsed().as_millis() as u64;
+                                ModelResult {
+                                    model: slug.clone(),
+                                    provider: provider_slug,
+                                    content: response.message.content,
+                                    score: 0.0,
+                                    reason: String::new(),
+                                    latency_ms: latency,
+                                    success: true,
+                                    error: None,
+                                    usage: Usage::new(0, 0),
+                                }
+                            }
+                            Err(e) => {
+                                let latency = start.elapsed().as_millis() as u64;
+                                ModelResult {
+                                    model: slug.clone(),
+                                    provider: provider_slug,
+                                    content: String::new(),
+                                    score: 0.0,
+                                    reason: String::new(),
+                                    latency_ms: latency,
+                                    success: false,
+                                    error: Some(format!("Browser chat error: {}", e)),
+                                    usage: Usage::new(0, 0),
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let latency = start.elapsed().as_millis() as u64;
+                        ModelResult {
+                            model: slug.clone(),
+                            provider: provider_slug,
+                            content: String::new(),
+                            score: 0.0,
+                            reason: String::new(),
+                            latency_ms: latency,
+                            success: false,
+                            error: Some(format!("No browser account: {}", e)),
+                            usage: Usage::new(0, 0),
+                        }
+                    }
+                }
+            } else {
+                let selected_key = {
+                    let mut scheduler = state_clone.key_scheduler.write().await;
+                    scheduler.tick();
+                    sid.as_ref().and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
+                };
+
+                let client_result = match &selected_key {
+                    Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                    None => HttpProviderClient::new(&provider_slug)
+                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                };
+
+                let (client, key_id) = match client_result {
+                    Ok(v) => v,
+                    Err(e) => return ModelResult {
                         model: slug.clone(),
                         provider: provider_slug,
                         content: String::new(),
                         score: 0.0,
                         reason: String::new(),
-                        latency_ms: latency,
+                        latency_ms: start.elapsed().as_millis() as u64,
                         success: false,
-                        error: Some(format!("{}", e)),
+                        error: Some(format!("Client error: {}", e)),
                         usage: Usage::new(0, 0),
+                    },
+                };
+
+                let provider_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
+                    provider_client::Message {
+                        role: m.role.clone(),
+                        content: m.content.clone(),
+                    }
+                }).collect();
+
+                let provider_request = provider_client::ChatRequest {
+                    provider: provider_slug.clone(),
+                    model: model.model_id.clone(),
+                    messages: provider_messages,
+                    temperature: 0.7,
+                    max_tokens,
+                    stream: false,
+                    extra: std::collections::HashMap::new(),
+                };
+
+                match client.chat(provider_request).await {
+                    Ok(response) => {
+                        let latency = start.elapsed().as_millis() as u64;
+                        let prompt_tokens = response.usage.get("prompt_tokens").copied().unwrap_or(0);
+                        let completion_tokens = response.usage.get("completion_tokens").copied().unwrap_or(0);
+
+                        record_key_result(&state_clone, &provider_slug, key_id, latency as i32, true).await;
+
+                        ModelResult {
+                            model: slug.clone(),
+                            provider: provider_slug,
+                            content: response.message.content,
+                            score: 0.0,
+                            reason: String::new(),
+                            latency_ms: latency,
+                            success: true,
+                            error: None,
+                            usage: Usage::new(prompt_tokens, completion_tokens),
+                        }
+                    }
+                    Err(e) => {
+                        let latency = start.elapsed().as_millis() as u64;
+                        record_key_result(&state_clone, &provider_slug, key_id, latency as i32, false).await;
+
+                        ModelResult {
+                            model: slug.clone(),
+                            provider: provider_slug,
+                            content: String::new(),
+                            score: 0.0,
+                            reason: String::new(),
+                            latency_ms: latency,
+                            success: false,
+                            error: Some(format!("{}", e)),
+                            usage: Usage::new(0, 0),
+                        }
                     }
                 }
             }
@@ -1060,10 +1166,12 @@ pub async fn chat_batch_judge(
     check_subscription(&auth.user)?;
     check_token_quota(&state, &auth.user).await?;
 
+    let is_zero_token = is_zero_token_user(auth.user.subscription_plan);
+
     let successful: Vec<&ModelResult> = request.results.iter().filter(|r| r.success).collect();
 
     let (scores, judge_model) = if !successful.is_empty() {
-        match judge_responses(&state, &request.query, &successful).await {
+        match judge_responses(&state, &request.query, &successful, is_zero_token).await {
             Ok(s) => {
                 let judge = state.db.get_model_by_slug("gpt-4o").await
                     .map(|m| m.map(|x| x.name).unwrap_or_else(|| "gpt-4o".to_string()))
@@ -1199,6 +1307,7 @@ async fn judge_responses(
     state: &Arc<AppState>,
     question: &str,
     results: &[&ModelResult],
+    is_zero_token: bool,
 ) -> Result<Vec<JudgeScore>, ApiError> {
     let mut answers_block = String::new();
     for r in results {
@@ -1231,19 +1340,26 @@ async fn judge_responses(
 
     let provider_slug = judge_model.provider_id.clone();
 
-    let selected_key = {
-        let mut scheduler = state.key_scheduler.write().await;
-        scheduler.tick();
-        scheduler.select_key_no_session(&provider_slug)
-    };
+    let client: Arc<dyn ProviderClient> = if is_zero_token {
+        let zt_provider = get_zero_token_provider(&provider_slug);
+        get_zero_token_client_from_pool(state, zt_provider).await
+            .map(|(c, _)| c)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge browser client: {}", e)))?
+    } else {
+        let selected_key = {
+            let mut scheduler = state.key_scheduler.write().await;
+            scheduler.tick();
+            scheduler.select_key_no_session(&provider_slug)
+        };
 
-    let client = match &selected_key {
-        Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
-            .map(|c| Arc::new(c) as Arc<dyn ProviderClient>)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?,
-        None => HttpProviderClient::new(&provider_slug)
-            .map(|c| Arc::new(c) as Arc<dyn ProviderClient>)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?,
+        match &selected_key {
+            Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+                .map(|c| Arc::new(c) as Arc<dyn ProviderClient>)
+                .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?,
+            None => HttpProviderClient::new(&provider_slug)
+                .map(|c| Arc::new(c) as Arc<dyn ProviderClient>)
+                .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?,
+        }
     };
 
     let judge_request = provider_client::ChatRequest {

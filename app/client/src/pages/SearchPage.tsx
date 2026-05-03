@@ -404,7 +404,19 @@ export default function SearchPage() {
           )}
 
           {!isSearching && successResults.length === 0 && !error && (
-            <div className="search-empty">没有获得有效回答，请尝试更换问题描述</div>
+            <div className="search-empty">
+              <div className="search-empty-title">没有获得有效回答</div>
+              {failedResults.length > 0 && (
+                <ul className="search-empty-errors">
+                  {failedResults.map((r) => (
+                    <li key={r.model}>
+                      <strong>{r.provider}/{r.model}</strong>：{r.error || '未知错误'}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="search-empty-hint">请检查 API Key 配置或更换问题描述</div>
+            </div>
           )}
 
           {!isSearching && currentResult.results.length > 0 && (

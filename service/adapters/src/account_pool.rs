@@ -111,6 +111,11 @@ impl AccountPool {
     ) -> Result<String, ProviderError> {
         use std::collections::HashMap;
 
+        // Navigate to DeepSeek chat page and wait for it to load with cookies
+        let _ = tab.navigate_to("https://chat.deepseek.com/");
+        tracing::debug!("Navigated to DeepSeek chat page");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+
         let messages_json = serde_json::to_string(&messages)
             .map_err(|e| ProviderError::InternalError(format!("Failed to serialize messages: {}", e)))?;
 
@@ -118,75 +123,118 @@ impl AccountPool {
             (async () => {{
                 const messages = {messages_json};
                 const model = "{model}";
-
                 const debug = {{}};
 
-                // Find the chat input - try multiple selectors
+                debug.url = window.location.href;
+                debug.title = document.title;
+
+                // Check if we're on a login page
+                const bodyText = (document.body?.innerText || '').substring(0, 500);
+                debug.bodyPreview = bodyText.substring(0, 200);
+
+                if (bodyText.includes('Sign In') || bodyText.includes('Log in') || bodyText.includes('登录') || bodyText.includes('sign_up')) {{
+                    return JSON.stringify({{ error: "on login page, not authenticated", debug }});
+                }}
+
+                // React inputs need nativeInputValueSetter to trigger React's onChange
+                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, 'value'
+                ).set;
+
                 const selectors = [
-                    'textarea[name="prompt"]',
-                    'textarea[placeholder*="Message"]',
-                    'textarea[placeholder*="Search"]',
+                    'textarea[placeholder*="message" i]',
+                    'textarea[placeholder*="any" i]',
                     'textarea',
-                    '[data-node-id][contenteditable="true"]',
+                    '[contenteditable="true"]',
                     '[role="textbox"]'
                 ];
 
-                let textarea = null;
+                let inputEl = null;
                 for (const sel of selectors) {{
                     const el = document.querySelector(sel);
-                    if (el) {{ textarea = el; debug.found = sel; break; }}
+                    if (el) {{ inputEl = el; debug.inputSelector = sel; break; }}
                 }}
 
-                if (!textarea) {{
-                    const bodyText = document.body ? document.body.innerText.substring(0, 500) : 'no body';
-                    const allTextareas = Array.from(document.querySelectorAll('textarea')).map(el => el.outerHTML).join('\n');
-                    debug.noTextarea = true;
-                    debug.bodyText = bodyText.substring(0, 200);
-                    debug.allTextareas = allTextareas.substring(0, 500);
-                    return JSON.stringify({{ error: "no textarea", debug }});
+                if (!inputEl) {{
+                    debug.allInputs = Array.from(document.querySelectorAll('textarea, [contenteditable], [role="textbox"]'))
+                        .map(el => el.outerHTML.substring(0, 150)).join('\\n');
+                    return JSON.stringify({{ error: "no textarea found on page", debug }});
                 }}
 
-                debug.textareaFound = textarea.outerHTML.substring(0, 200);
+                debug.inputTag = inputEl.tagName;
 
-                // Build prompt from messages
-                const prompt = messages.map(m => m.role + ": " + m.content).join('\n');
+                // Build the prompt from messages
+                const prompt = messages.map(m => m.role + ": " + m.content).join('\\n');
                 debug.promptLength = prompt.length;
 
-                // Type into input
-                textarea.focus();
-                textarea.value = prompt;
-                textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                // Focus and set value using native setter (works with React)
+                inputEl.focus();
+                if (inputEl.tagName === 'TEXTAREA') {{
+                    nativeInputValueSetter.call(inputEl, prompt);
+                }} else {{
+                    inputEl.textContent = prompt;
+                }}
+                inputEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                inputEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
 
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, 800));
 
-                // Find send button
-                const allButtons = Array.from(document.querySelectorAll('button'));
-                debug.buttons = allButtons.map(b => b.textContent.trim()).slice(0, 10);
+                // Find and click the send button
+                const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+                debug.buttonCount = buttons.length;
+                debug.buttonTexts = buttons.map(b => b.textContent.trim()).slice(0, 8);
 
-                let sendBtn = allButtons.find(btn =>
-                    btn.textContent.includes('Send') ||
-                    btn.textContent.includes('发送') ||
-                    btn.querySelector('svg')
-                );
+                const sendBtn = buttons.find(btn => {{
+                    const text = btn.textContent.trim().toLowerCase();
+                    return text === 'send' || text === '发送' ||
+                           (btn.querySelector('svg') && !btn.closest('nav, header'));
+                }});
 
                 if (sendBtn) {{
-                    debug.clickingButton = sendBtn.textContent.trim();
+                    debug.sendMethod = 'click: ' + sendBtn.textContent.trim();
                     sendBtn.click();
                 }} else {{
-                    debug.pressingEnter = true;
-                    textarea.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                    debug.sendMethod = 'enter key';
+                    inputEl.dispatchEvent(new KeyboardEvent('keydown', {{
+                        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+                    }}));
                 }}
 
-                // Wait for response
-                await new Promise(r => setTimeout(r, 8000));
+                // Wait for response (DeepSeek can be slow)
+                await new Promise(r => setTimeout(r, 15000));
 
-                // Get last response
-                const responseDivs = document.querySelectorAll('[data-node-id]');
-                debug.responseDivsCount = responseDivs.length;
+                // Try multiple selectors for response content
+                const responseSelectors = [
+                    '[data-node-id]',
+                    '.ds-markdown',
+                    '.markdown',
+                    '[class*="message"] [class*="content"]',
+                    '.prose'
+                ];
 
-                if (responseDivs.length > 0) {{
-                    const lastResponse = responseDivs[responseDivs.length - 1];
-                    return JSON.stringify({{ content: lastResponse.textContent.substring(0, 1000), debug }});
+                for (const sel of responseSelectors) {{
+                    const elements = document.querySelectorAll(sel);
+                    if (elements.length > 0) {{
+                        const last = elements[elements.length - 1];
+                        const text = last.textContent.trim();
+                        if (text.length > 10) {{
+                            debug.responseSelector = sel;
+                            debug.responseCount = elements.length;
+                            debug.responseLength = text.length;
+                            return JSON.stringify({{ content: text.substring(0, 2000), debug }});
+                        }}
+                    }}
+                }}
+
+                // Fallback: get all page text changes
+                const allDivs = document.querySelectorAll('[class*="ds-"], [class*="chat"], [class*="message"]');
+                debug.allDivsCount = allDivs.length;
+                if (allDivs.length > 0) {{
+                    const lastDiv = allDivs[allDivs.length - 1];
+                    const text = lastDiv.textContent.trim();
+                    if (text.length > 10) {{
+                        return JSON.stringify({{ content: text.substring(0, 2000), debug }});
+                    }}
                 }}
 
                 return JSON.stringify({{ error: "no response", debug }});
@@ -215,7 +263,11 @@ impl AccountPool {
         if let Some(content) = response_json.get("content").and_then(|v| v.as_str()) {
             Ok(content.to_string())
         } else if let Some(err) = response_json.get("error").and_then(|v| v.as_str()) {
-            Err(ProviderError::InvalidResponse(format!("JS chat error: {}", err)))
+            let debug_info = response_json.get("debug")
+                .map(|d| format!(" | debug: {}", d))
+                .unwrap_or_default();
+            tracing::warn!("DeepSeek JS chat failed: {}{}", err, debug_info);
+            Err(ProviderError::InvalidResponse(format!("JS chat error: {}{}", err, debug_info)))
         } else {
             Err(ProviderError::InvalidResponse("No content or error in response".to_string()))
         }

@@ -40,11 +40,42 @@ PROVIDER_URLS = {
 }
 
 LOGIN_SUCCESS_PATTERNS = {
-    "claude": ["/api/auth/session", "claude.ai", "/settings"],
-    "chatgpt": ["chat.openai.com", "/settings", "/chat"],
-    "deepseek": ["chat.deepseek.com"],
-    "google": ["ai.google.dev", "/studio", "/gallery"],
+    "claude": ["claude.ai/chat", "claude.ai/project"],
+    "chatgpt": ["chat.openai.com/chat", "chatgpt.com/chat"],
+    "deepseek": ["chat.deepseek.com/"],  # root path (or with query params) means logged in
+    "google": ["ai.google.dev/app", "ai.google.dev/studio"],
 }
+
+# URL patterns that indicate the user is NOT logged in yet
+LOGIN_FAILURE_PATTERNS = {
+    "claude": ["/login", "/sign_in", "/signin", "/auth/login"],
+    "chatgpt": ["/login", "/sign_in", "/signin", "/auth/login"],
+    "deepseek": ["/sign_in", "/signin", "/login"],
+    "google": ["/signin", "/login"],
+}
+
+# Page content patterns that indicate a LOGIN FORM (not just any login mention)
+# These are full phrases only found on actual login/register forms
+LOGIN_FORM_INDICATORS = [
+    # Phone verification form (DeepSeek)
+    "发送验证码", "输入手机号",
+    # Generic login form text
+    "sign in to your account", "create an account",
+    "forgot your password", "reset your password",
+    "注册登录即代表",
+    # Specific login form components (multi-word to avoid false positives)
+    "verify your phone", "verification code sent",
+]
+
+# Page content patterns that indicate SUCCESSFUL login (chat interface visible)
+LOGGED_IN_INDICATORS = [
+    "new chat", "new conversation",
+    "message deepseek", "deepseek 给你",
+    "send a message", "ask anything",
+    "deep thinking", "深度思考",
+    "what can i help with",
+    "search the web", "联网搜索",
+]
 
 
 def extract_with_visible_browser(provider: str, timeout: int = 300) -> PersistedSession:
@@ -73,30 +104,78 @@ def extract_with_visible_browser(provider: str, timeout: int = 300) -> Persisted
         print(f"🌐 正在打开 {url} ...")
         page.goto(url, timeout=timeout * 1000)
 
-        patterns = LOGIN_SUCCESS_PATTERNS.get(provider.lower(), ["/settings", "/chat"])
+        # Wait for page to settle (redirects, JavaScript)
+        print("⏳ 等待页面加载...")
+        time.sleep(3)
+
+        success_patterns = LOGIN_SUCCESS_PATTERNS.get(provider.lower(), [])
+        failure_patterns = LOGIN_FAILURE_PATTERNS.get(provider.lower(), [])
 
         waited = 0
         print("\n🔎 监听登录状态...")
+        last_url = ""
         while waited < timeout:
             current_url = page.url
+            # Normalize URL: remove trailing slash for comparison
+            normalized_url = current_url.rstrip("/")
 
-            for pattern in patterns:
-                if pattern in current_url:
-                    print(f"\n✅ 检测到登录成功! URL: {current_url}")
-                    print("📦 正在提取 Cookie...")
-                    time.sleep(1)
+            is_failure_page = any(p in normalized_url for p in failure_patterns)
+            is_success_pattern = any(
+                normalized_url.startswith(p.rstrip("/")) or normalized_url.rstrip("/").startswith(p.rstrip("/"))
+                for p in success_patterns
+            )
 
-                    cookies = context.cookies()
-                    cookie_dict = {c['name']: c['value'] for c in cookies}
+            if is_success_pattern and not is_failure_page:
+                # Two-phase content verification
+                try:
+                    body_text = page.evaluate(
+                        "() => (document.body?.innerText || '')"
+                    )
+                    body_lower = body_text.lower()
 
-                    browser.close()
-                    return PersistedSession(cookies=cookie_dict, auth_tokens={})
+                    has_login_form = any(indicator.lower() in body_lower for indicator in LOGIN_FORM_INDICATORS)
+                    has_logged_in = any(indicator.lower() in body_lower for indicator in LOGGED_IN_INDICATORS)
+
+                    # Also check for chat textarea (strong signal)
+                    has_chat_input = bool(page.evaluate(
+                        "() => !!document.querySelector('textarea, [contenteditable=\"true\"], [role=\"textbox\"]')"
+                    ))
+
+                    if has_logged_in or (has_chat_input and not has_login_form):
+                        logged_in_reason = "chat interface found" if has_chat_input else "logged-in content matched"
+                        print(f"\n✅ 检测到登录成功! URL: {current_url}")
+                        print(f"   判定依据: {logged_in_reason}")
+                        print("📦 正在提取 Cookie...")
+                        time.sleep(2)
+
+                        cookies = context.cookies()
+                        cookie_dict = {c["name"]: c["value"] for c in cookies}
+
+                        essential_cookies = {
+                            k: v for k, v in cookie_dict.items()
+                            if len(v) > 5
+                        }
+
+                        browser.close()
+                        return PersistedSession(cookies=essential_cookies, auth_tokens={})
+
+                except Exception:
+                    pass
+
+            if current_url != last_url:
+                if is_failure_page:
+                    print(f"   🔒 当前在登录页: {current_url}")
+                else:
+                    print(f"   📍 URL 变化: {current_url} （非登录页，等待页面切换...）")
+                last_url = current_url
 
             time.sleep(1)
             waited += 1
 
-            if waited % 10 == 0:
-                print(f"  已等待 {waited} 秒...")
+            if waited % 15 == 0:
+                print(f"   ⏱ 已等待 {waited} 秒... 当前: {current_url}")
+            if waited % 60 == 0:
+                print(f"   💡 提示: 请在打开的浏览器窗口中完成登录")
 
         browser.close()
         raise TimeoutError(f"登录超时（{timeout}秒），请重试")
