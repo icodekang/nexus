@@ -1,9 +1,9 @@
 -- Seed providers for testing
 INSERT INTO providers (id, name, slug, logo_url, api_base_url, is_active, priority)
 VALUES
-    ('p0000000-0000-0000-0000-000000000001', 'DeepSeek', 'deepseek', NULL, 'https://api.deepseek.com/v1', true, 10),
-    ('p0000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, 'https://api.openai.com/v1', true, 20),
-    ('p0000000-0000-0000-0000-000000000003', 'Anthropic', 'anthropic', NULL, 'https://api.anthropic.com/v1', true, 30)
+    ('a0000000-0000-0000-0000-000000000001', 'DeepSeek', 'deepseek', NULL, 'https://api.deepseek.com/v1', true, 10),
+    ('a0000000-0000-0000-0000-000000000002', 'OpenAI', 'openai', NULL, 'https://api.openai.com/v1', true, 20),
+    ('a0000000-0000-0000-0000-000000000003', 'Anthropic', 'anthropic', NULL, 'https://api.anthropic.com/v1', true, 30)
 ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name,
     api_base_url = EXCLUDED.api_base_url,
