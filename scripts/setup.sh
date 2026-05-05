@@ -361,23 +361,21 @@ _append_missing_fields() {
 
 # postgres 连接方式：Linux 用 sudo -u postgres，macOS 用 brew 路径或直接连接
 _pg_cmd() {
-    local cmd
-    if [[ "$OS_FAMILY" == "macos" ]]; then
-        if [[ -x "/opt/homebrew/bin/psql" ]]; then
-            cmd="/opt/homebrew/bin/psql"
-        elif [[ -x "/usr/local/bin/psql" ]]; then
-            cmd="/usr/local/bin/psql"
-        else
-            cmd="psql"
-        fi
-    else
-        cmd="sudo -u postgres psql"
-    fi
     # 如果没有指定 -d，默认连接 postgres 数据库
+    local auto_db=""
     if [[ "$*" != *"-d "* && "$*" != *"--dbname"* ]]; then
-        "$cmd" -d postgres "$@"
+        auto_db="-d postgres"
+    fi
+    if [[ "$OS_FAMILY" == "macos" ]]; then
+        local psql_bin="psql"
+        if [[ -x "/opt/homebrew/bin/psql" ]]; then
+            psql_bin="/opt/homebrew/bin/psql"
+        elif [[ -x "/usr/local/bin/psql" ]]; then
+            psql_bin="/usr/local/bin/psql"
+        fi
+        $psql_bin $auto_db "$@"
     else
-        "$cmd" "$@"
+        sudo -u postgres psql $auto_db "$@"
     fi
 }
 
