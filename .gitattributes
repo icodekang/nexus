@@ -1,0 +1,4 @@
+# Shell scripts must ALWAYS use LF line endings (CRLF breaks shebang)
+# -text prevents git autocrlf from converting LF to CRLF on checkout
+*.sh -text
+deploy.sh -text
