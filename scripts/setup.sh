@@ -85,6 +85,25 @@ detect_os() {
         OS_FAMILY="unknown"; OS_NAME="unknown"; OS_VERSION="unknown"; PKG_MGR=""
     fi
     log_ok "操作系统: ${OS_NAME} ${OS_VERSION} (${ARCH})"
+
+    # WSL: strip Windows-injected /mnt/ paths to prevent Windows binaries
+    # (e.g. Windows Node.js) from interfering with WSL-native tool detection
+    if grep -qi microsoft /proc/version 2>/dev/null || grep -qi wsl /proc/version 2>/dev/null; then
+        IS_WSL=true
+        local new_path=""
+        IFS=':' read -ra path_parts <<< "$PATH"
+        for part in "${path_parts[@]}"; do
+            [[ "$part" != /mnt/* ]] && new_path="${new_path}:${part}"
+        done
+        export PATH="${new_path#:}"
+        log_ok "WSL 环境: 已过滤 Windows 路径"
+    fi
+
+    # Source nvm if installed (for per-user Node.js in WSL)
+    if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+        # shellcheck source=/dev/null
+        . "$HOME/.nvm/nvm.sh" 2>/dev/null || true
+    fi
 }
 
 detect_rust() {
@@ -192,18 +211,70 @@ install_node() {
         log_info "Node.js 已安装，跳过"; return 0
     fi
     log_cmd "安装 Node.js 20.x"
-    case "$OS_FAMILY" in
-        debian)    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - 2>&1 | tail -1; _pkg_install nodejs ;;
-        rhel|fedora) curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash - 2>&1 | tail -1; _pkg_install nodejs ;;
-        macos)     _pkg_install node ;;
-        arch)      _pkg_install nodejs npm ;;
-        *)         log_cmd_fail "不支持的系统: ${OS_FAMILY}"; exit 1 ;;
-    esac
+
+    # WSL: use nvm (no sudo required, avoids Windows Node.js conflicts)
+    if [[ "${IS_WSL:-false}" == "true" ]]; then
+        _install_node_via_nvm
+    else
+        case "$OS_FAMILY" in
+            debian)    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - 2>&1 | tail -1; _pkg_install nodejs ;;
+            rhel|fedora) curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash - 2>&1 | tail -1; _pkg_install nodejs ;;
+            macos)     _pkg_install node ;;
+            arch)      _pkg_install nodejs npm ;;
+            *)         log_cmd_fail "不支持的系统: ${OS_FAMILY}"; exit 1 ;;
+        esac
+    fi
+
     if command_exists node; then
         HAS_NODE=true; NODE_VERSION=$(node --version | sed 's/^v//')
         log_cmd_ok "Node.js v${NODE_VERSION} 安装完成"
     else
         log_cmd_fail "Node.js 安装失败"; exit 1
+    fi
+}
+
+# Install Node.js via direct binary download (no sudo, no git required)
+_install_node_via_nvm() {
+    local node_version="20.19.5"
+    local node_dir="$HOME/.local/node-v${node_version}-linux-x64"
+    local node_bin="${node_dir}/bin"
+
+    if [[ -x "${node_bin}/node" ]]; then
+        export PATH="${node_bin}:$PATH"
+        return 0
+    fi
+
+    log_info "下载 Node.js v${node_version} 预编译包..."
+    mkdir -p "$node_dir"
+    local tarball="/tmp/node-v${node_version}.tar.xz"
+    local download_urls=(
+        "https://npmmirror.com/mirrors/node/v${node_version}/node-v${node_version}-linux-x64.tar.xz"
+        "https://nodejs.org/dist/v${node_version}/node-v${node_version}-linux-x64.tar.xz"
+    )
+    local downloaded=false
+    for url in "${download_urls[@]}"; do
+        if curl -fsSL --connect-timeout 30 -o "$tarball" "$url" 2>/dev/null; then
+            downloaded=true; break
+        fi
+    done
+    if [[ "$downloaded" != "true" ]]; then
+        log_cmd_fail "Node.js 下载失败（请检查网络）"; exit 1
+    fi
+    tar -xJf "$tarball" -C "$HOME/.local/" 2>/dev/null
+    rm -f "$tarball"
+
+    if [[ ! -x "${node_bin}/node" ]]; then
+        log_cmd_fail "Node.js 解压失败"; exit 1
+    fi
+    export PATH="${node_bin}:$PATH"
+
+    # Persist PATH in .bashrc for future sessions
+    local bashrc="$HOME/.bashrc"
+    local path_line="export PATH=\"${node_bin}:\$PATH\""
+    if ! grep -qF "${node_bin}" "$bashrc" 2>/dev/null; then
+        echo "" >> "$bashrc"
+        echo "# Node.js (nexus setup)" >> "$bashrc"
+        echo "$path_line" >> "$bashrc"
     fi
 }
 

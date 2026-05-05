@@ -10,6 +10,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PID_DIR="${PROJECT_ROOT}/.pids"
 
+# ── WSL: strip Windows paths + source nvm ────────────────────────────────────
+if grep -qi microsoft /proc/version 2>/dev/null || grep -qi wsl /proc/version 2>/dev/null; then
+    _new_path=""
+    IFS=':' read -ra _path_parts <<< "$PATH"
+    for _part in "${_path_parts[@]}"; do
+        [[ "$_part" != /mnt/* ]] && _new_path="${_new_path}:${_part}"
+    done
+    export PATH="${_new_path#:}"
+fi
+# Source nvm if installed (WSL per-user Node.js)
+if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+    # shellcheck source=/dev/null
+    . "$HOME/.nvm/nvm.sh" 2>/dev/null || true
+fi
+# Add local Node.js binary if installed by setup.sh
+for _nd in "$HOME/.local/node-v20.19.5-linux-x64/bin" "$HOME/.local/node-v"*"-linux-x64/bin"; do
+    if [[ -x "${_nd}/node" ]]; then
+        export PATH="${_nd}:$PATH"; break
+    fi
+done
+
 # ── 兼容 Linux/macOS ──────────────────────────────────────────────────────────
 
 command_exists() {
