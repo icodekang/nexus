@@ -248,11 +248,11 @@ start_backend() {
 
     # 等待后端就绪
     local retries=10
-    while ! (curl -sf "http://localhost:${PORT:-8080}/health" >/dev/null 2>&1) && (( retries-- > 0 )); do
+    while ! (curl --noproxy '*' -sf "http://localhost:${PORT:-8080}/health" >/dev/null 2>&1) && (( retries-- > 0 )); do
         sleep 1
     done
 
-    if (curl -sf "http://localhost:${PORT:-8080}/health" >/dev/null 2>&1); then
+    if (curl --noproxy '*' -sf "http://localhost:${PORT:-8080}/health" >/dev/null 2>&1); then
         log_cmd_ok "后端已启动 (PID $(cat "${PID_DIR}/nexus-service.pid"))"
     else
         log_cmd_fail "后端启动超时，请检查日志: ${PID_DIR}/nexus-service.log"
