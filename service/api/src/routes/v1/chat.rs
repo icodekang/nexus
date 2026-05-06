@@ -29,6 +29,7 @@ use provider_client::{
     Message as ProviderMessage,
     ProviderClient, ProviderClientFactory, HttpProviderClient,
     BrowserEmulatorFactory,
+    tool_calling,
 };
 use router::key_scheduler::SelectedKey;
 
@@ -314,6 +315,10 @@ pub async fn chat_completions(
             let client_result = if is_zero_token_stream {
                 if let Some(zt_provider) = zero_token_provider_stream {
                     get_zero_token_client_from_pool(&state_clone, zt_provider).await
+                        .map(|(c, _)| {
+                            let wrapped = tool_calling::wrap_with_tool_calling(c, tool_calling::default_tools());
+                            (wrapped as Arc<dyn ProviderClient>, None)
+                        })
                 } else {
                     // Fallback to HTTP client if no zero-token provider
                     HttpProviderClient::new(&provider_clone)
@@ -434,7 +439,9 @@ pub async fn chat_completions(
         // ZeroToken users use browser emulator instead of API keys
         let (client, key_id) = if let Some(zt_provider) = zero_token_provider {
             used_provider = zt_provider.to_string();
-            get_zero_token_client_from_pool(&state, zt_provider).await?
+            let (raw_client, _) = get_zero_token_client_from_pool(&state, zt_provider).await?;
+            let wrapped = tool_calling::wrap_with_tool_calling(raw_client, tool_calling::default_tools());
+            (wrapped, None)
         } else {
             // Try primary provider with session-aware key selection
             let selected_key = select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
@@ -445,46 +452,19 @@ pub async fn chat_completions(
         let mut req = provider_request.clone();
         req.provider = used_provider.clone();
 
-        // Special handling for DeepSeek: use JS-based browser chat instead of HTTP
-        // DeepSeek requires browser execution since it doesn't have a public API
-        if provider_for_request == "deepseek" || zero_token_provider == Some("deepseek") {
-            let pc_messages: Vec<provider_client::Message> = request.messages.iter().map(|m| {
-                provider_client::Message { role: m.role.clone(), content: m.content.clone() }
-            }).collect();
-            match state.account_pool.execute_browser_chat(&used_provider, pc_messages, &model.model_id).await {
-                Ok(content) => {
-                    let response = provider_client::ChatResponse {
-                        id: format!("deepseek-{}", uuid::Uuid::new_v4()),
-                        model: model.model_id.clone(),
-                        message: provider_client::Message {
-                            role: "assistant".to_string(),
-                            content,
-                        },
-                        usage: std::collections::HashMap::new(),
-                        latency_ms: start_time.elapsed().as_millis() as i32,
-                    };
-                    provider_resp = Some(response);
-                }
-                Err(e) => {
-                    tracing::warn!("DeepSeek browser chat failed: {}", e);
-                    last_error = Some(ApiError::Internal(anyhow::anyhow!("Browser chat failed: {}", e)));
+        match client.chat(req).await {
+            Ok(resp) => {
+                provider_resp = Some(resp);
+                let latency_ms = start_time.elapsed().as_millis() as i32;
+                if !is_zero_token {
+                    record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
                 }
             }
-        } else {
-            match client.chat(req).await {
-                Ok(resp) => {
-                    provider_resp = Some(resp);
-                    let latency_ms = start_time.elapsed().as_millis() as i32;
-                    if !is_zero_token {
-                        record_key_result(&state, &provider_for_request, key_id, latency_ms, true).await;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
-                    last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
-                    if !is_zero_token {
-                        record_key_result(&state, &provider_for_request, key_id, 0, false).await;
-                    }
+            Err(e) => {
+                tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
+                last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
+                if !is_zero_token {
+                    record_key_result(&state, &provider_for_request, key_id, 0, false).await;
                 }
             }
         }
@@ -974,6 +954,7 @@ pub async fn chat_batch(
 
                 match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
                     Ok((client, _)) => {
+                        let wrapped = tool_calling::wrap_with_tool_calling(client, tool_calling::default_tools());
                         let provider_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
                             provider_client::Message { role: m.role.clone(), content: m.content.clone() }
                         }).collect();
@@ -988,7 +969,7 @@ pub async fn chat_batch(
                             extra: std::collections::HashMap::new(),
                         };
 
-                        match client.chat(provider_request).await {
+                        match wrapped.chat(provider_request).await {
                             Ok(response) => {
                                 let latency = start.elapsed().as_millis() as u64;
                                 ModelResult {
@@ -1342,9 +1323,9 @@ async fn judge_responses(
 
     let client: Arc<dyn ProviderClient> = if is_zero_token {
         let zt_provider = get_zero_token_provider(&provider_slug);
-        get_zero_token_client_from_pool(state, zt_provider).await
-            .map(|(c, _)| c)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge browser client: {}", e)))?
+        let (raw_client, _) = get_zero_token_client_from_pool(state, zt_provider).await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge browser client: {}", e)))?;
+        tool_calling::wrap_with_tool_calling(raw_client, tool_calling::default_tools())
     } else {
         let selected_key = {
             let mut scheduler = state.key_scheduler.write().await;
