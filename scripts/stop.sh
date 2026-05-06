@@ -12,6 +12,8 @@ PID_DIR="${PROJECT_ROOT}/.pids"
 
 # ── 兼容 Linux/macOS ──────────────────────────────────────────────────────────
 
+command_exists() { command -v "$1" &>/dev/null; }
+
 # ss -tlnp 的 Linux 实现；macOS 用 lsof
 _ss_listen_port() {
     local port="$1"

@@ -309,6 +309,20 @@ start_postgres() {
     pg_isready &>/dev/null && return 0
     log_cmd "启动 PostgreSQL 服务"
     if [[ "$OS_FAMILY" == "macos" ]]; then
+        # 清理残留的 postmaster.pid（上次非正常关闭遗留）
+        local data_dir=""
+        for d in /opt/homebrew/var/postgresql@16 /opt/homebrew/var/postgresql /usr/local/var/postgresql@16 /usr/local/var/postgresql; do
+            if [[ -f "$d/postmaster.pid" ]]; then
+                data_dir="$d"; break
+            fi
+        done
+        if [[ -n "$data_dir" ]]; then
+            local stale_pid; stale_pid=$(head -1 "$data_dir/postmaster.pid" 2>/dev/null)
+            if [[ -n "$stale_pid" ]] && ! kill -0 "$stale_pid" 2>/dev/null; then
+                log_warn "清理残留文件 ${data_dir}/postmaster.pid (进程 ${stale_pid} 已不存在)"
+                rm -f "$data_dir/postmaster.pid"
+            fi
+        fi
         brew services start postgresql@16 2>/dev/null || brew services start postgresql 2>/dev/null || true
     else
         sudo systemctl start postgresql 2>/dev/null || sudo systemctl start postgresql-16 2>/dev/null || sudo service postgresql start 2>/dev/null || true

@@ -204,6 +204,18 @@ start_backend() {
     if ! pg_isready &>/dev/null; then
         log_warn "PostgreSQL 未运行，尝试启动..."
         if [[ "$OS_FAMILY" == "macos" ]]; then
+            local data_dir=""
+            for d in /opt/homebrew/var/postgresql@16 /opt/homebrew/var/postgresql /usr/local/var/postgresql@16 /usr/local/var/postgresql; do
+                if [[ -f "$d/postmaster.pid" ]]; then
+                    data_dir="$d"; break
+                fi
+            done
+            if [[ -n "$data_dir" ]]; then
+                local stale_pid; stale_pid=$(head -1 "$data_dir/postmaster.pid" 2>/dev/null)
+                if [[ -n "$stale_pid" ]] && ! kill -0 "$stale_pid" 2>/dev/null; then
+                    rm -f "$data_dir/postmaster.pid"
+                fi
+            fi
             brew services start postgresql@16 2>/dev/null || brew services start postgresql 2>/dev/null || true
         else
             sudo systemctl start postgresql 2>/dev/null || sudo systemctl start postgresql-16 2>/dev/null || sudo service postgresql start 2>/dev/null || true
