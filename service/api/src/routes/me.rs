@@ -16,6 +16,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/usage", get(usage))
         .route("/keys", get(list_keys).post(create_key))
         .route("/keys/:key_id", delete(delete_key))
+        .route("/zero-token/status", get(zero_token_status))
 }
 
 /// GET /v1/me/subscription
@@ -283,5 +284,44 @@ pub async fn delete_key(
 
     Ok(Json(serde_json::json!({
         "deleted": true
+    })))
+}
+
+/// GET /v1/me/zero-token/status
+///
+/// 获取 ZeroToken 状态：可用 provider、配额剩余
+pub async fn zero_token_status(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let user = &auth.user;
+    let can_use_zero_token = user.subscription_plan.is_zero_token()
+        || matches!(user.subscription_plan,
+            SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team);
+
+    if !can_use_zero_token {
+        return Ok(Json(serde_json::json!({
+            "enabled": false,
+            "available_providers": [],
+            "quota_total": user.subscription_plan.monthly_token_quota(),
+            "quota_used": 0,
+        })));
+    }
+
+    let accounts = state.db.list_browser_accounts().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list accounts: {}", e)))?;
+
+    let active_providers: Vec<String> = accounts.into_iter()
+        .filter(|a| a.is_active())
+        .map(|a| a.provider)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "enabled": true,
+        "available_providers": active_providers,
+        "quota_total": user.subscription_plan.monthly_token_quota(),
+        "quota_used": 0,
     })))
 }

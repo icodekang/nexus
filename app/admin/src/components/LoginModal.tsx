@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import {
   type BrowserAccount,
@@ -6,6 +6,7 @@ import {
   injectBrowserSession,
   initiatePhoneLogin,
   completePhoneLogin,
+  startInteractiveLogin,
 } from '../api/admin';
 import { getErrorMessage } from '../utils/errors';
 import { theme } from '../theme';
@@ -58,6 +59,8 @@ const PROVIDER_META: Record<string, {
   },
 };
 
+type LoginPhase = 'idle' | 'launching' | 'waiting' | 'logged_in' | 'error';
+
 export default function LoginModal({ account, onClose, onSuccess }: LoginModalProps) {
   const { t } = useI18n();
   const [cookiesJson, setCookiesJson] = useState('');
@@ -65,7 +68,10 @@ export default function LoginModal({ account, onClose, onSuccess }: LoginModalPr
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [showAutoTry, setShowAutoTry] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [loginPhase, setLoginPhase] = useState<LoginPhase>('idle');
+  const [loginUrl, setLoginUrl] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const meta = PROVIDER_META[account.provider] ?? {
     label: account.provider,
@@ -78,6 +84,76 @@ export default function LoginModal({ account, onClose, onSuccess }: LoginModalPr
     const timer = setTimeout(() => setMounted(true), 20);
     return () => clearTimeout(timer);
   }, []);
+
+  const cleanupSse = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => cleanupSse();
+  }, [cleanupSse]);
+
+  const handleStartBrowserLogin = async () => {
+    setLoginPhase('launching');
+    setError(null);
+    cleanupSse();
+
+    try {
+      const res = await startInteractiveLogin(account.id);
+      setLoginUrl(res.login_url);
+      setLoginPhase('waiting');
+
+      const apiBase = import.meta.env.VITE_API_BASE ?? '';
+      const baseUrl = apiBase.startsWith('http') ? apiBase : window.location.origin + apiBase;
+      const token = localStorage.getItem('nexus_admin_token');
+      const url = `${baseUrl}/admin/accounts/${account.id}/status?token=${token}`;
+
+      const source = new EventSource(url);
+      eventSourceRef.current = source;
+
+      source.addEventListener('status', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.status === 'active') {
+            setLoginPhase('logged_in');
+            setSuccess(true);
+            cleanupSse();
+            setTimeout(() => onSuccess(), 800);
+          } else if (data.status === 'error' || data.status === 'closed') {
+            setLoginPhase('error');
+            setError(data.message || t('loginModal.browserLoginFailed'));
+            cleanupSse();
+          }
+        } catch {}
+      });
+
+      source.addEventListener('url', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.url) setLoginUrl(data.url);
+        } catch {}
+      });
+
+      source.onerror = () => {
+        if (loginPhase === 'waiting') {
+          cleanupSse();
+        }
+      };
+    } catch (err) {
+      setLoginPhase('error');
+      setError(getErrorMessage(err, t));
+    }
+  };
+
+  const handleRetry = () => {
+    setLoginPhase('idle');
+    setLoginUrl(null);
+    setError(null);
+    cleanupSse();
+  };
 
   const handlePasteFromClipboard = async () => {
     try {
@@ -111,6 +187,8 @@ export default function LoginModal({ account, onClose, onSuccess }: LoginModalPr
     }
   };
 
+  const isWaiting = loginPhase === 'launching' || loginPhase === 'waiting';
+
   return (
     <div style={{ ...styles.overlay, opacity: mounted ? 1 : 0, transition: 'opacity 0.2s ease' }} onClick={onClose}>
       <div
@@ -142,58 +220,64 @@ export default function LoginModal({ account, onClose, onSuccess }: LoginModalPr
             <p style={{ fontSize: '15px', fontWeight: '600', color: theme.colors.text.primary, fontFamily: "'DM Sans', sans-serif", margin: '12px 0 4px' }}>{t('loginModal.successTitle')}</p>
             <p style={{ fontSize: '12px', color: theme.colors.text.tertiary, fontFamily: "'DM Sans', sans-serif", margin: 0 }}>{t('loginModal.successRedirect')}</p>
           </div>
-          ) : (
-          <div style={styles.form}>
-            <div style={styles.guideBox}>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                <span style={{ ...styles.stepNum, background: meta.accent + '15', color: meta.accent }}>1</span>
-                <div>
-                  <p style={styles.guideTitle}>{t('loginModal.step1Title')}</p>
-                  <p style={styles.guideText}>
-                    {t('loginModal.step1Desc', { provider: meta.label })}{' '}
-                    <a href="#" onClick={(e) => { e.preventDefault(); setShowAutoTry(v => !v); }} style={{ color: meta.accent, textDecoration: 'none', fontWeight: 600 }}>
-                      {showAutoTry ? t('loginModal.autoToggleHide') : t('loginModal.autoToggleShow')}
-                    </a>
-                  </p>
+        ) : (
+          <div style={styles.body}>
+            {/* ── Browser Login (Primary) ── */}
+            <div style={bs.panel}>
+              <div style={bs.panelHeader}>
+                <div style={bs.panelIcon}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isWaiting ? meta.accent : '#A1A1AA'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                  </svg>
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginTop: '14px' }}>
-                <span style={{ ...styles.stepNum, background: meta.accent + '15', color: meta.accent }}>2</span>
                 <div>
-                  <p style={styles.guideTitle}>{t('loginModal.step2Title')}</p>
-                  <p style={styles.guideText}>{meta.exportGuide}</p>
+                  <p style={bs.panelTitle}>{t('loginModal.browserLoginTitle')}</p>
+                  <p style={bs.panelSubtitle}>{t('loginModal.browserLoginDesc')}</p>
                 </div>
+                {isWaiting && <span style={{ ...bs.recommended, background: meta.accent + '16', color: meta.accent, animation: 'portalPulse 2s ease-in-out infinite' }}>● {t('loginModal.active')}</span>}
+                {loginPhase === 'idle' && <span style={{ ...bs.recommended, background: meta.accent + '12', color: meta.accent }}>{t('loginModal.recommended')}</span>}
               </div>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginTop: '14px' }}>
-                <span style={{ ...styles.stepNum, background: meta.accent + '15', color: meta.accent }}>3</span>
-                <div>
-                  <p style={styles.guideTitle}>{t('loginModal.step3Title')}</p>
-                  <p style={styles.guideText}>{t('loginModal.step3Desc')}</p>
+
+              {(isWaiting || loginPhase === 'error') && (
+                <div style={{ ...bs.portalWindow, boxShadow: isWaiting ? `0 0 0 1px ${meta.accent}30, 0 0 24px ${meta.accent}14` : 'none', transition: 'box-shadow 0.4s ease' }}>
+                  <div style={bs.portalBar}>
+                    <span style={{ ...bs.portalDot, background: isWaiting ? '#34D399' : '#EF4444' }} />
+                    <span style={{ ...bs.portalDot, background: isWaiting ? '#34D399' : '#EF4444', opacity: 0.4 }} />
+                    <span style={{ ...bs.portalDot, background: isWaiting ? '#34D399' : '#EF4444', opacity: 0.2 }} />
+                    <span style={bs.portalUrl}>{loginUrl || 'https://' + meta.label.toLowerCase()}</span>
+                  </div>
+                  <div style={bs.portalBody}>
+                    <div style={{ ...bs.pulseRing, borderColor: meta.accent + '30', animation: isWaiting ? 'portalPulse 2s ease-in-out infinite' : 'none' }}>
+                      <div style={{ ...bs.pulseRingInner, borderColor: meta.accent + '18' }} />
+                    </div>
+                    <p style={bs.portalStatus}>
+                      {loginPhase === 'waiting' ? t('loginModal.waitingForLogin') : t('loginModal.browserLoginFailed')}
+                    </p>
+                    {loginPhase === 'waiting' && (
+                      <p style={bs.portalHint}>{t('loginModal.browserLoginHint')}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {loginPhase === 'idle' && (
+                <button style={{ ...bs.launchBtn, background: meta.accent }} onClick={handleStartBrowserLogin}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                  </svg>
+                  {t('loginModal.openBrowserLogin')}
+                </button>
+              )}
+
+              {loginPhase === 'error' && (
+                <button style={{ ...bs.launchBtn, background: meta.accent }} onClick={handleRetry}>
+                  {t('loginModal.retry')}
+                </button>
+              )}
             </div>
 
-            <div style={styles.fieldGroup}>
-              <label style={styles.label} htmlFor="inject-cookies">{t('loginModal.cookieJsonLabel')}</label>
-              <textarea
-                id="inject-cookies"
-                value={cookiesJson}
-                onChange={(e) => setCookiesJson(e.target.value)}
-                style={{ ...styles.textarea, borderColor: loading ? theme.colors.border.default : meta.accent + '40' }}
-                rows={8}
-                placeholder={`[\n  {"name":"session","value":"xxxx","domain":".${meta.label.toLowerCase().replace('.ai', '.com')}"},\n  ...\n]`}
-                disabled={loading}
-                spellCheck={false}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="button" style={{ ...styles.pasteBtn, borderColor: meta.accent + '30', color: meta.accent }} onClick={handlePasteFromClipboard} disabled={loading}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                {t('loginModal.pasteFromClipboard')}
-              </button>
-            </div>
-
+            {/* ── Error Banner ── */}
             {error && (
               <div style={styles.errorBanner}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -203,22 +287,63 @@ export default function LoginModal({ account, onClose, onSuccess }: LoginModalPr
               </div>
             )}
 
-            <button
-              type="button"
-              disabled={loading || !cookiesJson.trim()}
-              style={{ ...styles.submitBtn, background: loading ? theme.colors.text.tertiary : meta.accent, cursor: loading || !cookiesJson.trim() ? 'not-allowed' : 'pointer', opacity: !cookiesJson.trim() ? 0.55 : 1 }}
-              onClick={handleInject}
-            >
-              {loading ? <span style={styles.spinner} /> : t('loginModal.injectBtn')}
-            </button>
+            {/* ── Advanced Options Toggle ── */}
+            <div>
+              <button
+                style={as.toggle}
+                onClick={() => setShowAdvanced(v => !v)}
+              >
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+                <span>{t('loginModal.advancedOptions')}</span>
+              </button>
 
-            <CollapsibleAutoLogin
-              open={showAutoTry}
-              meta={meta}
-              account={account}
-              t={t}
-              onSuccess={onSuccess}
-            />
+              {showAdvanced && (
+                <div style={as.content}>
+                  {/* Manual Cookie Injection */}
+                  <div style={as.section}>
+                    <p style={as.sectionTitle}>{t('loginModal.manualInjectTitle')}</p>
+                    <div style={as.fieldGroup}>
+                      <textarea
+                        value={cookiesJson}
+                        onChange={(e) => setCookiesJson(e.target.value)}
+                        style={{ ...styles.textarea, borderColor: loading ? theme.colors.border.default : meta.accent + '40' }}
+                        rows={6}
+                        placeholder={`[\n  {"name":"session","value":"xxxx","domain":".${meta.label.toLowerCase().replace('.ai', '.com')}"},\n  ...\n]`}
+                        disabled={loading}
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <button type="button" style={{ ...styles.pasteBtn, borderColor: meta.accent + '30', color: meta.accent }} onClick={handlePasteFromClipboard} disabled={loading}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                        {t('loginModal.pasteFromClipboard')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={loading || !cookiesJson.trim()}
+                        style={{ ...styles.submitBtnSmall, background: meta.accent, opacity: loading ? 0.6 : 1 }}
+                        onClick={handleInject}
+                      >
+                        {loading ? <span style={styles.spinnerSmall} /> : t('loginModal.injectBtn')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Auto Login */}
+                  <CollapsibleAutoLogin
+                    meta={meta}
+                    account={account}
+                    t={t}
+                    onSuccess={onSuccess}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -227,13 +352,20 @@ export default function LoginModal({ account, onClose, onSuccess }: LoginModalPr
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes portalPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+        @keyframes portalRingPulse {
+          0%, 100% { transform: scale(1); opacity: 0.6; }
+          50% { transform: scale(1.05); opacity: 1; }
+        }
       `}</style>
     </div>
   );
 }
 
-function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
-  open: boolean;
+function CollapsibleAutoLogin({ meta, account, onSuccess, t }: {
   meta: typeof PROVIDER_META['claude'];
   account: BrowserAccount;
   onSuccess: () => void;
@@ -255,8 +387,6 @@ function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
     const t = setTimeout(() => setCountdown(countdown - 1), 1000);
     return () => clearTimeout(t);
   }, [countdown]);
-
-  if (!open) return null;
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -284,10 +414,8 @@ function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
   };
 
   return (
-    <div style={autoStyles.container}>
-      <div style={autoStyles.divider}>
-        <span style={autoStyles.dividerText}>{t('loginModal.autoDivider')}</span>
-      </div>
+    <div style={as.section}>
+      <p style={as.sectionTitle}>{t('loginModal.autoLoginTitle')}</p>
 
       <div style={autoStyles.modeToggle}>
         <button style={{ ...autoStyles.modeBtn, color: mode === 'password' ? meta.accent : '#A1A1AA', borderBottomColor: mode === 'password' ? meta.accent : 'transparent' }} onClick={() => setMode('password')}>{t('loginModal.autoPasswordTab')}</button>
@@ -303,8 +431,8 @@ function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
             <input id="auto-pw" type="password" value={password} onChange={e => setPassword(e.target.value)} onFocus={() => setFocused('pw')} onBlur={() => setFocused(null)} style={styles.input} placeholder={t('loginModal.autoPassword')} disabled={loading} autoComplete="current-password" />
           </div>
           {error && <div style={styles.errorBanner}><span>{error.slice(0, 200)}</span></div>}
-          <button type="submit" disabled={loading || !email.trim() || !password.trim()} style={{ ...styles.submitBtn, background: meta.accent, opacity: loading ? 0.6 : 1, fontSize: '12px', padding: '10px' }}>
-            {loading ? <span style={styles.spinner} /> : t('loginModal.autoLoginBtn')}
+          <button type="submit" disabled={loading || !email.trim() || !password.trim()} style={{ ...styles.submitBtnSmall, background: meta.accent, opacity: loading ? 0.6 : 1 }}>
+            {loading ? <span style={styles.spinnerSmall} /> : t('loginModal.autoLoginBtn')}
           </button>
         </form>
       ) : (
@@ -314,8 +442,8 @@ function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
               <div style={{ ...styles.inputWrap, borderColor: focused === 'phone' ? meta.accent : theme.colors.border.default }}>
                 <input id="auto-phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} onFocus={() => setFocused('phone')} onBlur={() => setFocused(null)} style={styles.input} placeholder="+86 13800000000" disabled={loading} />
               </div>
-              <button type="button" disabled={loading || !phone.trim()} style={{ ...styles.submitBtn, background: meta.accent, opacity: loading ? 0.6 : 1, fontSize: '12px', padding: '10px' }} onClick={handleSendCode}>
-                {loading ? <span style={styles.spinner} /> : t('loginModal.autoSendCode')}
+              <button type="button" disabled={loading || !phone.trim()} style={{ ...styles.submitBtnSmall, background: meta.accent, opacity: loading ? 0.6 : 1 }} onClick={handleSendCode}>
+                {loading ? <span style={styles.spinnerSmall} /> : t('loginModal.autoSendCode')}
               </button>
             </>
           ) : (
@@ -329,8 +457,8 @@ function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button type="button" style={{ ...styles.pasteBtn, borderColor: meta.accent + '30', color: meta.accent, flex: 1 }} onClick={() => setPhoneStep('phone')} disabled={loading}>{t('loginModal.autoChangePhone')}</button>
-                <button type="button" disabled={loading || !code.trim()} style={{ ...styles.submitBtn, background: meta.accent, opacity: loading ? 0.6 : 1, fontSize: '12px', padding: '10px', flex: 1, marginTop: 0 }} onClick={handleVerifyCode}>
-                  {loading ? <span style={styles.spinner} /> : t('loginModal.autoVerify')}
+                <button type="button" disabled={loading || !code.trim()} style={{ ...styles.submitBtnSmall, background: meta.accent, opacity: loading ? 0.6 : 1, flex: 1 }} onClick={handleVerifyCode}>
+                  {loading ? <span style={styles.spinnerSmall} /> : t('loginModal.autoVerify')}
                 </button>
               </div>
             </>
@@ -342,62 +470,146 @@ function CollapsibleAutoLogin({ open, meta, account, onSuccess, t }: {
   );
 }
 
-const autoStyles: Record<string, React.CSSProperties> = {
-  container: {
-    marginTop: '4px',
+// ── Browser Login Panel Styles ──
+
+const bs: Record<string, React.CSSProperties> = {
+  panel: {
+    background: '#FAFBFC',
+    borderRadius: '14px',
+    border: '1.5px solid #EAECF0',
+    overflow: 'hidden',
   },
-  divider: {
+  panelHeader: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    padding: '8px 0',
+    gap: '12px',
+    padding: '18px 20px 14px',
   },
-  dividerText: {
-    fontSize: '10px',
-    color: theme.colors.text.tertiary,
-    fontFamily: "'DM Sans', sans-serif",
-    whiteSpace: 'nowrap',
+  panelIcon: {
+    width: '40px', height: '40px', borderRadius: '12px',
+    background: '#F0EFF4', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
+  panelTitle: {
+    fontSize: '14px', fontWeight: '700', color: '#18181B',
+    fontFamily: "'DM Sans', sans-serif", margin: 0, letterSpacing: '-0.01em',
+  },
+  panelSubtitle: {
+    fontSize: '11px', color: '#71717A', fontFamily: "'DM Sans', sans-serif",
+    margin: '3px 0 0', lineHeight: '1.4',
+  },
+  recommended: {
+    fontSize: '10px', fontWeight: '600', padding: '3px 10px',
+    borderRadius: '9999px', fontFamily: "'DM Sans', sans-serif",
+    flexShrink: 0, marginLeft: 'auto', letterSpacing: '0.02em',
+  },
+  launchBtn: {
+    margin: '0 20px 18px', padding: '12px 20px', borderRadius: '12px',
+    border: 'none', color: '#FFF', fontSize: '14px', fontWeight: '700',
+    fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: '8px', width: 'calc(100% - 40px)', letterSpacing: '-0.01em',
+    transition: 'all 0.15s ease',
+  },
+  portalWindow: {
+    margin: '0 20px 18px', borderRadius: '12px',
+    background: '#1A1B23', overflow: 'hidden',
+    transition: 'box-shadow 0.4s ease',
+  },
+  portalBar: {
+    display: 'flex', alignItems: 'center', gap: '6px',
+    padding: '10px 14px', background: 'rgba(255,255,255,0.04)',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  portalDot: {
+    width: '8px', height: '8px', borderRadius: '50%',
+    display: 'inline-block',
+  },
+  portalUrl: {
+    fontSize: '10px', fontFamily: "'JetBrains Mono', monospace",
+    color: 'rgba(255,255,255,0.4)', marginLeft: 'auto',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    maxWidth: '200px',
+  },
+  portalBody: {
+    padding: '28px 20px 24px', display: 'flex',
+    flexDirection: 'column', alignItems: 'center', gap: '14px',
+  },
+  pulseRing: {
+    width: '56px', height: '56px', borderRadius: '50%',
+    border: '2px solid', display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pulseRingInner: {
+    width: '32px', height: '32px', borderRadius: '50%',
+    border: '2px solid',
+  },
+  portalStatus: {
+    fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,0.8)',
+    fontFamily: "'DM Sans', sans-serif", margin: 0, textAlign: 'center',
+  },
+  portalHint: {
+    fontSize: '11px', color: 'rgba(255,255,255,0.4)',
+    fontFamily: "'DM Sans', sans-serif", margin: 0, textAlign: 'center',
+    lineHeight: '1.5',
+  },
+};
+
+// ── Advanced Options Styles ──
+
+const as: Record<string, React.CSSProperties> = {
+  toggle: {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    padding: '8px 0', border: 'none', background: 'transparent',
+    fontSize: '12px', fontWeight: '600', color: '#71717A',
+    fontFamily: "'DM Sans', sans-serif", cursor: 'pointer',
+    transition: 'color 0.15s',
+  },
+  content: {
+    display: 'flex', flexDirection: 'column', gap: '16px',
+    paddingTop: '4px',
+  },
+  section: {
+    padding: '14px 16px', background: '#F8F8FB',
+    borderRadius: '12px', border: '1px solid #EEEEF2',
+  },
+  sectionTitle: {
+    fontSize: '12px', fontWeight: '700', color: '#18181B',
+    fontFamily: "'DM Sans', sans-serif", margin: '0 0 10px',
+    letterSpacing: '-0.01em',
+  },
+  fieldGroup: {
+    display: 'flex', flexDirection: 'column', gap: '6px',
+  },
+};
+
+const autoStyles: Record<string, React.CSSProperties> = {
   modeToggle: {
-    display: 'flex',
-    gap: '0',
-    marginBottom: '10px',
+    display: 'flex', gap: '0', marginBottom: '10px',
     borderBottom: `1px solid ${theme.colors.border.subtle}`,
   },
   modeBtn: {
-    flex: 1,
-    padding: '6px 0',
-    border: 'none',
-    borderBottom: '2px solid',
-    background: 'transparent',
-    fontSize: '11px',
-    fontFamily: "'DM Sans', sans-serif",
-    fontWeight: '600',
-    cursor: 'pointer',
+    flex: 1, padding: '6px 0', border: 'none',
+    borderBottom: '2px solid', background: 'transparent',
+    fontSize: '11px', fontFamily: "'DM Sans', sans-serif",
+    fontWeight: '600', cursor: 'pointer',
     transition: 'all 0.12s ease',
   },
 };
 
 const styles: Record<string, React.CSSProperties> = {
   overlay: {
-    position: 'fixed',
-    top: 0, left: 0, right: 0, bottom: 0,
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.55)',
     backdropFilter: 'blur(6px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-    padding: '16px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 1000, padding: '16px',
   },
   portal: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: '18px',
-    width: '100%',
-    maxWidth: '480px',
+    backgroundColor: '#FFFFFF', borderRadius: '18px',
+    width: '100%', maxWidth: '520px',
     boxShadow: '0 24px 64px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08)',
-    overflow: 'hidden',
-    position: 'relative',
+    overflow: 'hidden', position: 'relative',
   },
   glowStrip: { height: '3px', width: '100%' },
   header: {
@@ -425,44 +637,16 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none', borderRadius: '8px', cursor: 'pointer',
     color: theme.colors.text.tertiary, flexShrink: 0,
   },
-  form: {
-    padding: '20px 24px 20px',
-    display: 'flex', flexDirection: 'column', gap: '14px',
+  body: {
+    padding: '0 24px 20px', display: 'flex', flexDirection: 'column', gap: '14px',
   },
   successState: {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     padding: '48px 24px',
   },
-  guideBox: {
-    padding: '16px',
-    backgroundColor: '#F8F8FB',
-    borderRadius: '12px',
-    border: '1px solid #EEEEF2',
-  },
-  stepNum: {
-    width: '22px', height: '22px', borderRadius: '50%',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '12px', fontWeight: '700', fontFamily: "'DM Sans', sans-serif",
-    flexShrink: 0, marginTop: '1px',
-  },
-  guideTitle: {
-    margin: 0, fontSize: '13px', fontWeight: '600',
-    color: theme.colors.text.primary, fontFamily: "'DM Sans', sans-serif",
-  },
-  guideText: {
-    margin: '2px 0 0', fontSize: '12px', color: theme.colors.text.tertiary,
-    fontFamily: "'DM Sans', sans-serif", lineHeight: '1.5',
-  },
-  fieldGroup: {
-    display: 'flex', flexDirection: 'column', gap: '6px',
-  },
-  label: {
-    fontSize: '13px', fontWeight: '600', color: theme.colors.text.primary,
-    fontFamily: "'DM Sans', sans-serif", letterSpacing: '-0.01em',
-  },
   textarea: {
     width: '100%', padding: '12px 14px', borderRadius: '10px',
-    border: '1.5px solid', fontSize: '12px',
+    border: '1.5px solid', fontSize: '11px',
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     color: theme.colors.text.primary, backgroundColor: theme.colors.bg.page,
     resize: 'vertical', outline: 'none', lineHeight: '1.5', boxSizing: 'border-box',
@@ -483,10 +667,21 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '13px 20px', borderRadius: '10px', color: '#FFFFFF',
     fontSize: '14px', fontWeight: '700', fontFamily: "'DM Sans', sans-serif",
     border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    gap: '8px', transition: 'all 0.15s ease', marginTop: '2px', letterSpacing: '-0.01em',
+    gap: '8px', transition: 'all 0.15s ease', letterSpacing: '-0.01em',
+  },
+  submitBtnSmall: {
+    padding: '10px 16px', borderRadius: '10px', color: '#FFFFFF',
+    fontSize: '12px', fontWeight: '700', fontFamily: "'DM Sans', sans-serif",
+    border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: '6px', transition: 'all 0.15s ease', cursor: 'pointer',
   },
   spinner: {
     width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.35)',
+    borderTopColor: '#FFFFFF', borderRadius: '50%',
+    animation: 'spin 0.7s linear infinite', display: 'inline-block',
+  },
+  spinnerSmall: {
+    width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.35)',
     borderTopColor: '#FFFFFF', borderRadius: '50%',
     animation: 'spin 0.7s linear infinite', display: 'inline-block',
   },

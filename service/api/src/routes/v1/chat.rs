@@ -306,6 +306,7 @@ pub async fn chat_completions(
         let session_id_clone = session_id.clone();
         let is_zero_token_stream = is_zero_token;
         let zero_token_provider_stream = zero_token_provider;
+        let can_fallback_to_zt = auth.user.subscription_plan.can_fallback_to_zero_token();
 
         tokio::spawn(async move {
             let mut total_output_tokens: i32 = 0;
@@ -335,16 +336,30 @@ pub async fn chat_completions(
                     }).flatten()
                 };
 
-                match &selected_key {
-                    Some(sk) => {
-                        used_key_id = Some(sk.key.id);
-                        HttpProviderClient::new_with_key(&provider_clone, &sk.key)
-                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e)))
+                if selected_key.is_none() && can_fallback_to_zt {
+                    // No API key — fallback to browser accounts
+                    let zt_provider = get_zero_token_provider(&provider_clone);
+                    match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
+                        Ok((raw_client, _)) => {
+                            let wrapped = tool_calling::wrap_with_tool_calling(raw_client, tool_calling::default_tools());
+                            Ok((wrapped as Arc<dyn ProviderClient>, None))
+                        }
+                        Err(e) => HttpProviderClient::new(&provider_clone)
+                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                            .map_err(|_| ApiError::Internal(anyhow::anyhow!("ZeroToken fallback: {}", e))),
                     }
-                    None => HttpProviderClient::new(&provider_clone)
-                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))),
+                } else {
+                    match &selected_key {
+                        Some(sk) => {
+                            used_key_id = Some(sk.key.id);
+                            HttpProviderClient::new_with_key(&provider_clone, &sk.key)
+                                .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                                .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e)))
+                        }
+                        None => HttpProviderClient::new(&provider_clone)
+                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))),
+                    }
                 }
             };
 
@@ -445,7 +460,19 @@ pub async fn chat_completions(
         } else {
             // Try primary provider with session-aware key selection
             let selected_key = select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
-            create_client_with_key(&provider_for_request, selected_key)?
+            if selected_key.is_none() && auth.user.subscription_plan.can_fallback_to_zero_token() {
+                // No API key configured — try ZeroToken browser accounts as fallback
+                let zt_provider = get_zero_token_provider(&provider_for_request);
+                match get_zero_token_client_from_pool(&state, zt_provider).await {
+                    Ok((raw_client, _)) => {
+                        let wrapped = tool_calling::wrap_with_tool_calling(raw_client, tool_calling::default_tools());
+                        (wrapped, None)
+                    }
+                    Err(_) => create_client_with_key(&provider_for_request, selected_key)?
+                }
+            } else {
+                create_client_with_key(&provider_for_request, selected_key)?
+            }
         };
 
         // client is Arc<dyn ProviderClient> (already unwrapped from Result)
@@ -918,40 +945,6 @@ pub async fn chat_batch(
             if is_zero_token {
                 let zt_provider = get_zero_token_provider(&provider_slug);
 
-                if zt_provider == "deepseek" {
-                    let pc_messages: Vec<provider_client::Message> = messages.iter().map(|m| {
-                        provider_client::Message { role: m.role.clone(), content: m.content.clone() }
-                    }).collect();
-                    match state_clone.account_pool.execute_browser_chat(&provider_slug, pc_messages, &model.model_id).await {
-                        Ok(content) => {
-                            return ModelResult {
-                                model: slug.clone(),
-                                provider: provider_slug,
-                                content,
-                                score: 0.0,
-                                reason: String::new(),
-                                latency_ms: start.elapsed().as_millis() as u64,
-                                success: true,
-                                error: None,
-                                usage: Usage::new(0, 0),
-                            };
-                        }
-                        Err(e) => {
-                            return ModelResult {
-                                model: slug.clone(),
-                                provider: provider_slug,
-                                content: String::new(),
-                                score: 0.0,
-                                reason: String::new(),
-                                latency_ms: start.elapsed().as_millis() as u64,
-                                success: false,
-                                error: Some(format!("Browser chat failed: {}", e)),
-                                usage: Usage::new(0, 0),
-                            };
-                        }
-                    }
-                }
-
                 match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
                     Ok((client, _)) => {
                         let wrapped = tool_calling::wrap_with_tool_calling(client, tool_calling::default_tools());
@@ -1022,13 +1015,32 @@ pub async fn chat_batch(
                     sid.as_ref().and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
                 };
 
-                let client_result = match &selected_key {
-                    Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
-                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-                    None => HttpProviderClient::new(&provider_slug)
-                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                let client_result = if selected_key.is_none() && auth.user.subscription_plan.can_fallback_to_zero_token() {
+                    // No API key — try ZeroToken browser
+                    let zt_provider = get_zero_token_provider(&provider_slug);
+                    match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
+                        Ok((client, _)) => {
+                            let wrapped = tool_calling::wrap_with_tool_calling(client, tool_calling::default_tools());
+                            Ok((wrapped as Arc<dyn ProviderClient>, None))
+                        }
+                        Err(_) => match &selected_key {
+                            Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+                                .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                                .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                            None => HttpProviderClient::new(&provider_slug)
+                                .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                                .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                        }
+                    }
+                } else {
+                    match &selected_key {
+                        Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                        None => HttpProviderClient::new(&provider_slug)
+                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                    }
                 };
 
                 let (client, key_id) = match client_result {

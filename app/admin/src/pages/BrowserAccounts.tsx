@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import LoginModal from '../components/LoginModal';
@@ -23,6 +23,46 @@ const providerColors: Record<string, { bg: string; text: string; accent: string 
 
 function getProviderStyle(provider: string) {
   return providerColors[provider] || { bg: '#F5F5F4', text: '#71717A', accent: '#A1A1AA' };
+}
+
+function useAccountStatusSse(
+  pendingIds: string[],
+  onStatusChange: (id: string, status: string) => void,
+) {
+  const sourcesRef = useRef<Map<string, EventSource>>(new Map());
+
+  useEffect(() => {
+    const apiBase = import.meta.env.VITE_API_BASE ?? '';
+    const baseUrl = apiBase.startsWith('http') ? apiBase : window.location.origin + apiBase;
+    const token = localStorage.getItem('nexus_admin_token');
+
+    for (const id of pendingIds) {
+      if (sourcesRef.current.has(id)) continue;
+
+      const url = `${baseUrl}/admin/accounts/${id}/status?token=${token}`;
+      const source = new EventSource(url);
+      sourcesRef.current.set(id, source);
+
+      source.addEventListener('status', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.status) onStatusChange(id, data.status);
+        } catch {}
+      });
+
+      source.onerror = () => {
+        source.close();
+        sourcesRef.current.delete(id);
+      };
+    }
+
+    return () => {
+      for (const [_id, source] of sourcesRef.current) {
+        source.close();
+      }
+      sourcesRef.current.clear();
+    };
+  }, [pendingIds.join(',')]);
 }
 
 export default function BrowserAccounts() {
@@ -59,6 +99,16 @@ export default function BrowserAccounts() {
     const interval = setInterval(() => loadData(), 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  const pendingIds = accounts
+    .filter(a => a.status === 'pending')
+    .map(a => a.id);
+
+  useAccountStatusSse(pendingIds, useCallback((_id: string, status: string) => {
+    if (status === 'active' || status === 'error' || status === 'closed') {
+      loadData();
+    }
+  }, [loadData]));
 
   const handleAddAccount = async () => {
     if (!addModalProvider) return;

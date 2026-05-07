@@ -286,6 +286,17 @@ export async function fetchUsage() {
   return request<UsageData>('/v1/me/usage');
 }
 
+export interface ZeroTokenStatus {
+  enabled: boolean;
+  available_providers: string[];
+  quota_total: number;
+  quota_used: number;
+}
+
+export async function fetchZeroTokenStatus() {
+  return request<ZeroTokenStatus>('/v1/me/zero-token/status');
+}
+
 /**
  * fetchApiKeys - 获取用户的 API 密钥列表
  * @returns API 密钥列表

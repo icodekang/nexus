@@ -5,7 +5,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore } from '../stores/chatStore';
-import { fetchBatchChat, fetchBatchJudge, type ModelResult } from '../api/client';
+import { fetchBatchChat, fetchBatchJudge, fetchZeroTokenStatus, type ModelResult } from '../api/client';
 import { useI18n } from '../i18n';
 import './SearchPage.css';
 
@@ -208,11 +208,20 @@ export default function SearchPage() {
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [scoring, setScoring] = useState(false);
   const [judgeModel, setJudgeModel] = useState('');
+  const [zeroTokenProviders, setZeroTokenProviders] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!currentResult) inputRef.current?.focus();
   }, [currentResult]);
+
+  useEffect(() => {
+    fetchZeroTokenStatus().then(s => {
+      if (s.enabled && s.available_providers.length > 0) {
+        setZeroTokenProviders(s.available_providers);
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleSearch = useCallback(async (query?: string) => {
     const q = (query || input).trim();
@@ -452,6 +461,12 @@ export default function SearchPage() {
         </div>
         <h1 className="search-title">Nexus AI</h1>
         <p className="search-subtitle">同时查询多个 AI，对比最优答案</p>
+        {zeroTokenProviders.length > 0 && (
+          <div className="zt-badge">
+            <span className="zt-dot" />
+            浏览器模式已启用 · {zeroTokenProviders.join(' · ')}
+          </div>
+        )}
 
         <div className="search-box">
           <textarea

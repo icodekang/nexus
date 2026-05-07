@@ -653,6 +653,18 @@ export async function getLoginUrl(accountId: string): Promise<LoginUrlResponse> 
 }
 
 /**
+ * startInteractiveLogin - 启动交互式浏览器登录
+ * @param accountId - 账号 ID
+ * @returns 登录 URL 和初始状态
+ */
+export async function startInteractiveLogin(accountId: string): Promise<LoginUrlResponse> {
+  return request<LoginUrlResponse>(`/admin/accounts/${accountId}/start-login`, {
+    method: 'POST',
+    body: JSON.stringify({ use_headless: false }),
+  });
+}
+
+/**
  * completeBrowserAuth - 完成浏览器认证流程
  * @param code - 认证码
  * @param sessionId - 会话 ID

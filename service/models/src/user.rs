@@ -166,6 +166,11 @@ impl SubscriptionPlan {
     pub fn is_zero_token(&self) -> bool {
         matches!(self, SubscriptionPlan::ZeroToken)
     }
+
+    /// 是否可在 API Key 不可用时 fallback 到零 Token 浏览器访问
+    pub fn can_fallback_to_zero_token(&self) -> bool {
+        matches!(self, SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team | SubscriptionPlan::Enterprise)
+    }
 }
 
 /// API Key

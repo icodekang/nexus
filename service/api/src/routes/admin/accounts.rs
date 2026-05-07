@@ -214,8 +214,8 @@ async fn start_login(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
-    // Create headless browser login session
-    let session = state.headless_browser.create_login_session(&account.provider).await
+    // Create headless browser login session (visible window for interactive login)
+    let session = state.headless_browser.create_login_session(&account.provider, false).await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to start login: {}", e)))?;
 
     // Generate a short code for verification (optional, for simpler auth)

@@ -212,11 +212,14 @@ start_backend() {
             done
             if [[ -n "$data_dir" ]]; then
                 local stale_pid; stale_pid=$(head -1 "$data_dir/postmaster.pid" 2>/dev/null)
-                if [[ -n "$stale_pid" ]] && ! kill -0 "$stale_pid" 2>/dev/null; then
+                if [[ -n "$stale_pid" ]]; then
+                    if kill -0 "$stale_pid" 2>/dev/null; then
+                        kill -9 "$stale_pid" 2>/dev/null
+                    fi
                     rm -f "$data_dir/postmaster.pid"
                 fi
             fi
-            brew services start postgresql@16 2>/dev/null || brew services start postgresql 2>/dev/null || true
+            brew services restart postgresql@16 2>/dev/null || brew services restart postgresql 2>/dev/null || true
         else
             sudo systemctl start postgresql 2>/dev/null || sudo systemctl start postgresql-16 2>/dev/null || sudo service postgresql start 2>/dev/null || true
         fi

@@ -4,6 +4,7 @@
 //! 用于自动捕获登录会话的 Cookie 和 Token。
 
 use headless_chrome::browser::Browser;
+use headless_chrome::LaunchOptions;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
@@ -178,15 +179,27 @@ impl HeadlessBrowserManager {
     }
 
     /// 创建一个新的登录会话
+    ///
+    /// # 参数
+    /// * `provider` - 目标平台（deepseek、claude、chatgpt）
+    /// * `headless` - 是否使用无头模式（true 为后台运行，false 为弹出可见窗口）
     pub async fn create_login_session(
         &self,
         provider: &str,
+        headless: bool,
     ) -> Result<LoginSession, ProviderError> {
         Self::detect_chrome_binary()?;
 
         let login_url = Self::get_login_url(provider)?;
 
-        let browser = Browser::default()
+        let launch_options = LaunchOptions {
+            headless,
+            sandbox: false,
+            window_size: Some((1280, 800)),
+            ..Default::default()
+        };
+
+        let browser = Browser::new(launch_options)
             .map_err(|e| ProviderError::InternalError(format!("Failed to launch browser: {}", e)))?;
 
         let tab = browser.new_tab()
@@ -230,6 +243,9 @@ impl HeadlessBrowserManager {
     }
 
     /// 刷新会话状态
+    ///
+    /// 检测是否登录成功。如果检测到登录，自动从浏览器捕获 Cookie
+    /// 并通过事件总线广播给监听者（如 SSE 连接）
     pub async fn refresh_session(
         &self,
         session_id: Uuid,
@@ -249,20 +265,19 @@ impl HeadlessBrowserManager {
             (browser, session)
         };
 
-        // 获取标签页并检查当前 URL - 在同步块中完成避免 Send 问题
-        let current_url = {
+        // 获取第一个标签页引用
+        let tab: Option<Arc<headless_chrome::Tab>> = {
             let tabs = browser.get_tabs();
             match tabs.lock() {
-                Ok(tabs_guard) => {
-                    if let Some(tab) = tabs_guard.first() {
-                        tab.get_url()
-                    } else {
-                        session.current_url.clone()
-                    }
-                }
-                Err(_) => session.current_url.clone()
+                Ok(tabs_guard) => tabs_guard.first().cloned(),
+                Err(_) => None,
             }
         };
+
+        // 获取当前 URL
+        let current_url = tab.as_ref()
+            .map(|t| t.get_url())
+            .unwrap_or_else(|| session.current_url.clone());
 
         let old_state = session.state;
 
@@ -271,7 +286,28 @@ impl HeadlessBrowserManager {
             session.state = BrowserSessionState::LoggedIn;
             session.current_url = current_url;
 
-            // 广播事件
+            // 自动从浏览器捕获 Cookie
+            if let Some(ref tab) = tab {
+                if session.cookies_json.is_empty() {
+                    match self.get_cookies(tab).await {
+                        Ok(cookies) => {
+                            tracing::info!(
+                                "Automatically captured cookies for session {} ({} chars)",
+                                session_id, cookies.len()
+                            );
+                            session.cookies_json = cookies;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to capture cookies on login detection for session {}: {}",
+                                session_id, e
+                            );
+                        }
+                    }
+                }
+            }
+
+            // 广播事件（携带捕获的 Cookie）
             let _ = self.event_tx.send(LoginEvent::StateChanged {
                 session_id,
                 old_state,
@@ -1109,17 +1145,20 @@ impl HeadlessBrowserManager {
 
     /// 获取页面所有 cookies
     async fn get_cookies(&self, tab: &headless_chrome::Tab) -> Result<String, ProviderError> {
-        let cookies_script = "document.cookie.split(';').reduce(function(acc, c) { var parts = c.trim().split('='); if (parts.length >= 2) { acc[parts[0]] = parts.slice(1).join('='); } return acc; }, {})";
+        // Use CDP Network.getCookies to capture ALL cookies including HttpOnly.
+        // document.cookie (JS) misses HttpOnly cookies — most auth tokens use that flag.
+        let cdp_cookies = tab.get_cookies()
+            .map_err(|e| ProviderError::InternalError(format!("Failed to get cookies via CDP: {}", e)))?;
 
-        let result = tab.evaluate(cookies_script, false)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to get cookies: {}", e)))?;
+        let mut cookie_map = std::collections::HashMap::new();
+        for c in cdp_cookies {
+            cookie_map.insert(c.name.clone(), c.value.clone());
+        }
 
-        let cookies = result.value
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
+        tracing::info!("CDP cookie capture: {} cookies (incl. HttpOnly)", cookie_map.len());
 
         let session = serde_json::json!({
-            "cookies": cookies,
+            "cookies": cookie_map,
             "auth_tokens": {},
             "expires_at": null
         });

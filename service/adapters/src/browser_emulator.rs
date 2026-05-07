@@ -193,10 +193,41 @@ impl BrowserEmulatorClient {
     /// Build the chat API URL for the provider
     fn build_chat_url(&self) -> String {
         match self.provider.as_str() {
+            "deepseek" => format!("{}/api/v0/chat/completion", self.base_url),
             "claude" => format!("{}/api/chat", self.base_url),
             "chatgpt" => format!("{}/api/chat", self.base_url),
-            "deepseek" => format!("{}/chat", self.base_url),
             _ => format!("{}/chat", self.base_url),
+        }
+    }
+
+    /// Build the request payload specific to each provider's web API
+    fn build_chat_payload(&self, request: &ChatRequest) -> serde_json::Value {
+        match self.provider.as_str() {
+            "deepseek" => {
+                let prompt = request.messages.iter()
+                    .map(|m| format!("{}: {}", m.role, m.content))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                serde_json::json!({
+                    "chat_session_id": uuid::Uuid::new_v4().to_string(),
+                    "parent_message_id": null,
+                    "prompt": prompt,
+                    "ref_file_ids": [],
+                    "thinking_enabled": false,
+                    "search_enabled": false,
+                })
+            }
+            _ => {
+                let mut payload = serde_json::json!({
+                    "model": request.model,
+                    "messages": request.messages,
+                    "temperature": request.temperature,
+                });
+                if let Some(max_tokens) = request.max_tokens {
+                    payload["max_tokens"] = serde_json::json!(max_tokens);
+                }
+                payload
+            }
         }
     }
 
@@ -207,16 +238,7 @@ impl BrowserEmulatorClient {
         session: &BrowserSession,
     ) -> Result<serde_json::Value, ProviderError> {
         let url = self.build_chat_url();
-
-        let mut payload = serde_json::json!({
-            "model": request.model,
-            "messages": request.messages,
-            "temperature": request.temperature,
-        });
-
-        if let Some(max_tokens) = request.max_tokens {
-            payload["max_tokens"] = serde_json::json!(max_tokens);
-        }
+        let payload = self.build_chat_payload(request);
 
         let mut req = self.client
             .post(&url)
@@ -260,15 +282,9 @@ impl BrowserEmulatorClient {
     ) -> Result<Vec<crate::client::ChatChunk>, ProviderError> {
         let url = self.build_chat_url();
 
-        let mut payload = serde_json::json!({
-            "model": request.model,
-            "messages": request.messages,
-            "temperature": request.temperature,
-            "stream": true,
-        });
-
-        if let Some(max_tokens) = request.max_tokens {
-            payload["max_tokens"] = serde_json::json!(max_tokens);
+        let mut payload = self.build_chat_payload(request);
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("stream".to_string(), serde_json::json!(true));
         }
 
         let mut req = self.client
@@ -326,12 +342,33 @@ impl BrowserEmulatorClient {
                     }
 
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                        let delta = json["delta"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string();
-                        let finished = json["finished"].as_bool().unwrap_or(false);
-                        let reason = json["finish_reason"].as_str().map(|s| s.to_string());
+                        let (delta, finished, reason) = match self.provider.as_str() {
+                            "deepseek" => {
+                                let delta = json["choices"]
+                                    .get(0)
+                                    .and_then(|c| c.get("delta"))
+                                    .and_then(|d| d.get("content"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let reason = json["choices"]
+                                    .get(0)
+                                    .and_then(|c| c.get("finish_reason"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                let finished = reason.is_some();
+                                (delta, finished, reason)
+                            }
+                            _ => {
+                                let delta = json["delta"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .to_string();
+                                let finished = json["finished"].as_bool().unwrap_or(false);
+                                let reason = json["finish_reason"].as_str().map(|s| s.to_string());
+                                (delta, finished, reason)
+                            }
+                        };
 
                         chunks.push(crate::client::ChatChunk {
                             delta,
