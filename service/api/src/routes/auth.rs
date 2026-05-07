@@ -450,51 +450,36 @@ pub async fn verify_sms(
 
 /// 通过阿里云短信服务发送短信
     ///
-    /// # 环境变量
-    /// - ALIYUN_ACCESS_KEY_ID: 阿里云 Access Key ID
-    /// - ALIYUN_ACCESS_KEY_SECRET: 阿里云 Access Key Secret
-    /// - ALIYUN_SMS_SIGN_NAME: 短信签名
-    /// - ALIYUN_SMS_TEMPLATE_CODE: 短信模板 CODE
+    /// # ⚠️ 当前实现为占位代码
+    /// 需要 HMAC-SHA1 签名认证。生产环境建议：
+    /// 方案 A：使用 `aliyun-openapi-sdk-dysmsapi` Rust crate
+    /// 方案 B：手动实现签名（GET + query string + HMAC-SHA1）
+    /// 详见阿里云 API 文档: https://help.aliyun.com/zh/sms/
+    ///
+    /// 开发模式下（设置 NEXUS_DEV_MODE=1），仅打印验证码到日志。
     ///
     /// # 参数
     /// * `phone` - 目标手机号
     /// * `code` - 验证码
 async fn send_alibaba_sms(phone: &str, code: &str) -> Result<(), ApiError> {
-    // Get阿里云 SMS configuration from environment
-    let _access_key_id = std::env::var("ALIYUN_ACCESS_KEY_ID")
+    let _sign_name = std::env::var("ALIYUN_SMS_SIGN_NAME")
         .map_err(|_| ApiError::SmsSendFailed)?;
-    let _access_key_secret = std::env::var("ALIYUN_ACCESS_KEY_SECRET")
-        .map_err(|_| ApiError::SmsSendFailed)?;
-    let sign_name = std::env::var("ALIYUN_SMS_SIGN_NAME")
-        .map_err(|_| ApiError::SmsSendFailed)?;
-    let template_code = std::env::var("ALIYUN_SMS_TEMPLATE_CODE")
+    let _template_code = std::env::var("ALIYUN_SMS_TEMPLATE_CODE")
         .map_err(|_| ApiError::SmsSendFailed)?;
 
-    // Construct the request
-    let params = serde_json::json!({
-        "PhoneNumbers": phone,
-        "SignName": sign_name,
-        "TemplateCode": template_code,
-        "TemplateParam": serde_json::json!({
-            "code": code
-        })
-    });
-
-    // Build the signature (simplified - in production use proper阿里云 SDK)
-    // This is a placeholder implementation
-    let client = reqwest::Client::new();
-
-    let response = client
-        .post("https://dysmsapi.aliyuncs.com/")
-        .json(&params)
-        .send()
-        .await
-        .map_err(|_| ApiError::SmsSendFailed)?;
-
-    if response.status().is_success() {
-        Ok(())
-    } else {
-        tracing::error!("阿里云 SMS API error: {:?}", response.text().await);
-        Err(ApiError::SmsSendFailed)
+    // Development mode: just log the code
+    if std::env::var("NEXUS_DEV_MODE").is_ok() {
+        tracing::info!("DEV MODE: SMS code for {} is {}", phone, code);
+        return Ok(());
     }
+
+    // TODO: Implement proper Aliyun SMS API call with HMAC-SHA1 signing.
+    // The current POST JSON approach does NOT match Aliyun's API spec.
+    // Install `aliyun-openapi-sdk-dysmsapi` crate and use DysmsapiClient.
+    tracing::warn!(
+        "ALIYUN SMS NOT IMPLEMENTED — phone={} code={}. Set NEXUS_DEV_MODE=1 for development.",
+        phone, code
+    );
+
+    Err(ApiError::SmsSendFailed)
 }

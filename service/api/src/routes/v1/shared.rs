@@ -20,6 +20,7 @@ use crate::middleware::auth::AuthContext;
 use models::{User, SubscriptionPlan, ModelWithProvider, Provider};
 use provider_client::{ProviderClient, HttpProviderClient};
 use router::key_scheduler::SelectedKey;
+use db;
 
 // ─── 速率限制常量 ────────────────────────────────────────────────────
 
@@ -97,7 +98,9 @@ pub fn create_client(
 ) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
     match selected {
         Some(sk) => {
-            let client = HttpProviderClient::new_with_key(provider_slug, &sk.key)
+            let decrypted_key = db::decrypt_api_key(&sk.key.api_key_encrypted)
+                .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to decrypt provider key: {}", e)))?;
+            let client = HttpProviderClient::new_with_decrypted_key(provider_slug, &decrypted_key, sk.key.id)
                 .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
             Ok((Arc::new(client), Some(sk.key.id)))
         }

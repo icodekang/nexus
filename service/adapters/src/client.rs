@@ -60,8 +60,15 @@ impl HttpProviderClient {
         Self::new_with_key_id(provider_id, None)
     }
 
-    /// Create client using a specific provider key (from database)
+    /// Create client using a specific provider key (from database).
+    /// The `api_key_encrypted` field may be Base64 (old format) or AES-256-GCM.
+    /// For new code, prefer `new_with_decrypted_key` after calling `db::decrypt_api_key`.
     pub fn new_with_key(provider_id: &str, key: &ProviderKey) -> Result<Self, ProviderError> {
+        Self::new_with_decrypted_key(provider_id, &key.api_key_encrypted, key.id)
+    }
+
+    /// Create client with a pre-decrypted API key and key UUID.
+    pub fn new_with_decrypted_key(provider_id: &str, api_key: &str, key_id: uuid::Uuid) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::new();
         let config = registry
             .get(provider_id)
@@ -70,8 +77,8 @@ impl HttpProviderClient {
 
         Ok(Self {
             config,
-            api_key: key.api_key_encrypted.clone(),
-            key_id: Some(key.id),
+            api_key: api_key.to_string(),
+            key_id: Some(key_id),
             client: Client::new(),
         })
     }

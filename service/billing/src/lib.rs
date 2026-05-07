@@ -121,3 +121,66 @@ impl Default for BillingService {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_create_subscription() {
+        let billing = BillingService::new();
+        let user_id = Uuid::new_v4();
+        let sub = billing.create_subscription(user_id, SubscriptionPlan::Monthly, 30);
+
+        assert_eq!(sub.user_id, user_id);
+        assert_eq!(sub.plan, SubscriptionPlan::Monthly);
+        assert_eq!(sub.status, SubscriptionStatus::Active);
+        assert!(sub.end_at > sub.start_at);
+        assert!(sub.end_at > Utc::now());
+        assert!(sub.is_active());
+    }
+
+    #[test]
+    fn test_subscription_expiry() {
+        let billing = BillingService::new();
+        let user_id = Uuid::new_v4();
+        // Create a subscription that expires in 1 day
+        let sub = billing.create_subscription(user_id, SubscriptionPlan::Monthly, 1);
+
+        assert!(billing.is_expiring_soon(&sub, 2));  // expiring within 2 days
+        assert!(billing.is_expiring_soon(&sub, 7));  // expiring within 7 days
+        assert!(!sub.is_active());  // but note: is_active checks end_at > now, which may fail in edge cases
+    }
+
+    #[test]
+    fn test_days_until_expiry() {
+        let billing = BillingService::new();
+        let user_id = Uuid::new_v4();
+        let sub = billing.create_subscription(user_id, SubscriptionPlan::Yearly, 30);
+        let days = billing.days_until_expiry(&sub);
+        assert!(days >= 29 && days <= 30);
+    }
+
+    #[test]
+    fn test_create_purchase_transaction() {
+        let billing = BillingService::new();
+        let user_id = Uuid::new_v4();
+        let tx = billing.create_purchase_transaction(user_id, SubscriptionPlan::Monthly, 19.90);
+
+        assert_eq!(tx.user_id, user_id);
+        assert_eq!(tx.amount, 19.90);
+        assert!(tx.plan == Some(SubscriptionPlan::Monthly));
+        assert!(tx.description.unwrap().contains("Monthly"));
+    }
+
+    #[test]
+    fn test_token_quota_values() {
+        assert_eq!(SubscriptionPlan::None.monthly_token_quota(), 10_000);
+        assert_eq!(SubscriptionPlan::ZeroToken.monthly_token_quota(), 100_000);
+        assert_eq!(SubscriptionPlan::Monthly.monthly_token_quota(), 2_000_000);
+        assert_eq!(SubscriptionPlan::Yearly.monthly_token_quota(), 2_000_000);
+        assert_eq!(SubscriptionPlan::Team.monthly_token_quota(), 10_000_000);
+        assert_eq!(SubscriptionPlan::Enterprise.monthly_token_quota(), i64::MAX);
+    }
+}

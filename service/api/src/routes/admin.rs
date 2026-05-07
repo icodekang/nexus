@@ -29,13 +29,12 @@ use axum::{
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-
 use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use models::{Provider, ProviderKey, LlmModel, ModelMode};
 use db::postgres::{DashboardStats, RevenueTrend, RecentActivity};
+use db::{encrypt_api_key, decrypt_api_key};
 
 pub mod accounts;
 
@@ -499,18 +498,8 @@ async fn delete_model(
 
 // ============ Provider Keys ============
 
-/// Encode API key (base64 only, no encryption)
-fn encode_api_key(key: &str) -> String {
-    BASE64.encode(key.as_bytes())
-}
-
-/// Decode API key (base64 only, no encryption)
-fn decode_api_key(encoded: &str) -> Result<String, ApiError> {
-    let decoded = BASE64.decode(encoded)
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key: invalid base64")))?;
-    String::from_utf8(decoded)
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to decode API key: invalid UTF-8")))
-}
+// Note: encode_api_key / decode_api_key have been replaced by
+// db::encrypt_api_key / db::decrypt_api_key (AES-256-GCM).
 
 fn extract_key_prefix(key: &str) -> String {
     if key.len() <= 12 {
@@ -536,7 +525,7 @@ async fn list_provider_keys(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list provider keys: {}", e)))?;
 
     let data: Vec<serde_json::Value> = keys.iter().map(|k| {
-        let preview = decode_api_key(&k.api_key_encrypted)
+        let preview = decrypt_api_key(&k.api_key_encrypted)
             .unwrap_or_default();
         serde_json::json!({
             "id": k.id.to_string(),
@@ -563,7 +552,7 @@ async fn create_provider_key(
     Extension(_auth): Extension<AuthContext>,
     Json(body): Json<CreateProviderKeyRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let encrypted = encode_api_key(&body.api_key);
+    let encrypted = encrypt_api_key(&body.api_key);
     let prefix = extract_key_prefix(&body.api_key);
 
     let mut key = ProviderKey::new(
@@ -610,7 +599,7 @@ async fn update_provider_key(
         .map_err(|_| ApiError::InvalidRequest("Invalid provider key ID".to_string()))?;
 
     let (encrypted, prefix) = match &body.api_key {
-        Some(k) => (Some(encode_api_key(k)), Some(extract_key_prefix(k))),
+        Some(k) => (Some(encrypt_api_key(k)), Some(extract_key_prefix(k))),
         None => (None, None),
     };
 
@@ -653,7 +642,8 @@ async fn test_provider_key(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Provider key not found".to_string()))?;
 
-    let api_key = decode_api_key(&provider_key.api_key_encrypted)?;
+    let api_key = decrypt_api_key(&provider_key.api_key_encrypted)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to decrypt API key: {}", e)))?;
 
     // Test by making a minimal request to the provider's /models endpoint
     let client = reqwest::Client::new();

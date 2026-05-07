@@ -46,8 +46,9 @@ async fn main() -> anyhow::Result<()> {
     // 执行数据库迁移
     let migrations_path = std::env::var("MIGRATIONS_PATH")
         .unwrap_or_else(|_| "./db/migrations".to_string());
-    if let Err(e) = db::run_migrations(db.pool(), &migrations_path).await {
-        tracing::warn!("Failed to run migrations: {}. Continuing...", e);
+    if let Err(e) = db::run_migrations(db.pool(), &migrations_path).await
+    {
+        anyhow::bail!("Database migrations failed — refusing to start with incomplete schema: {}", e);
     }
 
     // 初始化 Redis 连接
@@ -65,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     // 初始化 Key 调度器（从数据库加载 Provider Keys）
     if let Err(e) = state.init_key_scheduler().await {
         tracing::warn!(
-            "Failed to initialize key scheduler: {}. Using fallback mode.",
+            "Failed to initialize key scheduler: {}. API Key load-balancing is DISABLED — requests will use env-var keys only.",
             e
         );
     }
@@ -73,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
     // 初始化账户池（加载浏览器账户）
     if let Err(e) = state.init_account_pool().await {
         tracing::warn!(
-            "Failed to initialize account pool: {}. Browser accounts may not work.",
+            "Failed to initialize account pool: {}. ZeroToken browser access is UNAVAILABLE — only API Key auth will work.",
             e
         );
     }

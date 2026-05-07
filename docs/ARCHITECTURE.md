@@ -1,6 +1,8 @@
 # nexus 系统架构设计文档
 
 > 本文档描述 nexus 的技术架构，基于 OpenRouter 商业模式，使用 Rust 作为核心服务语言。
+>
+> **最后更新: 2026-05-08**
 
 ---
 
@@ -10,10 +12,10 @@
 
 nexus 是一个统一的 LLM API 网关平台，类似 OpenRouter：
 
-- **聚合多提供商**：通过统一 API 访问 100+ LLM 模型
-- **智能路由**：自动选择最优 Provider（价格/延迟/质量）
+- **聚合多提供商**：通过统一 API 访问多 LLM 模型
+- **智能路由**：压力均衡 Key 调度 + 会话亲和性 + 自动故障转移
 - **订阅收费**：用户按月/年订阅，无限使用 API
-- **跨平台客户端**：支持 Windows、macOS、Linux、iOS、Android、Web
+- **Web 客户端**：React + Vite 单页应用
 
 ### 1.2 商业模式（OpenRouter 模式）
 
@@ -30,8 +32,10 @@ nexus 是一个统一的 LLM API 网关平台，类似 OpenRouter：
 ```
 
 **订阅方案示例：**
+
 | 方案 | 价格 | 适用场景 |
 |------|------|----------|
+| ZeroToken | ¥10/月 | 浏览器模拟访问，无需 API Key |
 | 月付 | $19.9/月 | 个人用户，轻度使用 |
 | 年付 | $199/年 ($16.6/月) | 长期用户，节省 17% |
 | 团队 | $99/月 | 小团队，5 个席位 |
@@ -42,68 +46,42 @@ nexus 是一个统一的 LLM API 网关平台，类似 OpenRouter：
 ## 2. 系统架构图
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Clients                                          │
-│                                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                      app/client/ (跨平台框架)                          │   │
-│   │                                                                       │   │
-│   │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐              │   │
-│   │   │ Windows │  │  macOS  │  │   iOS   │  │ Android │              │   │
-│   │   │  App    │  │   App   │  │   App   │  │   App   │              │   │
-│   │   └─────────┘  └─────────┘  └─────────┘  └─────────┘              │   │
-│   │                                                                       │   │
-│   │   ┌─────────────────────────────────────────────────────┐           │   │
-│   │   │                    Web Client (SPA)                  │           │   │
-│   │   └─────────────────────────────────────────────────────┘           │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                      app/admin/ (管理后台)                              │   │
-│   │                                                                       │   │
-│   │   React + Vite 后台管理界面                                            │   │
-│   │   用户管理 · Provider 配置 · 交易记录 · 系统监控                        │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-└───────────────────────────────────┼───────────────────────────────────────────┘
-                                    │ HTTPS / WSS
-                                    ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                         service/ (后端 - Rust + Python)                        │
-│                                                                                │
-│   ┌───────────────────────────────────────────────────────────────────────┐  │
-│   │                          service/api/ (API Gateway)                      │  │
-│   │                          Rust · Axum · :443/:8080                        │  │
-│   │                                                                        │  │
-│   │   POST /v1/chat/completions    GET /v1/models    GET /v1/me/balance   │  │
-│   │                                                                        │  │
-│   │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐             │  │
-│   │   │   Auth    │  │  Router  │  │ Billing  │  │  Models  │             │  │
-│   │   │ service/  │  │ service/ │  │ service/ │  │ service/ │             │  │
-│   │   │   auth/   │  │  router/ │  │ billing/ │  │  models/ │             │  │
-│   │   └──────────┘  └──────────┘  └──────────┘  └──────────┘             │  │
-│   └─────────────────────────────────────┬───────────────────────────────┘  │
-│                                         │                                     │
-│   ┌─────────────────────────────────────┴───────────────────────────────┐  │
-│   │                          service/db/                                  │  │
-│   │                     PostgreSQL · Redis · ClickHouse                    │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-│                                         │ gRPC / HTTP                          │
-└─────────────────────────────────────────┼─────────────────────────────────────┘
-                                          │
-          ┌───────────────────────────────┼───────────────────────────────┐
-          │                               ▼                               │
-          │  ┌─────────────────────────────────────────────────────────┐ │
-          │  │              service/adapters/ (Python)                  │ │
-          │  │                                                          │ │
-          │  │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │ │
-          │  │   │  OpenAI  │  │Anthropic │  │  Google  │  │DeepSeek│ │ │
-          │  │   │ Adapter  │  │ Adapter  │  │ Adapter  │  │Adapter │ │ │
-          │  │   └──────────┘  └──────────┘  └──────────┘  └────────┘ │ │
-          │  └─────────────────────────────────────────────────────────┘ │
-          └──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        Clients                                │
+│   app/client (React + Vite web SPA)                          │
+│   app/admin  (React + Vite dashboard)                       │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTPS
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                 service/ (Rust monolith)                      │
+│                                                              │
+│   api · auth · router · billing · models · db · adapters    │
+│                                                              │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
+│   │   Auth    │  │  Router  │  │ Billing  │                 │
+│   │ service/  │  │ service/ │  │ service/ │                 │
+│   │   auth/   │  │  router/ │  │ billing/ │                 │
+│   └──────────┘  └──────────┘  └──────────┘                 │
+│                                                              │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
+│   │  Models   │  │    DB    │  │ Adapters │                 │
+│   │ service/  │  │ service/ │  │ service/ │                 │
+│   │  models/  │  │   db/    │  │adapters/ │                 │
+│   └──────────┘  └──────────┘  └──────────┘                 │
+│                                                              │
+│   PostgreSQL · Redis                                         │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ HTTP
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                Upstream Provider APIs                         │
+│        OpenAI · Anthropic · Google · DeepSeek                │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+> **注意：** `service/adapters/` 是 Rust crate（`provider_client`），通过 HTTP 直接调用上游 API。
+> 不存在独立的 Python 服务或 gRPC 层。所有 Provider 调用均在 Rust 进程内完成。
 
 ---
 
@@ -111,193 +89,74 @@ nexus 是一个统一的 LLM API 网关平台，类似 OpenRouter：
 
 ```
 nexus/
+├── app/                    # 前端应用
+│   ├── client/             # React + Vite web 客户端（非 React Native）
+│   │   └── src/
+│   │       ├── pages/      # ChatScreen, ModelSelectScreen, SettingsScreen, …
+│   │       ├── components/ # ChatBubble, ChatInput, ModelCard, Sidebar, …
+│   │       ├── stores/     # Zustand: chatStore, modelStore, userStore
+│   │       └── api/        # API 客户端
+│   │
+│   └── admin/              # React + Vite 管理后台
+│       └── src/
+│           ├── pages/      # Dashboard, Users, Providers, Models, Transactions, …
+│           ├── components/ # Layout, DataTable, Charts
+│           └── api/        # Admin API 客户端
 │
-├── app/                              # 客户端应用
+├── service/                # 后端核心 (Rust workspace)
+│   ├── Cargo.toml          # Workspace 根
+│   ├── main.rs             # 入口 — 启动 axum HTTP 服务
+│   ├── Dockerfile
 │   │
-│   ├── client/                       # 🌟 用户端（跨平台框架）
-│   │   │                               # 使用 React Native
-│   │   │
-│   │   ├── src/                      # React Native 代码
-│   │   │   ├── pages/
-│   │   │   │   ├── ChatScreen.tsx         # 主聊天页面
-│   │   │   │   ├── ModelSelectScreen.tsx  # 模型选择 ⭐
-│   │   │   │   ├── HistoryScreen.tsx      # 历史记录
-│   │   │   │   └── SettingsScreen.tsx     # 设置
-│   │   │   │
-│   │   │   ├── components/
-│   │   │   │   ├── ChatBubble.tsx        # 消息气泡
-│   │   │   │   ├── ChatInput.tsx        # 输入框
-│   │   │   │   ├── ModelCard.tsx        # 模型卡片
-│   │   │   │   ├── ProviderFilter.tsx   # Provider 筛选
-│   │   │   │   ├── CreditBadge.tsx      # 余额显示
-│   │   │   └── Sidebar.tsx            # 侧边导航 (可隐藏)
-│   │   │   │
-│   │   │   ├── stores/               # 状态管理 (Zustand)
-│   │   │   │   ├── chatStore.ts
-│   │   │   │   ├── modelStore.ts
-│   │   │   │   └── userStore.ts
-│   │   │   │
-│   │   │   └── api/
-│   │   │       └── client.ts         # API 客户端
-│   │   │
-│   │   ├── ios/                     # iOS 原生配置
-│   │   └── android/                  # Android 原生配置
+│   ├── api/                # API 网关 (Rust — axum 0.7)
+│   │   └── src/
+│   │       ├── routes/     # v1/ (chat, openai, anthropic), auth, me, admin
+│   │       ├── middleware/ # auth (JWT + API Key), require_admin
+│   │       ├── state.rs    # AppState
+│   │       └── error.rs    # ApiError
 │   │
-│   └── admin/                        # 🌟 管理后台
-│       ├── src/                      # React 前端
-│       │   ├── pages/
-│       │   │   ├── Dashboard.tsx      # 仪表盘
-│       │   │   ├── Users.tsx          # 用户管理
-│       │   │   ├── Providers.tsx      # Provider 管理
-│       │   │   ├── Models.tsx         # 模型管理
-│       │   │   ├── Transactions.tsx   # 交易记录
-│       │   │   └── Settings.tsx       # 系统设置
-│       │   │
-│       │   └── components/
-│       │       ├── Layout.tsx
-│       │       ├── DataTable.tsx
-│       │       └── Charts.tsx
-│       │
-│       ├── Dockerfile
-│       └── nginx.conf
+│   ├── auth/               # 认证 (Rust) — keygen, validator, jwt, password
+│   │
+│   ├── router/             # 路由引擎 (Rust) — key_scheduler (压力均衡), selector
+│   │
+│   ├── billing/            # 计费 (Rust) — subscription, plans
+│   │
+│   ├── models/             # 共享数据模型 (Rust) — user, provider, model, …
+│   │
+│   ├── db/                 # 数据库层 (Rust)
+│   │   ├── src/            # postgres, redis, migrations
+│   │   └── migrations/     # 001–017 SQL 迁移
+│   │
+│   └── adapters/           # Provider 客户端 (Rust crate: `provider_client`)
+│       └── src/            # client (HTTP), browser_emulator, tool_calling, providers
 │
-├── service/                          # 🌟 后端核心服务 (Rust + Python)
-│   │
-│   ├── Cargo.toml                    # Rust workspace 入口
-│   ├── rust-toolchain.toml
-│   ├── Dockerfile                    # API Gateway 镜像
-│   │
-│   ├── api/                         # 🌟 API 网关 (Rust Axum)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── main.rs              # 入口
-│   │       │
-│   │       ├── routes/              # HTTP 路由
-│   │       │   ├── mod.rs
-│   │       │   ├── v1/
-│   │       │   │   ├── mod.rs
-│   │       │   │   ├── chat.rs       # POST /v1/chat/completions
-│   │       │   │   ├── models.rs     # GET /v1/models
-│   │       │   │   └── embeddings.rs # POST /v1/embeddings
-│   │       │   │,
-│   │       │   ├── auth.rs          # /v1/auth/*
-│   │       │   └── me.rs            # /v1/me/*
-│   │       │
-│   │       ├── middleware/           # 中间件
-│   │       │   ├── mod.rs
-│   │       │   ├── auth.rs          # API Key 验证
-│   │       │   ├── ratelimit.rs     # 限流
-│   │       │   └── logging.rs       # 请求日志
-│   │       │
-│   │       └── error.rs              # 统一错误处理
-│   │
-│   ├── auth/                        # 🌟 认证服务 (Rust)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── keygen.rs            # API Key 生成
-│   │       ├── validator.rs         # Key 验证
-│   │       └── jwt.rs               # JWT 处理
-│   │
-│   ├── router/                      # 🌟 路由引擎 (Rust)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── selector.rs          # Provider 选择
-│   │       ├── strategy/            # 路由策略
-│   │       │   ├── mod.rs
-│   │       │   ├── cheapest.rs      # 最便宜
-│   │       │   ├── fastest.rs       # 最低延迟
-│   │       │   ├── quality.rs       # 最高质量
-│   │       │   └── balanced.rs      # 综合评分
-│   │       │
-│   │       ├── context.rs          # 路由上下文
-│   │       └── fallback.rs          # 降级策略
-│   │
-│   ├── billing/                     # 🌟 计费服务 (Rust)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── subscription.rs     # 订阅管理
-│   │       ├── plans.rs           # 订阅方案
-│   │       └── invoice.rs         # 账单生成
-│   │
-│   ├── models/                     # 🌟 共享数据模型 (Rust)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── llm.rs              # LLM 模型定义
-│   │       ├── provider.rs         # Provider 定义
-│   │       ├── user.rs             # 用户模型
-│   │       └── usage.rs            # 用量记录
-│   │
-│   ├── db/                         # 🌟 数据库层
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── postgres.rs
-│   │       └── redis.rs
-│   │
-│   ├── adapters/                   # 🌟 Python Provider 适配器
-│   │   ├── Dockerfile
-│   │   ├── requirements.txt
-│   │   └── adapter/
-│   │       ├── main.py             # FastAPI 入口
-│   │       ├── base.py            # 抽象基类
-│   │       ├── registry.py        # Provider 注册表
-│   │       ├── openai.py          # OpenAI 适配
-│   │       ├── anthropic.py       # Anthropic 适配
-│   │       ├── google.py          # Google Gemini 适配
-│   │       └── deepseek.py        # DeepSeek 适配
-│   │
-│   └── db/
-│       └── migrations/              # SQL 迁移
-│           ├── 001_create_users.sql
-│           ├── 002_create_api_keys.sql
-│           ├── 003_create_providers.sql
-│           ├── 004_create_models.sql
-│           ├── 005_create_usage_logs.sql
-│           └── 006_create_transactions.sql
+├── docs/                   # 文档
+│   ├── ARCHITECTURE.md
+│   └── API.md
 │
-├── docs/                           # 文档
-│   ├── ARCHITECTURE.md             # 本文档
-│   ├── API.md                      # API 参考（含 Python 示例）
-│   └── DEPLOYMENT.md               # 部署指南
-│
-├── infra/                          # Kubernetes 部署配置
+├── infra/                  # 部署
 │   ├── k8s/
-│   │   ├── api-gateway.yaml
-│   │   ├── adapter.yaml
-│   │   ├── postgres.yaml
-│   │   ├── redis.yaml
-│   │   └── admin.yaml
 │   └── terraform/
-│       ├── main.tf
-│       └── variables.tf
 │
-└── docker-compose.yml               # 本地开发 / 生产部署
+├── docker-compose.yml
+├── deploy.sh
+└── scripts/                # setup.sh, start.sh, stop.sh
 ```
 
 ---
 
 ## 4. 模块职责说明
 
-### 4.1 app/client/ — 跨平台客户端
+### 4.1 app/client/ — Web 客户端
 
-**技术选型**：React Native
+**技术选型**：React + Vite + TypeScript (Web SPA)
 
-| 优势 | 说明 |
+| 特性 | 说明 |
 |------|------|
-| 安装包小 | ~10MB vs Electron ~150MB |
-| 原生性能 | 直接调用系统 API |
-| 代码共享 | Windows/macOS/Linux 共用 95% 代码 |
-| 安全 | Key 存储在系统 Keychain |
-
-**跨平台支持**：
-- Windows 10/11
-- macOS 11+
-- Linux (Debian/Ubuntu/Fedora)
-- iOS / Android (通过 React Native)
+| 跨平台 | 所有支持浏览器的设备（桌面 + 移动 Web） |
+| 部署 | Nginx 静态文件服务 |
+| 状态管理 | Zustand |
+| 国际化 | 内置 i18n 支持 |
 
 ### 4.2 app/admin/ — 管理后台
 
@@ -317,16 +176,17 @@ nexus/
 
 ```
 请求流程：
-1. TLS 终止
+1. TLS 终止（由反向代理处理）
 2. CORS 处理
-3. 解析 Authorization Header (Bearer Token)
-4. Rate Limit 检查 (Redis)
-5. 路由到对应 Handler
-6. 调用 Router 选择 Provider
-7. 调用 Billing 预扣费
-8. gRPC 转发给 Adapter
-9. 响应转换
-10. 返回客户端
+3. 解析 Authorization Header (Bearer Token 或 x-api-key)
+4. Rate Limit 检查 (Redis Sorted Set)
+5. 认证中间件：API Key → JWT 回退
+6. 订阅检查 + Token 配额检查
+7. Key 调度器选择最优 API Key（压力均衡 + 会话亲和性）
+8. Provider Client 直接 HTTP 调用上游 API
+9. 响应格式转换（OpenAI / Anthropic 兼容）
+10. 记录 API Log + 更新 Key 统计
+11. 返回客户端
 ```
 
 ### 4.4 service/auth/ — 认证服务
@@ -336,57 +196,66 @@ nexus/
 用户登录 → 验证密码 → 签发 JWT
 创建 Key → UUID → SHA256 哈希 → PostgreSQL
 验证 Key → 哈希比对 → 通过/拒绝
+JWT 登出 → Token 加入 Redis 黑名单
+短信验证 → 阿里云 SMS → Redis 存储验证码
 ```
 
 ### 4.5 service/router/ — 路由引擎
 
-```rust
-// 路由策略
-pub enum RouteStrategy {
-    Cheapest,   // 按价格排序
-    Fastest,    // 按延迟排序
-    Quality,    // 按上下文窗口排序
-    Balanced,   // 0.4*price + 0.4*latency + 0.2*quality
-}
+核心算法：**压力均衡 Key 调度器**
 
-// 选择流程
-async fn select_provider(model: &str, strategy: RouteStrategy) -> Provider {
-    // 1. 查数据库：哪些 Provider 支持该模型
-    // 2. 按策略排序
-    // 3. 尝试第一个，失败则降级到下一个
-}
+```
+特性：
+- 每个 API Key 有独立的压力值（基于利用率和延迟）
+- 压力越低（越空闲）的 Key 优先接收请求
+- 会话亲和性：同一会话始终路由到同一 Key（10 分钟 TTL）
+- TTL 过期后优先恢复之前的 Key 绑定
+- Key 连续 3 次失败后标记为 unhealthy，5 分钟后自动恢复
+- 压力随时间衰减，允许自然重新平衡
+- 加权随机选择 top-3 最低压力 Key，避免惊群效应
 ```
 
 ### 4.6 service/billing/ — 计费服务
 
 ```
-用户订阅 → 记录订阅方案和到期日 → Transaction 记录
+用户订阅 → 记录订阅方案和到期日
 API 调用 → 检查订阅状态 (有效/到期/过期) → 放行或拒绝
-到期提醒 → 发送通知 → 引导续费
+Token 配额 → 按计费周期累计 → 超配额返回错误
 ```
 
-**订阅管理：**
-- 支持月付、年付、团队等订阅方案
-- 订阅状态：active / expired / cancelled
-- 到期前 7 天提醒，到期后限制访问
+**订阅方案：**
+- ZeroToken：¥10/月，100K tokens/月，使用浏览器模拟器
+- Monthly：$19.9/月，2M tokens/月
+- Yearly：$199/年，2M tokens/月
+- Team：$99/月，10M tokens/月
+- Enterprise：定制，无限
 
-### 4.7 service/adapters/ — Provider 适配器
+### 4.7 service/adapters/ — Provider 客户端
 
-**技术选型**：Python + FastAPI
+**技术选型**：Rust (`provider_client` crate)
 
-```python
-# 统一接口
-class BaseAdapter:
-    async def chat(self, request) -> ChatResponse
-    async def chat_stream(self, request) -> AsyncIterator[ChatChunk]
-    async def embeddings(self, request) -> EmbeddingsResponse
-
-# Anthropic 协议差异处理
-class AnthropicAdapter(BaseAdapter):
-    # Anthropic 用 /v1/messages 而非 /v1/chat/completions
-    # Anthropic 用 max_tokens 而非 max_tokens
-    # Anthropic system prompt 单独字段
+```rust
+// 统一 trait
+#[async_trait]
+pub trait ProviderClient: Send + Sync {
+    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError>;
+    async fn chat_stream(&self, request: ChatRequest) -> Result<Vec<ChatChunk>, ProviderError>;
+    async fn embeddings(&self, request: EmbeddingsRequest) -> Result<EmbeddingsResponse, ProviderError>;
+}
 ```
+
+**两种客户端实现：**
+
+| 客户端 | 用途 | 认证方式 |
+|--------|------|---------|
+| `HttpProviderClient` | 直接 HTTP 调用上游 API | API Key（Bearer / x-api-key / QueryKey） |
+| `BrowserEmulator` | headless Chrome 模拟网页版 | 浏览器 Cookie/Session（ZeroToken） |
+
+**协议适配：**
+- OpenAI / DeepSeek：标准 OpenAI Chat Completions 格式
+- Anthropic：自动转换 messages + system prompt，支持 Anthropic SSE 流式协议
+- Google：自动转换为 Gemini contents/parts 格式，Google SSE 流式解析
+- 自定义 Provider：通过 `CUSTOM_PROVIDERS` 环境变量动态注册
 
 ---
 
@@ -404,32 +273,18 @@ class AnthropicAdapter(BaseAdapter):
 │ password    │     │ is_active   │     │ is_active   │
 │ subscription│     │ created_at  │     │ priority    │
 │ plan        │     └─────────────┘     └──────┬──────┘
-│ subscription│                                         │
-│ end_at      │          ┌─────────────┐                │
-│ created_at  │          │  api_logs   │◀───────────────┘
+│ end_at      │          ┌─────────────┐       │
+│ created_at  │          │  api_logs   │◀──────┘
 └──────┬──────┘          │             │
-       │          │  id           │     ┌─────────────┐
-       │          │  user_id      │────▶│   models    │◀┐
-       │          │  key_id       │     │             │ │
-       │          │  provider_id  │     │ id          │ │
-       │          │  model_id     │     │ provider_id │─┘
-       │          │  input_tokens │     │ name        │
-       │          │  output_tokens│     │ context_win │
-       └─────────▶│  latency_ms   │     └─────────────┘
-                  │  created_at   │
-                  └─────────────┘
-
-       ┌─────────────┐
-       │subscriptions│
-       │             │
-       │ id          │────▶ users
-       │ user_id     │
-       │ plan        │     (monthly / yearly / team)
-       │ status      │     (active / expired / cancelled)
-       │ start_at    │
-       │ end_at      │
-       │ created_at  │
-       └─────────────┘
+       │                 │ id          │     ┌─────────────┐
+       │                 │ user_id     │────▶│   models    │◀┐
+       │                 │ provider_id │     │ id          │ │
+       │                 │ model_id    │     │ provider_id │─┘
+       │                 │ input_tokens│     │ name        │
+       └────────────────▶│ output_tokens│    │ context_win │
+                         │ latency_ms  │     └─────────────┘
+                         │ created_at  │
+                         └─────────────┘
 ```
 
 ### 5.2 表结构
@@ -438,393 +293,122 @@ class AnthropicAdapter(BaseAdapter):
 |------|------|
 | `users` | 用户账户、手机号、密码哈希、订阅方案、到期时间 |
 | `api_keys` | 用户 API Key（SHA256 哈希存储） |
-| `providers` | LLM 提供商（OpenAI、Anthropic 等） |
+| `providers` | LLM 提供商（OpenAI、Anthropic、Google、DeepSeek） |
+| `provider_keys` | 平台持有的 Provider API Key（加密存储） |
 | `models` | 模型定义、上下文窗口、能力标签 |
 | `api_logs` | 每次 API 调用记录（token 数量、延迟） |
 | `subscriptions` | 订阅记录（方案、状态、起止时间） |
+| `transactions` | 交易记录（购买、续费、退款） |
+| `browser_accounts` | ZeroToken 浏览器账户（加密会话数据） |
 
 ---
 
 ## 6. API 设计
 
-### 6.1 端点列表
+详见 [API.md](./API.md)。
+
+### 6.1 核心端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/v1/chat/completions` | 聊天补全（支持流式） |
-| `POST` | `/v1/completions` | 文本补全 |
+| `POST` | `/v1/chat/completions` | 统一聊天（流式 + 非流式） |
+| `POST` | `/v1/chat/batch` | 多模型并行查询 |
+| `POST` | `/v1/chat/batch/judge` | LLM-as-Judge 评分 |
 | `POST` | `/v1/embeddings` | 向量嵌入 |
 | `GET` | `/v1/models` | 模型列表 |
-| `POST` | `/v1/auth/register` | 用户注册 |
-| `POST` | `/v1/auth/login` | 用户登录 |
-| `GET` | `/v1/me/subscription` | 订阅信息 |
-| `POST` | `/v1/me/subscription` | 购买/续费订阅 |
-| `GET` | `/v1/me/usage` | 用量统计 |
-| `POST` | `/v1/me/keys` | 创建 API Key |
-| `GET` | `/v1/me/keys` | 列出 Key |
-| `DELETE` | `/v1/me/keys/:id` | 删除 Key |
-
-### 6.2 请求示例
-
-```bash
-# 聊天请求
-curl -X POST https://api.nexus.com/v1/chat/completions \
-  -H "Authorization: Bearer sk-nova-xxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4o",
-    "messages": [{"role": "user", "content": "解释 Rust 的生命周期"}],
-    "temperature": 0.7,
-    "max_tokens": 1000
-  }'
-
-# 指定 Provider
-{
-  "model": "anthropic/claude-3-5-sonnet"
-}
-
-# 流式响应
-{
-  "model": "gpt-4o",
-  "messages": [...],
-  "stream": true
-}
-```
-
-### 6.3 路由策略 Header
-
-```
-X-Route-Strategy: cheapest | fastest | quality | balanced
-```
+| `POST` | `/v1/openai/chat/completions` | OpenAI SDK 兼容 |
+| `POST` | `/v1/anthropic/messages` | Anthropic SDK 兼容 |
+| `POST` | `/v1/auth/register` | 注册 |
+| `POST` | `/v1/auth/login` | 登录 |
+| `GET/POST` | `/v1/me/*` | 订阅、用量、Key 管理 |
+| `*` | `/admin/*` | 管理后台 API |
 
 ---
 
-## 7. 客户端界面设计
+## 7. 部署架构
 
-> 设计理念：简洁、现代、移动优先，参考 ChatGPT / DeepSeek / Claude App 的优秀交互体验。
-
-### 7.1 设计原则
-
-| 原则 | 说明 |
-|------|------|
-| **移动优先** | 单手操作，侧边导航（手机隐藏），关键操作在拇指区 |
-| **信息分层** | 重要信息（余额、模型）突出，次要信息折叠 |
-| **流畅交互** | 消息发送流畅，打字时即时预览响应 |
-| **视觉舒适** | 护眼配色，高对比度文字，适当留白 |
-
-### 7.2 整体布局
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  ☰  nexus                    [企业版 ▼] [⚙️] [👤]       │
-│  [当前模型: GPT-4o ▼]                                       │
-├────────┬────────────────────────────────────────────────────┤
-│        │                                                    │
-│        │                    聊天消息区域                      │
-│  💬 聊天 │                    (上滑查看历史)                    │
-│        │                                                    │
-│  🤖 模型 │  ┌─────────────────────────────────────┐         │
-│        │  │ 你好，我想了解 Rust 异步编程...       │         │
-│  👤 我的 │  └─────────────────────────────────────┘         │
-│        │                      用户消息 (右对齐, 蓝色气泡)        │
-│        │                                                    │
-│        │  ┌─────────────────────────────────────┐         │
-│        │  │ Rust 异步编程主要使用 tokio 运行时..│         │
-│        │  └─────────────────────────────────────┘         │
-│        │              AI 助手消息 (左对齐, 灰色气泡)             │
-│        │                                                    │
-│        │  ┌─────────────────────────────────────┐         │
-│        │  │ 正在思考...                         │         │
-│        │  └─────────────────────────────────────┘         │
-│        │              (流式输出时显示动画)                  │
-│        │                                                    │
-├────────┴────────────────────────────────────────────────────┤
-│  [📎] [            请输入消息...         ] [⬆️ 发送]       │
-│        附件按钮     输入框 (支持多行)      发送按钮            │
-└─────────────────────────────────────────────────────────────┘
-
-侧边栏行为：
-┌─────────────────────────────────────────────────────────────┐
-│  设备      │ 默认状态   │ 收起方式                           │
-│------------│------------│------------------------------------│
-│  手机端    │ 隐藏       │ 点击 ☰ 或左滑呼出                     │
-│  电脑端    │ 显示       │ 可手动收起，点击外部自动收起            │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 7.3 聊天页面
-
-**顶部导航栏：**
-- 左：App Logo + 名称
-- 中：当前模型选择器（点击弹出模型选择）
-- 右：订阅方案 + 设置图标 + 用户头像
-
-**消息区域：**
-- 用户消息：蓝色气泡，右对齐
-- AI 消息：灰色气泡，左对齐，带 Avatar
-- 流式输出：逐字显示，打字机效果
-- 代码块：语法高亮，复制按钮
-- 图片：支持展示（如果是 vision 模型）
-
-**输入区域：**
-- 附件按钮（图片、文件）
-- 多行输入框（自动扩展）
-- 发送按钮（可上传后激活）
-- 长按消息：复制、重新生成、删除
-
-### 7.4 模型选择页面
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  ← 返回                    选择模型                            │
-├─────────────────────────────────────────────────────────────┤
-│  🔍 搜索模型...                                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  推荐                                                        │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ ⭐ GPT-4o                                     OpenAI    │ │
-│  │    $2.50 / $10.00 per 1M · 128K context               │ │
-│  │    [vision] [function_call]               [已选择 ✓]   │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                             │
-│  OpenAI                                                     │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ 🤖 GPT-4o Mini                                   $0.15  │ │
-│  │    最便宜 · 128K context · ⚡ 速度最快                 │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ 🤖 GPT-4 Turbo                                 $10.00  │ │
-│  │    高速 · 128K context                              │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                             │
-│  Anthropic                                                  │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ 🧠 Claude 3.5 Sonnet                           $3.00   │ │
-│  │    最高质量 · 200K context · 🌟 推荐                  │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ 🧠 Claude 3 Opus                               $15.00  │ │
-│  │    旗舰级 · 200K context                             │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                             │
-│  DeepSeek                                                  │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ 🔴 DeepSeek V3                                 $0.07   │ │
-│  │    💰 最低价格 · 64K context                          │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│  公司筛选: [全部] [OpenAI] [Anthropic] [Google] [DeepSeek]  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**模型卡片信息层次：**
-| 信息 | 样式 |
-|------|------|
-| 模型名称 + Provider Logo | 大字，加粗 |
-| 输入/输出价格 | 醒目颜色（价格敏感） |
-| 核心能力标签 | pills 样式（vision, function_call 等） |
-| 特色说明 | 小字灰色（最便宜、最快、最高质量） |
-
-### 7.5 我的页面（个人中心）
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                          我的                                 │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│    ┌─────────────────────────────────────────────────┐     │
-│    │              👤 用户头像                         │     │
-│    │           user@example.com                      │     │
-│    │         +86 138****8888                          │     │
-│    └─────────────────────────────────────────────────┘     │
-│                                                             │
-│    ┌─────────────────────────────────────────────────┐     │
-│    │  💰 我的订阅                                    │     │
-│    │  ─────────────────────────────────────────────  │     │
-│    │  企业版 · 到期: 2025-12-31        [续费] [升级] │     │
-│    │  本月用量: 125,000 tokens                       │     │
-│    └─────────────────────────────────────────────────┘     │
-│                                                             │
-│    ┌─────────────────────────────────────────────────┐     │
-│    │  🔑 API Keys                        [创建新 Key] │     │
-│    │  ─────────────────────────────────────────────  │     │
-│    │  sk-nova-xxxx...8f3a    [复制] [删除]          │     │
-│    │  sk-nova-xxxx...1b2c    [复制] [删除]          │     │
-│    └─────────────────────────────────────────────────┘     │
-│                                                             │
-│    ┌─────────────────────────────────────────────────┐     │
-│    │  📊 用量统计                                    │     │
-│    │  ─────────────────────────────────────────────  │     │
-│    │  本月: 125,000 tokens                           │     │
-│    │  上月: 340,000 tokens                           │     │
-│    └─────────────────────────────────────────────────┘     │
-│                                                             │
-│    ┌─────────────────────────────────────────────────┐     │
-│    │  ⚙️ 设置                                        │     │
-│    │  · 通知设置                                      │     │
-│    │  · 隐私设置                                      │     │
-│    │  · 主题模式 (浅色/深色/自动)                     │     │
-│    │  · 关于我们                                      │     │
-│    └─────────────────────────────────────────────────┘     │
-│                                                             │
-│    [退出登录]                                               │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 7.6 设计规范
-
-**配色方案：**
-| 用途 | 浅色模式 | 深色模式 |
-|------|----------|----------|
-| 背景 | #FFFFFF | #1A1A1A |
-| 次背景 | #F5F5F7 | #2D2D2D |
-| 主色调 | #10A37F (品牌绿) | #10A37F |
-| 用户气泡 | #10A37F | #10A37F |
-| AI 气泡 | #F5F5F7 | #2D2D2D |
-| 文字主色 | #1D1D1F | #FFFFFF |
-| 文字次色 | #86868B | #AEAEB2 |
-
-**字体：**
-- 主字体：系统默认 (San Francisco / Roboto)
-- 代码：Monospace (SF Mono / Roboto Mono)
-
-**间距：**
-- 页面边距：16px
-- 卡片间距：12px
-- 元素内边距：12px-16px
-- 圆角：12px (卡片) / 20px (气泡) / 24px (输入框)
-
-**动效：**
-- 页面切换：300ms ease-out
-- 按钮点击：scale(0.98) + 100ms
-- 消息出现：fade-in + slide-up 200ms
-- 流式输出：逐字显示，无延迟
-
----
-
-## 8. 部署架构
-
-### 8.1 Docker Compose
+### 7.1 Docker Compose（开发/单机）
 
 ```yaml
 services:
-  # API 网关 (Rust)
-  api-gateway:
-    build: ./service
-    ports:
-      - "443:443"
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://nova:password@postgres:5432/nova
-      - REDIS_URL=redis://redis:6379
-      - ADAPTER_URL=http://adapter:50051
-    depends_on:
-      - postgres
-      - redis
-      - adapter
-
-  # Python 适配器
-  adapter:
-    build: ./service/adapters
-    ports:
-      - "50051:50051"
-
-  # PostgreSQL
-  postgres:
-    image: postgres:16
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./service/db/migrations:/docker-entrypoint-initdb.d
-
-  # Redis
-  redis:
-    image: redis:7-alpine
-
-  # 管理后台
-  admin:
-    build: ./app/admin
-    ports:
-      - "3000:80"
-
-volumes:
-  pgdata:
+  nexus-service:  # Rust API Gateway（单体，包含所有后端逻辑）
+  nexus-admin:    # React 管理后台 (Nginx)
+  nexus-client:   # React Web 客户端 (Nginx)
+  postgres:       # PostgreSQL 16
+  redis:          # Redis 7
 ```
 
-> **Kubernetes 部署配置位于 `infra/k8s/`，Terraform 基础设施代码位于 `infra/terraform/`**
+详见项目根目录 `docker-compose.yml`。
 
-### 8.2 Kubernetes 生产架构
+### 7.2 Kubernetes 生产架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Kubernetes Cluster                          │
 │                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │               app/client/ (React Native)               │  │
-│  │           Windows · macOS · Linux · iOS · Android      │  │
-│  └──────────────────────────────────────────────────────┘  │
+│  ┌─────────────┐  ┌─────────────┐                           │
+│  │ nexus-service│  │ nexus-admin │                           │
+│  │  (3 pods)   │  │  (2 pods)   │                           │
+│  └──────┬──────┘  └──────┬──────┘                           │
+│         │                │                                   │
+│  ┌──────┴────────────────┴──────┐                           │
+│  │   LoadBalancer / Ingress      │                           │
+│  └──────────────────────────────┘                           │
 │                                                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │ api-gateway │  │   adapter   │  │    admin    │         │
-│  │  (3 pods)   │  │  (3 pods)   │  │  (2 pods)   │         │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
-│         │                │                │                  │
-│  ┌──────┴────────────────┴────────────────┴──────┐          │
-│  │         LoadBalancer (Cloudflare + AWS)        │          │
-│  └───────────────────────────────────────────────┘          │
-│                                                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
-│  │postgres  │  │  redis   │  │clickhouse│                   │
-│  │(RDS)     │  │(ElastiCache)│ │(Managed) │                   │
-│  └──────────┘  └──────────┘  └──────────┘                   │
-└──────────────────────────────────────────────────────────────┘
+│  ┌──────────┐  ┌──────────┐                                 │
+│  │postgres  │  │  redis   │                                 │
+│  │(RDS)     │  │(ElastiCache)│                              │
+│  └──────────┘  └──────────┘                                 │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+> Kubernetes 部署配置位于 `infra/k8s/`，Terraform 基础设施代码位于 `infra/terraform/`。
 
 ---
 
-## 9. 技术栈总结
+## 8. 技术栈总结
 
 | 层级 | 技术 | 位置 |
 |------|------|------|
-| **用户端** | React Native | `app/client/` |
-| **管理后台** | React + Vite | `app/admin/` |
-| **API 网关** | Rust + Axum | `service/api/` |
-| **认证服务** | Rust | `service/auth/` |
-| **路由引擎** | Rust | `service/router/` |
+| **用户端** | React + Vite + TypeScript | `app/client/` |
+| **管理后台** | React + Vite + TypeScript | `app/admin/` |
+| **API 网关** | Rust + Axum 0.7 | `service/api/` |
+| **认证服务** | Rust (JWT + bcrypt) | `service/auth/` |
+| **路由引擎** | Rust (压力均衡 Key 调度) | `service/router/` |
 | **计费服务** | Rust | `service/billing/` |
 | **共享模型** | Rust | `service/models/` |
-| **数据库层** | PostgreSQL + Redis | `service/db/` |
-| **Provider 适配** | Python + FastAPI | `service/adapters/` |
-| **基础设施** | Kubernetes + Terraform | `infra/` |
+| **数据库层** | PostgreSQL 16 + Redis 7 | `service/db/` |
+| **Provider 客户端** | Rust (HTTP + headless Chrome) | `service/adapters/` |
+| **基础设施** | Docker Compose + Kubernetes + Terraform | `infra/` |
 
 ---
 
-## 10. 开发优先级
+## 9. 开发优先级
 
-| 阶段 | 内容 | 目录 | 预计时间 |
-|------|------|------|---------|
-| **Phase 1** | 核心服务（API + Auth + Router + Billing + DB） | `service/` | 4-6 周 |
-| **Phase 2** | Python Adapter（OpenAI + Anthropic + Google + DeepSeek） | `service/adapters/` | 1-2 周 |
-| **Phase 3** | 用户端 React Native App（聊天 + 模型选择） | `app/client/` | 3-4 周 |
-| **Phase 4** | 管理后台 React App | `app/admin/` | 2-3 周 |
-| **Phase 5** | 监控、CI/CD | infra/ | 1-2 周 |
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| **Phase 1** | 核心服务（API + Auth + Router + Billing + DB） | ✅ 已完成 |
+| **Phase 2** | Provider 客户端（OpenAI + Anthropic + Google + DeepSeek） | ✅ 已完成 |
+| **Phase 3** | Web 客户端（聊天 + 模型选择） | ✅ 已完成 |
+| **Phase 4** | 管理后台 | ✅ 已完成 |
+| **Phase 5** | CI/CD、监控、测试完善 | 🔄 进行中 |
 
 ---
 
-## 11. 安全考虑
+## 10. 安全考虑
 
 | 安全点 | 实现方式 |
 |--------|---------|
-| **API Key 存储** | SHA256 哈希，不存明文 |
-| **传输安全** | HTTPS/TLS 1.3 |
-| **Rate Limit** | Redis 分布式计数 |
+| **用户 API Key 存储** | SHA256 哈希，不存明文 |
+| **Provider API Key 存储** | AES-256-GCM 加密 + Base64 编码 |
+| **传输安全** | HTTPS/TLS 1.3（由反向代理处理） |
+| **Rate Limit** | Redis Sorted Set 分布式计数 |
 | **SQL 注入** | sqlx 预处理查询 |
-| **Key 泄露** | 支持 Key 撤销 |
-| **客户端 Key** | 存储在系统 Keychain |
+| **Key 泄露** | 支持 Key 撤销和重新生成 |
+| **JWT 登出** | Token 加入 Redis 黑名单 |
+| **密码存储** | bcrypt 哈希 |
 
 ---
 
-*文档版本: v1.0*
-*最后更新: 2026-04-08*
+*文档版本: v2.0*
+*最后更新: 2026-05-08*

@@ -83,6 +83,10 @@ config = "0.14"
 # Browser automation
 headless_chrome = "1.0"
 
+# Encryption
+aes-gcm = "0.10"
+base64 = "0.22"
+
 [profile.release]
 opt-level = 3
 lto = true

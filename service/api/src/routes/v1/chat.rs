@@ -32,6 +32,7 @@ use provider_client::{
     tool_calling,
 };
 use router::key_scheduler::SelectedKey;
+use db;
 
 /// 会话亲和性 Header
 const SESSION_HEADER: &str = "x-session-id";
@@ -82,7 +83,9 @@ fn create_client_with_key(
 ) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
     match selected {
         Some(sk) => {
-            let client = HttpProviderClient::new_with_key(provider_slug, &sk.key)
+            let decrypted_key = db::decrypt_api_key(&sk.key.api_key_encrypted)
+                .map_err(|e| ApiError::ProviderError(format!("Failed to decrypt provider key: {}", e)))?;
+            let client = HttpProviderClient::new_with_decrypted_key(provider_slug, &decrypted_key, sk.key.id)
                 .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
             Ok((Arc::new(client), Some(sk.key.id)))
         }

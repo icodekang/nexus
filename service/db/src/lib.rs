@@ -9,9 +9,11 @@
 pub mod postgres;
 pub mod redis;
 pub mod error;
+pub mod crypto;
 pub mod migrations;
 
 pub use postgres::*;
 pub use redis::*;
 pub use error::*;
+pub use crypto::*;
 pub use migrations::*;
