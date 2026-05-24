@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Check, Sparkles, Zap, TrendingUp, Activity } from 'lucide-react';
+import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../i18n';
 import { fetchSubscription, subscribeToPlan, fetchUsage, fetchPlans, type UsageData, type PlanInfo } from '../api/client';
 import { getErrorMessage } from '../utils/errors';
@@ -23,6 +24,7 @@ interface Plan {
  */
 export default function SubscriptionPage() {
   const { t } = useI18n();
+  const { requireAuth } = useAuthStore();
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<string | null>(null);
@@ -46,6 +48,7 @@ export default function SubscriptionPage() {
 
   // 订阅/切换套餐
   const handleSubscribe = async (planKey: string) => {
+    if (!requireAuth()) return;
     const planMap: Record<string, string> = {
       zeroToken: 'zero_token',
       monthly: 'monthly',
@@ -221,7 +224,7 @@ export default function SubscriptionPage() {
   // 使用 API 数据或兜底硬编码 (过滤掉 enterprise)
   const displayPlans: Plan[] = (availablePlans.length > 0
     ? availablePlans.map(mapApiPlanToLocal)
-    : defaultPlans).filter(plan => plan.key !== 'enterprise');
+    : defaultPlans).filter(plan => plan.key !== 'enterprise' && plan.key !== 'zeroToken');
 
   // 获取按钮文字：当前套餐/切换/订阅
   const getButtonLabel = (planKey: string) => {

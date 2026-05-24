@@ -12,8 +12,6 @@ import Providers from './pages/Providers';
 import ProviderKeys from './pages/ProviderKeys';
 import Models from './pages/Models';
 import Transactions from './pages/Transactions';
-import BrowserAccounts from './pages/BrowserAccounts';
-import AuthCallback from './pages/AuthCallback';
 import Login from './pages/Login';
 
 /**
@@ -40,7 +38,6 @@ function Sidebar() {
     { path: '/providers', label: t('sidebar.providers'), icon: ProvidersIcon },
     { path: '/models', label: t('sidebar.models'), icon: ModelsIcon },
     { path: '/provider-keys', label: t('sidebar.providerKeys'), icon: ProviderKeysIcon },
-    { path: '/browser-accounts', label: t('sidebar.browserAccounts'), icon: BrowserAccountsIcon },
     { path: '/transactions', label: t('sidebar.transactions'), icon: TransactionsIcon },
   ];
 
@@ -70,7 +67,7 @@ function Sidebar() {
                 ...(active ? styles.navItemActive : {}),
               }}
             >
-              <item.icon active={active} />
+              <item.icon />
               <span>{item.label}</span>
               {active && <div style={styles.activeIndicator} />}
             </Link>
@@ -166,17 +163,6 @@ function TransactionsIcon() {
   );
 }
 
-function BrowserAccountsIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
-    </svg>
-  );
-}
-
 /**
  * Layout - 页面布局组件
  * @description 侧边栏 + 主内容区的组合布局
@@ -208,9 +194,7 @@ function AppRoutes() {
         <Route path="/provider-keys" element={<ProtectedRoute><ProviderKeys /></ProtectedRoute>} />
         <Route path="/models" element={<ProtectedRoute><Models /></ProtectedRoute>} />
         <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
-        <Route path="/browser-accounts" element={<ProtectedRoute><BrowserAccounts /></ProtectedRoute>} />
       </Route>
-      <Route path="/auth/callback" element={<AuthCallback />} />
     </Routes>
   );
 }

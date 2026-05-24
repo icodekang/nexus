@@ -381,65 +381,6 @@ const adminPageTests = [
     },
   },
 
-  // ============ Browser Accounts 页面测试 ============
-  {
-    name: 'BrowserAccounts - 账号列表渲染',
-    test: () => {
-      const accounts = [
-        { id: '1', provider: 'claude', email: 'user@anthropic.com', status: 'active', request_count: 100 },
-        { id: '2', provider: 'chatgpt', email: null, status: 'pending', request_count: 0 },
-      ];
-
-      assertEqual(accounts.length, 2, '应该有 2 个账号');
-
-      // 验证状态显示
-      const statusColors = {
-        active: '#22C55E',
-        pending: '#F59E0B',
-        expired: '#EF4444',
-        error: '#EF4444',
-      };
-
-      assertEqual(statusColors.active, '#22C55E', '活跃状态颜色正确');
-    },
-  },
-  {
-    name: 'BrowserAccounts - 二维码生成',
-    test: () => {
-      const qrData = {
-        session_id: 'sess_abc123',
-        qr_code_data: 'base64_png_data...',
-        code: 'AUTH1234',
-        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 分钟后过期
-        auth_url: 'https://claude.ai/auth?code=AUTH1234',
-      };
-
-      // 验证二维码数据
-      assert(qrData.session_id.startsWith('sess_'), 'session_id 格式正确');
-      assert(qrData.code.length === 8, '验证码应该是 8 位');
-      assert(qrData.auth_url.startsWith('https://'), 'auth_url 应该是 https');
-
-      // 验证未过期
-      const now = new Date();
-      const expires = new Date(qrData.expires_at);
-      assert(expires > now, '二维码应该未过期');
-    },
-  },
-  {
-    name: 'BrowserAccounts - 认证完成请求',
-    test: () => {
-      const request = {
-        code: 'AUTH123',
-        session_id: 'sess_abc123',
-        session_data: 'encrypted_data',
-        email: 'user@example.com',
-      };
-
-      const json = JSON.stringify(request);
-      assert(json.includes('AUTH123'), '请求应该包含验证码');
-      assert(json.includes('sess_abc123'), '请求应该包含会话 ID');
-    },
-  },
 ];
 
 // ============ Client 页面测试 ============
@@ -613,13 +554,12 @@ const clientPageTests = [
     name: 'Subscription - 套餐列表渲染',
     test: () => {
       const plans = [
-        { key: 'zeroToken', price: '¥10', highlighted: false },
         { key: 'monthly', price: '$19', highlighted: false },
         { key: 'autoRenew', price: '$17', highlighted: true },
         { key: 'yearly', price: '$199', highlighted: false },
       ];
 
-      assertEqual(plans.length, 4, '应该有 4 个套餐');
+      assertEqual(plans.length, 3, '应该有 3 个套餐');
 
       // 验证高亮套餐
       const highlighted = plans.filter(p => p.highlighted);
@@ -635,7 +575,6 @@ const clientPageTests = [
       const isCurrentPlan = (planKey) => {
         return (
           currentPlan === planKey ||
-          (planKey === 'zeroToken' && currentPlan === 'zero_token') ||
           (planKey === 'autoRenew' && currentPlan === 'monthly')
         );
       };

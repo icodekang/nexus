@@ -35,12 +35,6 @@ const ERROR_CODE_MAP: Record<string, string> = {
   create_failed: 'errors.create_failed',
   update_failed: 'errors.update_failed',
   delete_failed: 'errors.delete_failed',
-
-  // Browser account errors
-  qr_generate_failed: 'errors.qr_generate_failed',
-  auth_failed: 'errors.auth_failed',
-  account_add_failed: 'errors.account_add_failed',
-  account_delete_failed: 'errors.account_delete_failed',
 };
 
 /**

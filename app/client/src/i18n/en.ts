@@ -126,6 +126,9 @@ export const en = {
     errorPrefix: 'Error: {{message}}',
     failedResponse: 'Failed to get response',
     noResponse: 'No response received.',
+    uploadFile: 'Upload file',
+    loginRequired: 'Sign in required',
+    loginToChat: 'Please sign in to send messages.',
   },
   models: {
     title: 'Models',

@@ -72,22 +72,6 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // 初始化账户池（加载浏览器账户）
-    if let Err(e) = state.init_account_pool().await {
-        tracing::warn!(
-            "Failed to initialize account pool: {}. ZeroToken browser access is UNAVAILABLE — only API Key auth will work.",
-            e
-        );
-    }
-
-    // 启动 Session 健康检查定时任务
-    let db_for_health_check = state.db.clone();
-    let account_pool_for_health_check = state.account_pool.clone();
-    tokio::spawn(async move {
-        router::start_session_health_checker(db_for_health_check, account_pool_for_health_check)
-            .await;
-    });
-
     // 配置 CORS - 只允许指定的域名
     let allowed_origins: Vec<axum::http::HeaderValue> = std::env::var("CORS_ALLOWED_ORIGINS")
         .map(|s| {

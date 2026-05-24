@@ -1,34 +1,19 @@
-/**
- * @file Layout - 客户端应用布局组件
- * 包含顶部导航栏、侧边栏（桌面端）/抽屉式（移动端）
- * 管理和展示对话列表、用户信息
- */
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, CreditCard, Plus, Trash2 } from 'lucide-react';
+import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, CreditCard, ChevronDown, User } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
-import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
+import LoginModal from './LoginModal';
 import './Layout.css';
 
-/**
- * Layout - 布局主组件
- * @description 响应式侧边栏 + 主内容区，底部用户信息和操作
- */
 export default function Layout() {
-  const { user, logout } = useAuthStore();
-  const {
-    conversations,
-    activeConversationId,
-    setActiveConversation,
-    deleteConversation,
-    createConversation,
-    selectedModelId,
-  } = useChatStore();
+  const { user, logout, isAuthenticated, setShowLoginModal } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const { t, locale, setLocale } = useI18n();
 
   const navItems = [
@@ -44,148 +29,144 @@ export default function Layout() {
   }, [location.pathname]);
 
   useEffect(() => {
-    if (!mobileMenuOpen) return;
+    if (!mobileMenuOpen && !userMenuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
-        setMobileMenuOpen(false);
-      }
+      const target = e.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) setMobileMenuOpen(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(target)) setUserMenuOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [mobileMenuOpen]);
-
-  const handleNewChat = () => {
-    const modelId = selectedModelId || 'gpt-4o-mini';
-    const id = createConversation(modelId);
-    setActiveConversation(id);
-    navigate('/chat');
-  };
-
-  const handleSelectConv = (id: string) => {
-    setActiveConversation(id);
-    navigate('/chat');
-  };
-
-  const handleDeleteConv = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    deleteConversation(id);
-  };
-
-  const recentConversations = conversations.slice(0, 20);
+  }, [mobileMenuOpen, userMenuOpen]);
 
   return (
     <div className="layout">
-      {/* Mobile overlay */}
-      {mobileMenuOpen && (
-        <div className="mobile-sidebar-overlay" onClick={() => setMobileMenuOpen(false)} />
-      )}
+      <LoginModal />
 
-      {/* Sidebar — works on both desktop and mobile */}
-      <aside ref={sidebarRef} className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="sidebar-logo">
-            <Zap size={18} strokeWidth={2.5} />
-          </div>
-          <span className="sidebar-brand-text">{t('common.brandName')}</span>
-          <button className="sidebar-close-btn" onClick={() => setMobileMenuOpen(false)}>
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="sidebar-new-chat-wrapper">
-          <button className="sidebar-new-chat-btn" onClick={handleNewChat}>
-            <Plus size={16} />
-            <span>{t('chat.newChat')}</span>
-          </button>
-        </div>
-
-        <nav className="sidebar-nav">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `sidebar-nav-item ${isActive ? 'active' : ''}`
-              }
-            >
-              <item.icon size={18} strokeWidth={1.75} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="sidebar-conversations">
-          <div className="sidebar-conversations-divider">
-            <span className="sidebar-conversations-divider-label">{t('chat.conversations')}</span>
-          </div>
-          <div className="sidebar-conversations-list">
-            {recentConversations.length === 0 ? (
-              <div className="sidebar-conversations-empty">{t('chat.noConversations')}</div>
-            ) : (
-              recentConversations.map((conv) => (
-                <div
-                  key={conv.id}
-                  className={`sidebar-conversation-item ${conv.id === activeConversationId ? 'active' : ''}`}
-                  onClick={() => handleSelectConv(conv.id)}
-                >
-                  <span className="sidebar-conversation-title">
-                    {conv.title || t('chat.newConversation')}
-                  </span>
-                  <button
-                    className="sidebar-conversation-delete"
-                    onClick={(e) => handleDeleteConv(e, conv.id)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="sidebar-footer">
-          <div className="sidebar-user">
-            <div className="sidebar-user-avatar">
-              {user?.email?.charAt(0).toUpperCase() || 'U'}
+      {/* Top Navigation Bar */}
+      <header className="topbar">
+        <div className="topbar-inner">
+          <NavLink to="/chat" className="topbar-brand">
+            <div className="topbar-logo">
+              <Zap size={15} strokeWidth={2.5} />
             </div>
-            <div className="sidebar-user-info">
-              <span className="sidebar-user-email">{user?.email || t('common.user')}</span>
-              <span className="sidebar-user-plan">{user?.subscription_plan || t('common.free')}</span>
-            </div>
-          </div>
-          <div className="sidebar-footer-actions">
+            <span className="topbar-brand-text">{t('common.brandName')}</span>
+          </NavLink>
+
+          <nav className="topbar-nav">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `topbar-nav-item ${isActive ? 'active' : ''}`
+                }
+              >
+                <item.icon size={15} strokeWidth={1.75} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="topbar-right">
+            {/* Language toggle */}
             <button
-              className="sidebar-lang-btn"
+              className="topbar-lang-btn"
               onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
               title={t('common.switchLang')}
             >
               {locale === 'en' ? '中文' : 'EN'}
             </button>
-            <button className="sidebar-logout" onClick={() => { logout(); navigate('/login'); }} title={t('common.signOut')}>
-              <LogOut size={16} />
+
+            {/* User menu / Sign in */}
+            <div className="topbar-user-menu" ref={userMenuRef}>
+              {isAuthenticated ? (
+                <>
+                  <button
+                    className="topbar-user-btn"
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  >
+                    <div className="topbar-user-avatar">
+                      {user?.email?.charAt(0).toUpperCase() || 'U'}
+                    </div>
+                    <ChevronDown size={12} />
+                  </button>
+                  {userMenuOpen && (
+                    <div className="topbar-user-dropdown">
+                      <div className="topbar-user-dropdown-info">
+                        <span className="topbar-user-dropdown-email">{user?.email || t('common.user')}</span>
+                        <span className="topbar-user-dropdown-plan">{user?.subscription_plan || t('common.free')}</span>
+                      </div>
+                      <button
+                        className="topbar-user-dropdown-item"
+                        onClick={() => { logout(); navigate('/chat'); setUserMenuOpen(false); }}
+                      >
+                        <LogOut size={14} />
+                        {t('common.signOut')}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <button
+                  className="topbar-signin-btn"
+                  onClick={() => setShowLoginModal(true)}
+                >
+                  <User size={14} />
+                  <span>{t('login.signIn')}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Mobile hamburger */}
+            <button className="topbar-mobile-menu-btn" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
           </div>
         </div>
-      </aside>
+      </header>
+
+      {/* Mobile nav dropdown */}
+      {mobileMenuOpen && (
+        <div className="mobile-nav-dropdown" ref={menuRef}>
+          <nav className="mobile-nav-list">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `mobile-nav-item ${isActive ? 'active' : ''}`
+                }
+              >
+                <item.icon size={18} strokeWidth={1.75} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+          <div className="mobile-nav-footer">
+            {isAuthenticated ? (
+              <button
+                className="mobile-nav-logout"
+                onClick={() => { logout(); navigate('/chat'); setMobileMenuOpen(false); }}
+              >
+                <LogOut size={16} />
+                <span>{t('common.signOut')}</span>
+              </button>
+            ) : (
+              <button
+                className="mobile-nav-signin"
+                onClick={() => { setShowLoginModal(true); setMobileMenuOpen(false); }}
+              >
+                <User size={16} />
+                <span>{t('login.signIn')}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <main className="main-content">
-        {/* Mobile top bar */}
-        <div className="mobile-topbar">
-          <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)}>
-            <Menu size={20} />
-          </button>
-          <div className="mobile-topbar-brand">
-            <Zap size={14} strokeWidth={2.5} />
-            <span>{t('common.brandName')}</span>
-          </div>
-          <button
-            className="mobile-new-chat-btn"
-            onClick={handleNewChat}
-          >
-            <Plus size={18} />
-          </button>
-        </div>
         <Outlet />
       </main>
     </div>

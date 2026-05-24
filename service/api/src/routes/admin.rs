@@ -36,8 +36,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub mod accounts;
-
 /// 创建管理后台路由
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -65,7 +63,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/models", get(list_models).post(create_model))
         .route("/models/:id", put(update_model).delete(delete_model))
         .route("/transactions", get(list_transactions))
-        .merge(accounts::routes())
 }
 
 // ============ 仪表盘 ============

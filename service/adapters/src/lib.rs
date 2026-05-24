@@ -28,23 +28,15 @@
 //! ]
 //! ```
 
-pub mod account_pool;
-pub mod browser_emulator;
 pub mod client;
 pub mod config;
-pub mod deepseek_web;
 pub mod error;
-pub mod headless_browser;
 pub mod providers;
 pub mod tool_calling;
 pub mod types;
 
-pub use account_pool::*;
-pub use browser_emulator::*;
 pub use client::*;
 pub use config::*;
-pub use deepseek_web::*;
 pub use error::*;
-pub use headless_browser::*;
 pub use tool_calling::*;
 pub use types::*;

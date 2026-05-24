@@ -81,7 +81,6 @@ rand = "0.8"
 config = "0.14"
 
 # Browser automation
-headless_chrome = "1.0"
 
 # Encryption
 aes-gcm = "0.10"

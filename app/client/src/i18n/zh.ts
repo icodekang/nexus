@@ -126,6 +126,9 @@ export const zh = {
     errorPrefix: '错误：{{message}}',
     failedResponse: '获取回复失败',
     noResponse: '未收到回复。',
+    uploadFile: '上传文件',
+    loginRequired: '请先登录',
+    loginToChat: '请登录后发送消息。',
   },
   models: {
     title: '模型',

@@ -252,66 +252,6 @@ fn test_provider_error_parsing() {
     assert_eq!(error.error.error_type, Some("authentication_error".to_string()));
 }
 
-// ============ 浏览器模拟器测试 ============
-
-#[derive(Debug, Serialize, Deserialize)]
-struct BrowserAccount {
-    id: String,
-    provider: String,
-    email: Option<String>,
-    status: String,
-    request_count: i32,
-}
-
-#[test]
-fn test_browser_account_creation() {
-    let account = BrowserAccount {
-        id: "acc-123".to_string(),
-        provider: "claude".to_string(),
-        email: Some("user@anthropic.com".to_string()),
-        status: "active".to_string(),
-        request_count: 0,
-    };
-
-    assert_eq!(account.provider, "claude");
-    assert!(account.email.is_some());
-}
-
-#[test]
-fn test_browser_account_status() {
-    let statuses = vec!["pending", "active", "expired", "error"];
-
-    for status in statuses {
-        let json = format!(r#"{{"id":"acc-1","provider":"claude","email":null,"status":"{}","request_count":0}}"#, status);
-        let account: BrowserAccount = serde_json::from_str(&json).unwrap();
-        assert_eq!(account.status, status);
-    }
-}
-
-// ============ 二维码会话测试 ============
-
-#[derive(Debug, Serialize, Deserialize)]
-struct QrCodeSession {
-    session_id: String,
-    code: String,
-    expires_at: String,
-    auth_url: String,
-}
-
-#[test]
-fn test_qr_code_session_parsing() {
-    let json = r#"{
-        "session_id": "sess_abc123",
-        "code": "AUTH123",
-        "expires_at": "2024-01-15T10:30:00Z",
-        "auth_url": "https://claude.ai/auth?code=AUTH123"
-    }"#;
-
-    let session: QrCodeSession = serde_json::from_str(json).unwrap();
-    assert_eq!(session.session_id, "sess_abc123");
-    assert!(session.auth_url.contains("claude.ai"));
-}
-
 // ============ API 密钥掩码测试 ============
 
 #[derive(Debug, Serialize, Deserialize)]

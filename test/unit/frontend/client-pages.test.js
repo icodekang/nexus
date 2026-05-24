@@ -39,14 +39,12 @@ const expect = (actual) => ({
 
 test('套餐 key 映射', () => {
   const planMap = {
-    zeroToken: 'zero_token',
     monthly: 'monthly',
     autoRenew: 'monthly',
     quarterly: 'monthly',
     yearly: 'yearly',
   };
 
-  expect(planMap['zeroToken']).toBe('zero_token');
   expect(planMap['monthly']).toBe('monthly');
   expect(planMap['autoRenew']).toBe('monthly');
   expect(planMap['yearly']).toBe('yearly');
@@ -56,13 +54,11 @@ test('当前套餐判断逻辑', () => {
   const isCurrentPlan = (planKey, currentPlan) => {
     return (
       currentPlan === planKey ||
-      (planKey === 'zeroToken' && currentPlan === 'zero_token') ||
       (planKey === 'autoRenew' && currentPlan === 'monthly') ||
       (planKey === 'quarterly' && currentPlan === 'monthly')
     );
   };
 
-  expect(isCurrentPlan('zeroToken', 'zero_token')).toBe(true);
   expect(isCurrentPlan('autoRenew', 'monthly')).toBe(true);
   expect(isCurrentPlan('monthly', 'monthly')).toBe(true);
   expect(isCurrentPlan('yearly', 'yearly')).toBe(true);
@@ -73,7 +69,6 @@ test('套餐按钮文字逻辑', () => {
   const getButtonLabel = (planKey, currentPlan, subscribing, t) => {
     if (subscribing === planKey) return '请稍候...';
     const isCurrent = currentPlan === planKey ||
-      (planKey === 'zeroToken' && currentPlan === 'zero_token') ||
       (planKey === 'autoRenew' && currentPlan === 'monthly');
     if (isCurrent) return '当前套餐';
     if (currentPlan) return '切换套餐';
@@ -351,16 +346,15 @@ test('API 密钥掩码生成', () => {
 
 test('订阅计划列表配置', () => {
   const plans = [
-    { key: 'zeroToken', price: '¥10', period: '/月' },
     { key: 'monthly', price: '$19', period: '/月' },
     { key: 'autoRenew', price: '$17', period: '/月' },
     { key: 'quarterly', price: '$49', period: '/季' },
     { key: 'yearly', price: '$199', period: '/年' },
   ];
 
-  expect(plans).toHaveLength(5);
-  expect(plans[0].key).toBe('zeroToken');
-  expect(plans[4].key).toBe('yearly');
+  expect(plans).toHaveLength(4);
+  expect(plans[0].key).toBe('monthly');
+  expect(plans[3].key).toBe('yearly');
 });
 
 test('套餐功能列表', () => {

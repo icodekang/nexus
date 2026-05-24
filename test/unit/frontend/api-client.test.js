@@ -293,63 +293,6 @@ test('TransactionsResponse 结构验证', () => {
   expect(response.per_page).toBe(20);
 });
 
-// ============ 浏览器账号相关 ============
-
-test('BrowserAccount 结构验证', () => {
-  const account = {
-    id: 'acc-123',
-    provider: 'claude',
-    email: 'user@anthropic.com',
-    status: 'active',
-    request_count: 100,
-    last_used_at: '2024-01-15T10:30:00Z',
-    created_at: '2024-01-01T00:00:00Z',
-  };
-
-  expect(['pending', 'active', 'expired', 'error']).toContain(account.status);
-  expect(account.request_count).toBe(100);
-});
-
-test('QrCodeData 结构验证', () => {
-  const qrData = {
-    session_id: 'sess_abc123',
-    qr_code_data: 'base64_encoded_png_data',
-    code: 'AUTH123',
-    expires_at: '2024-01-15T10:30:00Z',
-    auth_url: 'https://claude.ai/auth?code=AUTH123',
-  };
-
-  expect(qrData.session_id).toBeTruthy();
-  expect(qrData.code).toBeTruthy();
-  expect(qrData.auth_url).toContain('https://');
-});
-
-test('LoginUrlResponse 结构验证', () => {
-  const response = {
-    account_id: 'acc-123',
-    login_url: 'https://auth.claude.ai/...',
-    code: 'AUTH123',
-    expires_at: '2024-01-15T10:30:00Z',
-    waiting: false,
-  };
-
-  expect(response.login_url).toBeTruthy();
-  expect(typeof response.waiting).toBe('boolean');
-});
-
-test('completeBrowserAuth 函数请求体格式', () => {
-  const body = JSON.stringify({
-    code: 'AUTH123',
-    session_id: 'sess_abc123',
-    session_data: 'encrypted_session_data',
-    email: 'user@example.com',
-  });
-
-  const parsed = JSON.parse(body);
-  expect(parsed.code).toBe('AUTH123');
-  expect(parsed.session_id).toBe('sess_abc123');
-});
-
 // ============ 仪表盘统计相关 ============
 
 test('DashboardStats 结构验证', () => {

@@ -96,8 +96,6 @@ impl User {
 pub enum SubscriptionPlan {
     /// 无订阅
     None,
-    /// 零 Token（10元/月）- 基于浏览器的免费访问
-    ZeroToken,
     /// 月付
     Monthly,
     /// 年付
@@ -113,7 +111,6 @@ impl SubscriptionPlan {
     pub fn as_str(&self) -> &'static str {
         match self {
             SubscriptionPlan::None => "none",
-            SubscriptionPlan::ZeroToken => "zero_token",
             SubscriptionPlan::Monthly => "monthly",
             SubscriptionPlan::Yearly => "yearly",
             SubscriptionPlan::Team => "team",
@@ -127,7 +124,6 @@ impl SubscriptionPlan {
     /// * `s` - 字符串表示
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "zero_token" | "zerotoken" => SubscriptionPlan::ZeroToken,
             "monthly" => SubscriptionPlan::Monthly,
             "yearly" => SubscriptionPlan::Yearly,
             "team" => SubscriptionPlan::Team,
@@ -143,7 +139,6 @@ impl SubscriptionPlan {
     pub fn monthly_token_quota(&self) -> i64 {
         match self {
             SubscriptionPlan::None => 10_000,         // 免费: 10K tokens/月
-            SubscriptionPlan::ZeroToken => 100_000,   // 10元/月: 100K tokens/月（基于浏览器）
             SubscriptionPlan::Monthly => 2_000_000,   // 19.9美元/月: 2M tokens/月
             SubscriptionPlan::Yearly => 2_000_000,    // 199美元/年: 2M tokens/月
             SubscriptionPlan::Team => 10_000_000,     // 99美元/月: 10M tokens/月
@@ -155,15 +150,13 @@ impl SubscriptionPlan {
     pub fn supports_recurring(&self) -> bool {
         matches!(
             self,
-            SubscriptionPlan::ZeroToken | SubscriptionPlan::Monthly | SubscriptionPlan::Team
+            SubscriptionPlan::Monthly | SubscriptionPlan::Team
         )
     }
 
-    /// 一个计费周期的时长（天）
     pub fn billing_cycle_days(&self) -> i64 {
         match self {
             SubscriptionPlan::None => 30,
-            SubscriptionPlan::ZeroToken => 30,
             SubscriptionPlan::Monthly => 30,
             SubscriptionPlan::Yearly => 365,
             SubscriptionPlan::Team => 30,
@@ -171,20 +164,12 @@ impl SubscriptionPlan {
         }
     }
 
-    /// 是否使用基于浏览器的（零 Token）访问
     pub fn is_zero_token(&self) -> bool {
-        matches!(self, SubscriptionPlan::ZeroToken)
+        false
     }
 
-    /// 是否可在 API Key 不可用时 fallback 到零 Token 浏览器访问
     pub fn can_fallback_to_zero_token(&self) -> bool {
-        matches!(
-            self,
-            SubscriptionPlan::Monthly
-                | SubscriptionPlan::Yearly
-                | SubscriptionPlan::Team
-                | SubscriptionPlan::Enterprise
-        )
+        false
     }
 }
 

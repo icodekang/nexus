@@ -5,10 +5,8 @@
 //! - 数据库连接池
 //! - Redis 连接池
 //! - 全局 Key 调度器
-//! - 账户池（用于 ZeroToken 用户）
 
 use db::{PostgresPool, RedisPool};
-use provider_client::{AccountPool, HeadlessBrowserManager};
 use router::GlobalKeyScheduler;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -22,8 +20,6 @@ use tokio::sync::RwLock;
 /// - `db`: PostgreSQL 数据库连接池
 /// - `redis`: Redis 连接池
 /// - `key_scheduler`: 全局 Key 调度器，用于 API Key 的负载均衡
-/// - `account_pool`: 浏览器账户池（ZeroToken 用户使用）
-/// - `headless_browser`: 无头浏览器管理器（用于 ZeroToken 登录）
 #[derive(Clone)]
 pub struct AppState {
     /// PostgreSQL 数据库连接池
@@ -32,10 +28,6 @@ pub struct AppState {
     pub redis: Arc<RedisPool>,
     /// 全局 Key 调度器
     pub key_scheduler: Arc<RwLock<GlobalKeyScheduler>>,
-    /// 浏览器账户池（ZeroToken 用户使用）
-    pub account_pool: Arc<AccountPool>,
-    /// 无头浏览器管理器（用于 ZeroToken 登录）
-    pub headless_browser: Arc<HeadlessBrowserManager>,
 }
 
 impl AppState {
@@ -49,8 +41,6 @@ impl AppState {
             db: Arc::new(db),
             redis: Arc::new(redis),
             key_scheduler: Arc::new(RwLock::new(GlobalKeyScheduler::new())),
-            account_pool: Arc::new(AccountPool::new()),
-            headless_browser: Arc::new(HeadlessBrowserManager::new()),
         }
     }
 
@@ -63,7 +53,6 @@ impl AppState {
     pub async fn init_key_scheduler(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let keys = self.db.list_provider_keys().await?;
 
-        // Group keys by provider
         let mut keys_by_provider: std::collections::HashMap<String, Vec<_>> =
             std::collections::HashMap::new();
         for key in keys {
@@ -79,49 +68,6 @@ impl AppState {
         }
 
         tracing::info!("Key scheduler initialized");
-        Ok(())
-    }
-
-    /// 初始化账户池
-    ///
-    /// 从数据库加载浏览器账户并注册到账户池中
-    /// 只注册状态为 Active 且有会话数据的账户
-    ///
-    /// # 返回
-    /// 成功返回 Ok(()), 失败返回错误信息
-    pub async fn init_account_pool(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use models::BrowserAccountStatus;
-        use provider_client::PersistedSession;
-
-        let accounts = self.db.list_browser_accounts().await?;
-
-        for account in accounts {
-            // Only register active accounts with session data
-            if account.status == BrowserAccountStatus::Active
-                && !account.session_data_encrypted.is_empty()
-            {
-                // Parse session data from JSON
-                if let Ok(session_data) =
-                    serde_json::from_str::<PersistedSession>(&account.session_data_encrypted)
-                {
-                    if let Err(e) = self
-                        .account_pool
-                        .register_account(account.id, account.provider.clone(), session_data)
-                        .await
-                    {
-                        tracing::warn!("Failed to register browser account {}: {}", account.id, e);
-                    } else {
-                        tracing::info!(
-                            "Registered browser account: {} ({})",
-                            account.id,
-                            account.provider
-                        );
-                    }
-                }
-            }
-        }
-
-        tracing::info!("Account pool initialized");
         Ok(())
     }
 }

@@ -14,11 +14,14 @@ interface AuthState {
   token: string | null;      // JWT token
   user: { id: string; phone?: string; email?: string; subscription_plan: string } | null;  // 用户信息
   isAuthenticated: boolean;  // 是否已认证
+  showLoginModal: boolean;   // 是否显示登录弹窗
 
   // Actions
   login: (token: string, user: { id: string; phone?: string; email?: string; subscription_plan: string }) => void;  // 登录
   logout: () => void;        // 登出
   loadFromStorage: () => void;  // 从 localStorage 恢复状态
+  setShowLoginModal: (show: boolean) => void;  // 控制登录弹窗
+  requireAuth: () => boolean;  // 需要认证时弹出登录框，返回是否已认证
 }
 
 /**
@@ -33,10 +36,11 @@ interface AuthState {
  * - logout(): 执行登出，清除 localStorage 和状态
  * - loadFromStorage(): 页面加载时从 localStorage 恢复认证状态
  */
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   user: null,
   isAuthenticated: false,
+  showLoginModal: false,
 
   /**
    * login - 用户登录
@@ -47,7 +51,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: (token, user) => {
     localStorage.setItem('nexus_token', token);
     localStorage.setItem('nexus_user', JSON.stringify(user));
-    set({ token, user, isAuthenticated: true });
+    set({ token, user, isAuthenticated: true, showLoginModal: false });
   },
 
   /**
@@ -57,7 +61,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     localStorage.removeItem('nexus_token');
     localStorage.removeItem('nexus_user');
-    set({ token: null, user: null, isAuthenticated: false });
+    set({ token: null, user: null, isAuthenticated: false, showLoginModal: false });
   },
 
   /**
@@ -77,5 +81,25 @@ export const useAuthStore = create<AuthState>((set) => ({
         localStorage.removeItem('nexus_user');
       }
     }
+  },
+
+  /**
+   * setShowLoginModal - 控制登录弹窗显示/隐藏
+   */
+  setShowLoginModal: (show) => {
+    set({ showLoginModal: show });
+  },
+
+  /**
+   * requireAuth - 检查认证状态，未认证时弹出登录框
+   * @returns true 如果已认证，false 如果未认证（同时弹出登录框）
+   */
+  requireAuth: () => {
+    const { isAuthenticated } = get();
+    if (!isAuthenticated) {
+      set({ showLoginModal: true });
+      return false;
+    }
+    return true;
   },
 }));

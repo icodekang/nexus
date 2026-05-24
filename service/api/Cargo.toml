@@ -35,7 +35,6 @@ auth = { path = "../auth" }
 router = { path = "../router" }
 billing = { path = "../billing" }
 provider_client = { path = "../adapters" }
-headless_chrome = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

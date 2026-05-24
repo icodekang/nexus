@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
-import { fetchProviders, createProvider, updateProvider, deleteProvider, fetchProviderKeys, fetchBrowserAccounts, fetchModels, type AdminProvider } from '../api/admin';
+import { fetchProviders, createProvider, updateProvider, deleteProvider, fetchProviderKeys, fetchModels, type AdminProvider } from '../api/admin';
 
 // 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
@@ -36,7 +36,6 @@ export default function Providers() {
   const [deleteTarget, setDeleteTarget] = useState<AdminProvider | null>(null);
   const [deleteError, setDeleteError] = useState<string>('');
   const [allKeys, setAllKeys] = useState<{provider_slug: string}[]>([]);
-  const [allAccounts, setAllAccounts] = useState<{provider: string}[]>([]);
   const [allModels, setAllModels] = useState<{provider_id: string}[]>([]);
 
   // 表单状态
@@ -50,11 +49,10 @@ export default function Providers() {
   // 加载提供商列表
   const loadProviders = useCallback(() => {
     setLoading(true);
-    Promise.all([fetchProviders(), fetchProviderKeys(), fetchBrowserAccounts(), fetchModels()])
-      .then(([res, keysRes, accountsRes, modelsRes]) => {
+    Promise.all([fetchProviders(), fetchProviderKeys(), fetchModels()])
+      .then(([res, keysRes, modelsRes]) => {
         setProviders(res.data);
         setAllKeys(keysRes.data.map(k => ({ provider_slug: k.provider_slug })));
-        setAllAccounts(accountsRes.data.map(a => ({ provider: a.provider })));
         setAllModels(modelsRes.data.map(m => ({ provider_id: m.provider_id })));
       })
       .catch(() => {})
@@ -128,11 +126,9 @@ export default function Providers() {
   const handleDeleteProvider = async () => {
     if (!deleteTarget) return;
     const hasKeys = allKeys.some(k => k.provider_slug === deleteTarget.slug);
-    const hasAccounts = allAccounts.some(a => a.provider === deleteTarget.slug);
     const hasModels = allModels.some(m => m.provider_id === deleteTarget.id);
     const errors: string[] = [];
     if (hasKeys) errors.push(t('providers.deleteErrorKeys'));
-    if (hasAccounts) errors.push(t('providers.deleteErrorAccounts'));
     if (hasModels) errors.push(t('providers.deleteErrorModels'));
     if (errors.length > 0) {
       setDeleteError(errors.join('\n'));

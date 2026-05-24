@@ -268,27 +268,6 @@ test('邮箱截断显示', () => {
   expect(truncateEmail('verylongemail@example.com')).toBe('verylongemail@exampl...');
 });
 
-// ============ 浏览器账号状态测试 ============
-
-test('BrowserAccount 状态验证', () => {
-  const statuses = ['pending', 'active', 'expired', 'error'];
-
-  for (const status of statuses) {
-    const account = { status };
-    expect(statuses).toContain(account.status);
-  }
-});
-
-test('BrowserAccount 请求计数', () => {
-  const account = {
-    request_count: 100,
-    last_used_at: '2024-01-15T10:30:00Z',
-  };
-
-  expect(account.request_count).toBe(100);
-  expect(account.last_used_at).toBeTruthy();
-});
-
 // ============ SSE 事件解析测试 ============
 
 test('SSE data: 行解析', () => {

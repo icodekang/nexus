@@ -14,21 +14,17 @@
 //! - 二维码会话 (QrCodeSession)
 
 pub mod api_log;
-pub mod browser_account;
 pub mod chat;
 pub mod model;
 pub mod provider;
 pub mod provider_key;
-pub mod qr_session;
 pub mod subscription;
 pub mod user;
 
 pub use api_log::*;
-pub use browser_account::*;
 pub use chat::*;
 pub use model::*;
 pub use provider::*;
 pub use provider_key::*;
-pub use qr_session::*;
 pub use subscription::*;
 pub use user::*;

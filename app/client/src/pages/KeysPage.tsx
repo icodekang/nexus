@@ -6,16 +6,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { fetchApiKeys, createApiKey, deleteApiKey, type ApiKey } from '../api/client';
+import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../i18n';
 import { getErrorMessage } from '../utils/errors';
 import './KeysPage.css';
 
-/**
- * KeysPage - API 密钥管理主组件
- * @description 加载/创建/删除 API 密钥，支持复制和显示/隐藏
- */
 export default function KeysPage() {
   const { t, locale } = useI18n();
+  const { isAuthenticated, requireAuth } = useAuthStore();
 
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +29,10 @@ export default function KeysPage() {
 
   // 加载密钥列表
   const loadKeys = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetchApiKeys();
       setKeys(res.data);
@@ -39,7 +41,7 @@ export default function KeysPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     loadKeys();
@@ -47,6 +49,7 @@ export default function KeysPage() {
 
   const handleCreate = async () => {
     if (!newKeyName.trim()) return;
+    if (!requireAuth()) return;
     setCreating(true);
     setError('');
     try {
@@ -113,7 +116,7 @@ export default function KeysPage() {
           <h1 className="keys-title">{t('keys.title')}</h1>
           <p className="keys-subtitle">{t('keys.subtitle')}</p>
         </div>
-        <button className="keys-create-btn" onClick={() => setShowCreate(!showCreate)}>
+        <button className="keys-create-btn" onClick={() => { if (requireAuth()) setShowCreate(!showCreate); }}>
           <Plus size={16} />
           {t('keys.newKey')}
         </button>

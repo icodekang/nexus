@@ -1,1 +1,0 @@
-ALTER TABLE browser_accounts ADD COLUMN IF NOT EXISTS name VARCHAR(255);

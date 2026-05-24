@@ -31,7 +31,7 @@ use models::{
     ChatResponse, JudgeScoreInfo, Message, ModelResult, SubscriptionPlan, Usage, User,
 };
 use provider_client::{
-    tool_calling, BrowserEmulatorFactory, ChatRequest as ProviderChatRequest, HttpProviderClient,
+    ChatRequest as ProviderChatRequest, HttpProviderClient,
     Message as ProviderMessage, ProviderClient, ProviderClientFactory,
 };
 use router::key_scheduler::SelectedKey;
@@ -41,7 +41,6 @@ const SESSION_HEADER: &str = "x-session-id";
 
 // 速率限制常量（请求/分钟）
 const FREE_RPM: i64 = 10;
-const ZEROTOKEN_RPM: i64 = 30;
 const MONTHLY_RPM: i64 = 60;
 const YEARLY_RPM: i64 = 120;
 const TEAM_RPM: i64 = 300;
@@ -51,7 +50,6 @@ const ENTERPRISE_RPM: i64 = 1000;
 fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
     match plan {
         SubscriptionPlan::None => FREE_RPM,
-        SubscriptionPlan::ZeroToken => ZEROTOKEN_RPM,
         SubscriptionPlan::Monthly => MONTHLY_RPM,
         SubscriptionPlan::Yearly => YEARLY_RPM,
         SubscriptionPlan::Team => TEAM_RPM,
@@ -102,53 +100,6 @@ fn create_client_with_key(
                 .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
             Ok((Arc::new(client), None))
         }
-    }
-}
-
-/// 为 ZeroToken 用户创建浏览器模拟器客户端
-///
-/// ZeroToken 用户使用浏览器模拟器而不是直接调用 API
-fn create_zero_token_client(
-    provider: &str,
-) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
-    let client = BrowserEmulatorFactory::create(provider).map_err(|e| {
-        ApiError::ProviderError(format!("Failed to create browser emulator: {}", e))
-    })?;
-    Ok((client, None)) // Browser emulator doesn't use API keys
-}
-
-/// 从账户池获取浏览器模拟器客户端
-///
-/// 优先从池中获取可用账户，如果池为空则创建新客户端
-async fn get_zero_token_client_from_pool(
-    state: &Arc<AppState>,
-    provider: &str,
-) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
-    // Try to get an available account from the pool
-    if let Some(client) = state.account_pool.get_client(provider).await {
-        return Ok((client, None));
-    }
-
-    // Fallback to creating a new client if no accounts available
-    tracing::warn!(
-        "No authenticated accounts in pool for provider {}, creating new client",
-        provider
-    );
-    create_zero_token_client(provider)
-}
-
-/// 判断用户是否使用 ZeroToken（浏览器模拟器）访问
-fn is_zero_token_user(subscription_plan: SubscriptionPlan) -> bool {
-    subscription_plan.is_zero_token()
-}
-
-/// 根据模型 Provider 获取对应的浏览器模拟器 Provider
-fn get_zero_token_provider(model_provider: &str) -> &'static str {
-    match model_provider {
-        "openai" | "chatgpt" => "chatgpt",
-        "anthropic" | "claude" => "claude",
-        "deepseek" => "deepseek",
-        _ => "claude",
     }
 }
 
@@ -285,15 +236,7 @@ pub async fn chat_completions(
         }
     }
 
-    // 7. Check if user is ZeroToken subscriber (browser-based access)
-    let is_zero_token = is_zero_token_user(auth.user.subscription_plan);
-    let zero_token_provider = if is_zero_token {
-        Some(get_zero_token_provider(&provider_for_request))
-    } else {
-        None
-    };
-
-    // Build request for provider client
+    // 7. Build request for provider client
     let provider_messages: Vec<ProviderMessage> = request
         .messages
         .iter()
@@ -327,9 +270,6 @@ pub async fn chat_completions(
         let provider_clone = provider_for_request.clone();
         let model_slug_clone = model.slug.clone();
         let session_id_clone = session_id.clone();
-        let is_zero_token_stream = is_zero_token;
-        let zero_token_provider_stream = zero_token_provider;
-        let can_fallback_to_zt = auth.user.subscription_plan.can_fallback_to_zero_token();
 
         tokio::spawn(async move {
             let mut total_output_tokens: i32 = 0;
@@ -341,71 +281,29 @@ pub async fn chat_completions(
                 .sum::<i32>()
                 .max(1);
 
-            // ZeroToken users use browser emulator instead of API keys
-            let client_result = if is_zero_token_stream {
-                if let Some(zt_provider) = zero_token_provider_stream {
-                    get_zero_token_client_from_pool(&state_clone, zt_provider)
-                        .await
-                        .map(|(c, _)| {
-                            let wrapped = tool_calling::wrap_with_tool_calling(
-                                c,
-                                tool_calling::default_tools(),
-                            );
-                            (wrapped as Arc<dyn ProviderClient>, None)
-                        })
-                } else {
-                    // Fallback to HTTP client if no zero-token provider
-                    HttpProviderClient::new(&provider_clone)
-                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+            let selected_key = {
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.tick();
+                session_id_clone
+                    .as_ref()
+                    .map(|sid| scheduler.select_key_for_session(&provider_clone, sid))
+                    .flatten()
+            };
+
+            let client_result = match &selected_key {
+                Some(sk) => {
+                    used_key_id = Some(sk.key.id);
+                    HttpProviderClient::new_with_key(&provider_clone, &sk.key)
+                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
                         .map_err(|e| {
                             ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
                         })
                 }
-            } else {
-                // Select key with session affinity
-                let selected_key = {
-                    let mut scheduler = state_clone.key_scheduler.write().await;
-                    scheduler.tick();
-                    session_id_clone
-                        .as_ref()
-                        .map(|sid| scheduler.select_key_for_session(&provider_clone, sid))
-                        .flatten()
-                };
-
-                if selected_key.is_none() && can_fallback_to_zt {
-                    // No API key — fallback to browser accounts
-                    let zt_provider = get_zero_token_provider(&provider_clone);
-                    match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
-                        Ok((raw_client, _)) => {
-                            let wrapped = tool_calling::wrap_with_tool_calling(
-                                raw_client,
-                                tool_calling::default_tools(),
-                            );
-                            Ok((wrapped as Arc<dyn ProviderClient>, None))
-                        }
-                        Err(e) => HttpProviderClient::new(&provider_clone)
-                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                            .map_err(|_| {
-                                ApiError::Internal(anyhow::anyhow!("ZeroToken fallback: {}", e))
-                            }),
-                    }
-                } else {
-                    match &selected_key {
-                        Some(sk) => {
-                            used_key_id = Some(sk.key.id);
-                            HttpProviderClient::new_with_key(&provider_clone, &sk.key)
-                                .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                                .map_err(|e| {
-                                    ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
-                                })
-                        }
-                        None => HttpProviderClient::new(&provider_clone)
-                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                            .map_err(|e| {
-                                ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
-                            }),
-                    }
-                }
+                None => HttpProviderClient::new(&provider_clone)
+                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                    .map_err(|e| {
+                        ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
+                    }),
             };
 
             match client_result {
@@ -436,12 +334,9 @@ pub async fn chat_completions(
                             }
                         }
                         Err(e) => {
-                            // Record failure and evict session binding (only for API key users)
-                            if !is_zero_token_stream {
-                                if let Some(kid) = used_key_id {
-                                    let mut scheduler = state_clone.key_scheduler.write().await;
-                                    scheduler.record_failure(&provider_clone, kid);
-                                }
+                            if let Some(kid) = used_key_id {
+                                let mut scheduler = state_clone.key_scheduler.write().await;
+                                scheduler.record_failure(&provider_clone, kid);
                             }
                             let _ = tx.send(Ok(Event::default()
                                 .event("error")
@@ -457,13 +352,10 @@ pub async fn chat_completions(
                 }
             }
 
-            // Record success for the key (only for API key users, not ZeroToken)
-            if !is_zero_token_stream {
-                if let Some(kid) = used_key_id {
-                    let latency_ms = start_time.elapsed().as_millis() as i32;
-                    let mut scheduler = state_clone.key_scheduler.write().await;
-                    scheduler.record_success(&provider_clone, kid, latency_ms as f64);
-                }
+            if let Some(kid) = used_key_id {
+                let latency_ms = start_time.elapsed().as_millis() as i32;
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.record_success(&provider_clone, kid, latency_ms as f64);
             }
 
             // Log streaming API call — use actual token counts when available
@@ -499,34 +391,10 @@ pub async fn chat_completions(
         let mut provider_resp = None;
         let mut used_provider = provider_for_request.clone();
 
-        // ZeroToken users use browser emulator instead of API keys
-        let (client, key_id) = if let Some(zt_provider) = zero_token_provider {
-            used_provider = zt_provider.to_string();
-            let (raw_client, _) = get_zero_token_client_from_pool(&state, zt_provider).await?;
-            let wrapped =
-                tool_calling::wrap_with_tool_calling(raw_client, tool_calling::default_tools());
-            (wrapped, None)
-        } else {
-            // Try primary provider with session-aware key selection
-            let selected_key =
-                select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
-            if selected_key.is_none() && auth.user.subscription_plan.can_fallback_to_zero_token() {
-                // No API key configured — try ZeroToken browser accounts as fallback
-                let zt_provider = get_zero_token_provider(&provider_for_request);
-                match get_zero_token_client_from_pool(&state, zt_provider).await {
-                    Ok((raw_client, _)) => {
-                        let wrapped = tool_calling::wrap_with_tool_calling(
-                            raw_client,
-                            tool_calling::default_tools(),
-                        );
-                        (wrapped, None)
-                    }
-                    Err(_) => create_client_with_key(&provider_for_request, selected_key)?,
-                }
-            } else {
-                create_client_with_key(&provider_for_request, selected_key)?
-            }
-        };
+        let selected_key =
+            select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
+        let (client, key_id) =
+            create_client_with_key(&provider_for_request, selected_key)?;
 
         // client is Arc<dyn ProviderClient> (already unwrapped from Result)
         let mut req = provider_request.clone();
@@ -536,29 +404,23 @@ pub async fn chat_completions(
             Ok(resp) => {
                 provider_resp = Some(resp);
                 let latency_ms = start_time.elapsed().as_millis() as i32;
-                if !is_zero_token {
-                    record_key_result(&state, &provider_for_request, key_id, latency_ms, true)
-                        .await;
-                }
+                record_key_result(&state, &provider_for_request, key_id, latency_ms, true)
+                    .await;
             }
             Err(e) => {
                 tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
                 last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
-                if !is_zero_token {
-                    record_key_result(&state, &provider_for_request, key_id, 0, false).await;
-                }
+                record_key_result(&state, &provider_for_request, key_id, 0, false).await;
             }
         }
 
         // Fallback to other providers if primary failed
-        // ZeroToken users fallback to other browser emulator providers
-        if provider_resp.is_none() && !is_zero_token {
+        if provider_resp.is_none() {
             for try_provider in &providers_to_try {
                 if *try_provider == provider_for_request {
-                    continue; // Already tried
+                    continue;
                 }
 
-                // Fallback providers don't have session context — use pressure-only selection
                 let selected_key = select_provider_key(&state, try_provider, None).await?;
                 let (client, key_id) = create_client_with_key(try_provider, selected_key)?;
 
@@ -576,29 +438,6 @@ pub async fn chat_completions(
                         tracing::warn!("Fallback provider {} failed: {}", try_provider, e);
                         last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
                         record_key_result(&state, try_provider, key_id, 0, false).await;
-                    }
-                }
-            }
-        } else if provider_resp.is_none() && is_zero_token {
-            let fallback_providers = vec!["claude", "chatgpt", "deepseek"];
-            for zt_provider in fallback_providers {
-                if zt_provider == zero_token_provider.unwrap_or("") {
-                    continue;
-                }
-
-                let (client, _key_id) =
-                    get_zero_token_client_from_pool(&state, zt_provider).await?;
-                let mut req = provider_request.clone();
-                req.provider = zt_provider.to_string();
-                match client.chat(req).await {
-                    Ok(resp) => {
-                        provider_resp = Some(resp);
-                        used_provider = zt_provider.to_string();
-                        break;
-                    }
-                    Err(e) => {
-                        tracing::warn!("ZeroToken fallback provider {} failed: {}", zt_provider, e);
-                        last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
                     }
                 }
             }
@@ -687,8 +526,7 @@ fn check_subscription(user: &User) -> Result<(), ApiError> {
         SubscriptionPlan::None => {
             // Free tier is always "active" but has limited quota
         }
-        SubscriptionPlan::ZeroToken
-        | SubscriptionPlan::Monthly
+        SubscriptionPlan::Monthly
         | SubscriptionPlan::Yearly
         | SubscriptionPlan::Team
         | SubscriptionPlan::Enterprise => {
@@ -960,10 +798,7 @@ pub async fn chat_batch(
     check_subscription(&auth.user)?;
     check_token_quota(&state, &auth.user).await?;
 
-    // 3a. ZeroToken users use browser accounts instead of API keys
-    let is_zero_token = is_zero_token_user(auth.user.subscription_plan);
-
-    // 4. Get the user's last question
+    // 3. Get the user's last question
     let user_query = request
         .messages
         .iter()
@@ -1045,215 +880,115 @@ pub async fn chat_batch(
             let provider_slug = model.provider_id.clone();
 
             tracing::debug!(
-                "Batch task for {} (provider={}, zero_token={})",
+                "Batch task for {} (provider={})",
                 slug,
                 provider_slug,
-                is_zero_token
             );
 
-            if is_zero_token {
-                let zt_provider = get_zero_token_provider(&provider_slug);
+            let selected_key = {
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.tick();
+                sid.as_ref()
+                    .and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
+            };
 
-                match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
-                    Ok((client, _)) => {
-                        let wrapped = tool_calling::wrap_with_tool_calling(
-                            client,
-                            tool_calling::default_tools(),
-                        );
-                        let provider_messages: Vec<provider_client::Message> = messages
-                            .iter()
-                            .map(|m| provider_client::Message {
-                                role: m.role.clone(),
-                                content: m.content.clone(),
-                            })
-                            .collect();
+            let client_result = match &selected_key {
+                Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
+                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                    .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+                None => HttpProviderClient::new(&provider_slug)
+                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
+                    .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
+            };
 
-                        let provider_request = provider_client::ChatRequest {
-                            provider: provider_slug.clone(),
-                            model: model.model_id.clone(),
-                            messages: provider_messages,
-                            temperature: 0.7,
-                            max_tokens,
-                            stream: false,
-                            extra: std::collections::HashMap::new(),
-                        };
-
-                        match wrapped.chat(provider_request).await {
-                            Ok(response) => {
-                                let latency = start.elapsed().as_millis() as u64;
-                                ModelResult {
-                                    model: slug.clone(),
-                                    provider: provider_slug,
-                                    content: response.message.content,
-                                    score: 0.0,
-                                    reason: String::new(),
-                                    latency_ms: latency,
-                                    success: true,
-                                    error: None,
-                                    usage: Usage::new(0, 0),
-                                }
-                            }
-                            Err(e) => {
-                                let latency = start.elapsed().as_millis() as u64;
-                                ModelResult {
-                                    model: slug.clone(),
-                                    provider: provider_slug,
-                                    content: String::new(),
-                                    score: 0.0,
-                                    reason: String::new(),
-                                    latency_ms: latency,
-                                    success: false,
-                                    error: Some(format!("Browser chat error: {}", e)),
-                                    usage: Usage::new(0, 0),
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let latency = start.elapsed().as_millis() as u64;
-                        ModelResult {
-                            model: slug.clone(),
-                            provider: provider_slug,
-                            content: String::new(),
-                            score: 0.0,
-                            reason: String::new(),
-                            latency_ms: latency,
-                            success: false,
-                            error: Some(format!("No browser account: {}", e)),
-                            usage: Usage::new(0, 0),
-                        }
+            let (client, key_id) = match client_result {
+                Ok(v) => v,
+                Err(e) => {
+                    return ModelResult {
+                        model: slug.clone(),
+                        provider: provider_slug,
+                        content: String::new(),
+                        score: 0.0,
+                        reason: String::new(),
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        success: false,
+                        error: Some(format!("Client error: {}", e)),
+                        usage: Usage::new(0, 0),
                     }
                 }
-            } else {
-                let selected_key = {
-                    let mut scheduler = state_clone.key_scheduler.write().await;
-                    scheduler.tick();
-                    sid.as_ref()
-                        .and_then(|s| scheduler.select_key_for_session(&provider_slug, s))
-                };
+            };
 
-                let client_result = if selected_key.is_none()
-                    && auth.user.subscription_plan.can_fallback_to_zero_token()
-                {
-                    // No API key — try ZeroToken browser
-                    let zt_provider = get_zero_token_provider(&provider_slug);
-                    match get_zero_token_client_from_pool(&state_clone, zt_provider).await {
-                        Ok((client, _)) => {
-                            let wrapped = tool_calling::wrap_with_tool_calling(
-                                client,
-                                tool_calling::default_tools(),
-                            );
-                            Ok((wrapped as Arc<dyn ProviderClient>, None))
-                        }
-                        Err(_) => match &selected_key {
-                            Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
-                                .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                                .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-                            None => HttpProviderClient::new(&provider_slug)
-                                .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                                .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-                        },
+            let provider_messages: Vec<provider_client::Message> = messages
+                .iter()
+                .map(|m| provider_client::Message {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect();
+
+            let provider_request = provider_client::ChatRequest {
+                provider: provider_slug.clone(),
+                model: model.model_id.clone(),
+                messages: provider_messages,
+                temperature: 0.7,
+                max_tokens,
+                stream: false,
+                extra: std::collections::HashMap::new(),
+            };
+
+            match client.chat(provider_request).await {
+                Ok(response) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    let prompt_tokens =
+                        response.usage.get("prompt_tokens").copied().unwrap_or(0);
+                    let completion_tokens = response
+                        .usage
+                        .get("completion_tokens")
+                        .copied()
+                        .unwrap_or(0);
+
+                    record_key_result(
+                        &state_clone,
+                        &provider_slug,
+                        key_id,
+                        latency as i32,
+                        true,
+                    )
+                    .await;
+
+                    ModelResult {
+                        model: slug.clone(),
+                        provider: provider_slug,
+                        content: response.message.content,
+                        score: 0.0,
+                        reason: String::new(),
+                        latency_ms: latency,
+                        success: true,
+                        error: None,
+                        usage: Usage::new(prompt_tokens, completion_tokens),
                     }
-                } else {
-                    match &selected_key {
-                        Some(sk) => HttpProviderClient::new_with_key(&provider_slug, &sk.key)
-                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-                        None => HttpProviderClient::new(&provider_slug)
-                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e))),
-                    }
-                };
+                }
+                Err(e) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    record_key_result(
+                        &state_clone,
+                        &provider_slug,
+                        key_id,
+                        latency as i32,
+                        false,
+                    )
+                    .await;
 
-                let (client, key_id) = match client_result {
-                    Ok(v) => v,
-                    Err(e) => {
-                        return ModelResult {
-                            model: slug.clone(),
-                            provider: provider_slug,
-                            content: String::new(),
-                            score: 0.0,
-                            reason: String::new(),
-                            latency_ms: start.elapsed().as_millis() as u64,
-                            success: false,
-                            error: Some(format!("Client error: {}", e)),
-                            usage: Usage::new(0, 0),
-                        }
-                    }
-                };
-
-                let provider_messages: Vec<provider_client::Message> = messages
-                    .iter()
-                    .map(|m| provider_client::Message {
-                        role: m.role.clone(),
-                        content: m.content.clone(),
-                    })
-                    .collect();
-
-                let provider_request = provider_client::ChatRequest {
-                    provider: provider_slug.clone(),
-                    model: model.model_id.clone(),
-                    messages: provider_messages,
-                    temperature: 0.7,
-                    max_tokens,
-                    stream: false,
-                    extra: std::collections::HashMap::new(),
-                };
-
-                match client.chat(provider_request).await {
-                    Ok(response) => {
-                        let latency = start.elapsed().as_millis() as u64;
-                        let prompt_tokens =
-                            response.usage.get("prompt_tokens").copied().unwrap_or(0);
-                        let completion_tokens = response
-                            .usage
-                            .get("completion_tokens")
-                            .copied()
-                            .unwrap_or(0);
-
-                        record_key_result(
-                            &state_clone,
-                            &provider_slug,
-                            key_id,
-                            latency as i32,
-                            true,
-                        )
-                        .await;
-
-                        ModelResult {
-                            model: slug.clone(),
-                            provider: provider_slug,
-                            content: response.message.content,
-                            score: 0.0,
-                            reason: String::new(),
-                            latency_ms: latency,
-                            success: true,
-                            error: None,
-                            usage: Usage::new(prompt_tokens, completion_tokens),
-                        }
-                    }
-                    Err(e) => {
-                        let latency = start.elapsed().as_millis() as u64;
-                        record_key_result(
-                            &state_clone,
-                            &provider_slug,
-                            key_id,
-                            latency as i32,
-                            false,
-                        )
-                        .await;
-
-                        ModelResult {
-                            model: slug.clone(),
-                            provider: provider_slug,
-                            content: String::new(),
-                            score: 0.0,
-                            reason: String::new(),
-                            latency_ms: latency,
-                            success: false,
-                            error: Some(format!("{}", e)),
-                            usage: Usage::new(0, 0),
-                        }
+                    ModelResult {
+                        model: slug.clone(),
+                        provider: provider_slug,
+                        content: String::new(),
+                        score: 0.0,
+                        reason: String::new(),
+                        latency_ms: latency,
+                        success: false,
+                        error: Some(format!("{}", e)),
+                        usage: Usage::new(0, 0),
                     }
                 }
             }
@@ -1304,12 +1039,10 @@ pub async fn chat_batch_judge(
     check_subscription(&auth.user)?;
     check_token_quota(&state, &auth.user).await?;
 
-    let is_zero_token = is_zero_token_user(auth.user.subscription_plan);
-
     let successful: Vec<&ModelResult> = request.results.iter().filter(|r| r.success).collect();
 
     let (scores, judge_model) = if !successful.is_empty() {
-        match judge_responses(&state, &request.query, &successful, is_zero_token).await {
+        match judge_responses(&state, &request.query, &successful, false).await {
             Ok(s) => {
                 let judge = state
                     .db
@@ -1496,7 +1229,7 @@ async fn judge_responses(
     state: &Arc<AppState>,
     question: &str,
     results: &[&ModelResult],
-    is_zero_token: bool,
+    _is_zero_token: bool,
 ) -> Result<Vec<JudgeScore>, ApiError> {
     let mut answers_block = String::new();
     for r in results {
@@ -1532,13 +1265,7 @@ async fn judge_responses(
 
     let provider_slug = judge_model.provider_id.clone();
 
-    let client: Arc<dyn ProviderClient> = if is_zero_token {
-        let zt_provider = get_zero_token_provider(&provider_slug);
-        let (raw_client, _) = get_zero_token_client_from_pool(state, zt_provider)
-            .await
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge browser client: {}", e)))?;
-        tool_calling::wrap_with_tool_calling(raw_client, tool_calling::default_tools())
-    } else {
+    let client: Arc<dyn ProviderClient> = {
         let selected_key = {
             let mut scheduler = state.key_scheduler.write().await;
             scheduler.tick();
