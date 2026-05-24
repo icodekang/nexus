@@ -2,7 +2,7 @@
  * @file GuidePage - API 使用指南页面
  * 展示 API 接入步骤、端点说明、流式调用示例和订阅套餐信息
  */
-import { BookOpen, Key, MessageSquare, Layers, Zap, ArrowRight, Code2, Send } from 'lucide-react';
+import { BookOpen, Key, MessageSquare, Layers, Zap, Code2, Send } from 'lucide-react';
 import { useI18n } from '../i18n';
 import './GuidePage.css';
 

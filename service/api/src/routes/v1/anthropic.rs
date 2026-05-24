@@ -8,30 +8,28 @@
 //! - 流式响应使用 SSE `event:` 行 (`message_start`, `content_block_delta`, …)
 //! - 响应体格式为 `{"id":"...","content":[{"type":"text","text":"..."}]}`
 
-use std::sync::Arc;
 use axum::{
     extract::{Query, State},
     http::HeaderMap,
-    response::{IntoResponse, Response, sse::Event},
-    Json, Extension,
+    response::{sse::Event, IntoResponse, Response},
+    Extension, Json,
 };
-use tokio_stream::wrappers::BroadcastStream;
-use tokio::sync::broadcast;
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
 use provider_client::HttpProviderClient;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::error::ApiError;
-use crate::state::AppState;
 use crate::middleware::auth::AuthContext;
+use crate::state::AppState;
 use models::Message as InternalMessage;
 use provider_client::{ChatRequest as ProviderChatRequest, Message as ProviderMessage};
 
 use super::shared::{
-    rate_limit_for_plan, select_key, create_client,
-    extract_session_id, default_session_id,
-    check_subscription, check_token_quota,
-    add_rate_limit_headers, log_api_call,
+    add_rate_limit_headers, check_subscription, check_token_quota, create_client,
+    default_session_id, extract_session_id, log_api_call, rate_limit_for_plan, select_key,
 };
 
 // ─── 请求/响应类型 ───────────────────────────────────────────────
@@ -146,14 +144,26 @@ pub async fn anthropic_messages(
     let sid = extract_session_id(&headers).or_else(|| default_session_id(&auth));
 
     if is_stream {
-        anthropic_stream_handler(state, auth, model, messages,
-                                request.temperature.unwrap_or(1.0),
-                                max_tokens, sid)
+        anthropic_stream_handler(
+            state,
+            auth,
+            model,
+            messages,
+            request.temperature.unwrap_or(1.0),
+            max_tokens,
+            sid,
+        )
         .await
     } else {
-        anthropic_blocking_handler(state, auth, model, messages,
-                                  request.temperature.unwrap_or(1.0),
-                                  max_tokens, sid)
+        anthropic_blocking_handler(
+            state,
+            auth,
+            model,
+            messages,
+            request.temperature.unwrap_or(1.0),
+            max_tokens,
+            sid,
+        )
         .await
     }
 }
@@ -235,8 +245,17 @@ async fn anthropic_blocking_handler(
     let prompt_tokens = resp.usage.get("prompt_tokens").copied().unwrap_or(0);
     let completion_tokens = resp.usage.get("completion_tokens").copied().unwrap_or(0);
 
-    log_api_call(&state, &auth, &provider_slug, &model, "chat",
-                 prompt_tokens, completion_tokens, latency_ms).await;
+    log_api_call(
+        &state,
+        &auth,
+        &provider_slug,
+        &model,
+        "chat",
+        prompt_tokens,
+        completion_tokens,
+        latency_ms,
+    )
+    .await;
 
     // Transform internal response → Anthropic format
     let anthropic_resp = AnthropicResponse {
@@ -282,6 +301,11 @@ async fn anthropic_stream_handler(
 
     tokio::spawn(async move {
         let mut used_key_id: Option<uuid::Uuid> = None;
+        let estimated_input_tokens = messages
+            .iter()
+            .map(|m| (m.content.len() / 4) as i32)
+            .sum::<i32>()
+            .max(1);
 
         let selected_key = {
             let mut scheduler = state_clone.key_scheduler.write().await;
@@ -322,9 +346,8 @@ async fn anthropic_stream_handler(
                 match client.chat_stream(provider_request).await {
                     Ok(chunks) => {
                         // message_start
-                        let _ = tx.send(Ok(Event::default()
-                            .event("message_start")
-                            .data(serde_json::json!({
+                        let _ = tx.send(Ok(Event::default().event("message_start").data(
+                            serde_json::json!({
                                 "type": "message_start",
                                 "message": {
                                     "id": format!("msg_{}", uuid::Uuid::new_v4()),
@@ -333,16 +356,19 @@ async fn anthropic_stream_handler(
                                     "content": [],
                                     "model": model.clone(),
                                 }
-                            }).to_string())));
+                            })
+                            .to_string(),
+                        )));
 
                         // content_block_start
-                        let _ = tx.send(Ok(Event::default()
-                            .event("content_block_start")
-                            .data(serde_json::json!({
+                        let _ = tx.send(Ok(Event::default().event("content_block_start").data(
+                            serde_json::json!({
                                 "type": "content_block_start",
                                 "index": 0,
                                 "content_block": { "type": "text", "text": "" }
-                            }).to_string())));
+                            })
+                            .to_string(),
+                        )));
 
                         let mut text_accum = String::new();
 
@@ -352,11 +378,14 @@ async fn anthropic_stream_handler(
 
                                 let _ = tx.send(Ok(Event::default()
                                     .event("content_block_delta")
-                                    .data(serde_json::json!({
-                                        "type": "content_block_delta",
-                                        "index": 0,
-                                        "delta": { "type": "text_delta", "text": chunk.delta }
-                                    }).to_string())));
+                                    .data(
+                                        serde_json::json!({
+                                            "type": "content_block_delta",
+                                            "index": 0,
+                                            "delta": { "type": "text_delta", "text": chunk.delta }
+                                        })
+                                        .to_string(),
+                                    )));
                             }
 
                             if chunk.finished {
@@ -364,13 +393,14 @@ async fn anthropic_stream_handler(
                                     .event("content_block_stop")
                                     .data(r#"{"type":"content_block_stop"}"#.to_string())));
 
-                                let _ = tx.send(Ok(Event::default()
-                                    .event("message_delta")
-                                    .data(serde_json::json!({
+                                let _ = tx.send(Ok(Event::default().event("message_delta").data(
+                                    serde_json::json!({
                                         "type": "message_delta",
                                         "delta": { "stop_reason": "end_turn" },
                                         "usage": { "output_tokens": text_accum.len() as i32 / 4 }
-                                    }).to_string())));
+                                    })
+                                    .to_string(),
+                                )));
 
                                 let _ = tx.send(Ok(Event::default()
                                     .event("message_stop")
@@ -408,8 +438,17 @@ async fn anthropic_stream_handler(
         }
 
         let latency_ms = start_time.elapsed().as_millis() as i32;
-        log_api_call(&state_clone, &auth_clone, &provider_slug, &model,
-                     "chat", 0, 0, latency_ms).await;
+        log_api_call(
+            &state_clone,
+            &auth_clone,
+            &provider_slug,
+            &model,
+            "chat",
+            estimated_input_tokens,
+            0,
+            latency_ms,
+        )
+        .await;
     });
 
     let stream = BroadcastStream::new(rx).filter_map(|item| async {
@@ -419,18 +458,17 @@ async fn anthropic_stream_handler(
         }
     });
 
-    Ok(IntoResponse::into_response(axum::response::Sse::new(stream)))
+    Ok(IntoResponse::into_response(axum::response::Sse::new(
+        stream,
+    )))
 }
 
 // ─── 辅助函数 ───────────────────────────────────────────────────────────
 
 /// 预处理 System Prompt
-    ///
-    /// 如果提供了 system 参数，将其添加到消息列表的开头
-fn prepend_system(
-    messages: Vec<InternalMessage>,
-    system: Option<String>,
-) -> Vec<InternalMessage> {
+///
+/// 如果提供了 system 参数，将其添加到消息列表的开头
+fn prepend_system(messages: Vec<InternalMessage>, system: Option<String>) -> Vec<InternalMessage> {
     match system {
         Some(sys) if !sys.is_empty() => {
             let mut result = vec![InternalMessage {

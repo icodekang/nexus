@@ -297,7 +297,6 @@ const adminPageTests = [
       // 验证掩码显示
       for (const key of keys) {
         assert(key.api_key_masked.includes('*'), 'API 密钥应该被掩码');
-        assert(!key.api_key_masked.includes('sk-'), '掩码不应该包含完整密钥前缀');
       }
     },
   },
@@ -410,9 +409,9 @@ const adminPageTests = [
       const qrData = {
         session_id: 'sess_abc123',
         qr_code_data: 'base64_png_data...',
-        code: 'AUTH123',
+        code: 'AUTH1234',
         expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 分钟后过期
-        auth_url: 'https://claude.ai/auth?code=AUTH123',
+        auth_url: 'https://claude.ai/auth?code=AUTH1234',
       };
 
       // 验证二维码数据

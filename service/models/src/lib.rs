@@ -13,22 +13,22 @@
 //! - 浏览器账户 (BrowserAccount)
 //! - 二维码会话 (QrCodeSession)
 
-pub mod user;
+pub mod api_log;
+pub mod browser_account;
+pub mod chat;
+pub mod model;
 pub mod provider;
 pub mod provider_key;
-pub mod model;
-pub mod subscription;
-pub mod api_log;
-pub mod chat;
-pub mod browser_account;
 pub mod qr_session;
+pub mod subscription;
+pub mod user;
 
-pub use user::*;
+pub use api_log::*;
+pub use browser_account::*;
+pub use chat::*;
+pub use model::*;
 pub use provider::*;
 pub use provider_key::*;
-pub use model::*;
-pub use subscription::*;
-pub use api_log::*;
-pub use chat::*;
-pub use browser_account::*;
 pub use qr_session::*;
+pub use subscription::*;
+pub use user::*;

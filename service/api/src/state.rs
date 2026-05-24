@@ -7,11 +7,11 @@
 //! - 全局 Key 调度器
 //! - 账户池（用于 ZeroToken 用户）
 
-use std::sync::Arc;
 use db::{PostgresPool, RedisPool};
-use router::GlobalKeyScheduler;
-use tokio::sync::RwLock;
 use provider_client::{AccountPool, HeadlessBrowserManager};
+use router::GlobalKeyScheduler;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// 应用状态
 ///
@@ -64,7 +64,8 @@ impl AppState {
         let keys = self.db.list_provider_keys().await?;
 
         // Group keys by provider
-        let mut keys_by_provider: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+        let mut keys_by_provider: std::collections::HashMap<String, Vec<_>> =
+            std::collections::HashMap::new();
         for key in keys {
             keys_by_provider
                 .entry(key.provider_slug.clone())
@@ -89,20 +90,32 @@ impl AppState {
     /// # 返回
     /// 成功返回 Ok(()), 失败返回错误信息
     pub async fn init_account_pool(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use provider_client::PersistedSession;
         use models::BrowserAccountStatus;
+        use provider_client::PersistedSession;
 
         let accounts = self.db.list_browser_accounts().await?;
 
         for account in accounts {
             // Only register active accounts with session data
-            if account.status == BrowserAccountStatus::Active && !account.session_data_encrypted.is_empty() {
+            if account.status == BrowserAccountStatus::Active
+                && !account.session_data_encrypted.is_empty()
+            {
                 // Parse session data from JSON
-                if let Ok(session_data) = serde_json::from_str::<PersistedSession>(&account.session_data_encrypted) {
-                    if let Err(e) = self.account_pool.register_account(account.id, account.provider.clone(), session_data).await {
+                if let Ok(session_data) =
+                    serde_json::from_str::<PersistedSession>(&account.session_data_encrypted)
+                {
+                    if let Err(e) = self
+                        .account_pool
+                        .register_account(account.id, account.provider.clone(), session_data)
+                        .await
+                    {
                         tracing::warn!("Failed to register browser account {}: {}", account.id, e);
                     } else {
-                        tracing::info!("Registered browser account: {} ({})", account.id, account.provider);
+                        tracing::info!(
+                            "Registered browser account: {} ({})",
+                            account.id,
+                            account.provider
+                        );
                     }
                 }
             }

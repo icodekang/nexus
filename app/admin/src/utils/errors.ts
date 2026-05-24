@@ -79,30 +79,3 @@ export function getErrorMessage(err: unknown, t: (key: string) => string): strin
   }
   return t('errors.try_again');
 }
-
-/**
- * getErrorWithSupport - 获取错误消息并附加客服提示
- * @param err - 错误对象
- * @param t - 翻译函数
- * @returns 错误消息（可能附加客服联系方式）
- */
-export function getErrorWithSupport(err: unknown, t: (key: string) => string): string {
-  const message = getErrorMessage(err, t);
-  return `${message} ${t('errors.contact_support')}`;
-}
-
-/**
- * isNetworkError - 判断是否为网络错误
- * @param err - 错误对象
- * @returns 是否为网络错误
- */
-export function isNetworkError(err: unknown): boolean {
-  if (err instanceof AdminApiError) {
-    return err.code === 'network_error';
-  }
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network error');
-  }
-  return false;
-}

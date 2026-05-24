@@ -3,9 +3,9 @@
 //! 服务启动时自动执行待执行的迁移脚本
 //! 通过 `schema_migrations` 表跟踪已执行的迁移
 
-use std::path::Path;
 use sqlx::{PgPool, Row};
-use tracing::{info, warn, error};
+use std::path::Path;
+use tracing::{error, info, warn};
 
 /// 执行所有待执行的数据库迁移
 ///
@@ -14,10 +14,7 @@ use tracing::{info, warn, error};
 /// * `migrations_path` - 迁移文件目录路径
 ///
 /// 迁移文件命名格式: `001_description.sql`
-pub async fn run_migrations(
-    pool: &PgPool,
-    migrations_path: &str,
-) -> anyhow::Result<()> {
+pub async fn run_migrations(pool: &PgPool, migrations_path: &str) -> anyhow::Result<()> {
     // 确保 migrations 表存在
     ensure_migrations_table(pool).await?;
 
@@ -41,9 +38,7 @@ pub async fn run_migrations(
     // 收集所有迁移文件
     let mut migrations: Vec<_> = std::fs::read_dir(path)?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry.path().extension().map_or(false, |ext| ext == "sql")
-        })
+        .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "sql"))
         .filter(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
             // 跳过 seed 文件（只在初始化时执行一次）
@@ -52,9 +47,7 @@ pub async fn run_migrations(
         .collect();
 
     // 按文件名排序（确保执行顺序）
-    migrations.sort_by(|a, b| {
-        a.file_name().cmp(&b.file_name())
-    });
+    migrations.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
     // 执行待执行的迁移
     for entry in migrations {

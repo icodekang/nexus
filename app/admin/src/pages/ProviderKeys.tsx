@@ -11,7 +11,7 @@ import {
   fetchProviders, fetchUserApiKeys, deleteUserApiKey,
   type ProviderKey, type AdminProvider, type UserApiKey,
 } from '../api/admin';
-import { Key, Trash2, Eye, EyeOff, Users, Server } from 'lucide-react';
+import { Trash2, Users, Server } from 'lucide-react';
 
 // 提供商品牌颜色映射
 const providerColors: Record<string, string> = {

@@ -15,11 +15,11 @@ use crate::types::{
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use models::ProviderKey;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use models::ProviderKey;
 
 /// Trait for LLM provider clients
 #[async_trait]
@@ -68,7 +68,11 @@ impl HttpProviderClient {
     }
 
     /// Create client with a pre-decrypted API key and key UUID.
-    pub fn new_with_decrypted_key(provider_id: &str, api_key: &str, key_id: uuid::Uuid) -> Result<Self, ProviderError> {
+    pub fn new_with_decrypted_key(
+        provider_id: &str,
+        api_key: &str,
+        key_id: uuid::Uuid,
+    ) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::new();
         let config = registry
             .get(provider_id)
@@ -84,7 +88,10 @@ impl HttpProviderClient {
     }
 
     /// Create client with key ID (key will be selected by caller)
-    pub fn new_with_key_id(provider_id: &str, key_id: Option<uuid::Uuid>) -> Result<Self, ProviderError> {
+    pub fn new_with_key_id(
+        provider_id: &str,
+        key_id: Option<uuid::Uuid>,
+    ) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::new();
         let config = registry
             .get(provider_id)
@@ -101,7 +108,10 @@ impl HttpProviderClient {
         })
     }
 
-    fn load_api_key_from_env(provider_id: &str, config: &ProviderConfig) -> Result<String, ProviderError> {
+    fn load_api_key_from_env(
+        provider_id: &str,
+        config: &ProviderConfig,
+    ) -> Result<String, ProviderError> {
         // For built-in providers, use well-known env vars
         // For custom providers, try CUSTOM_<ID>_API_KEY or just any available key
         let env_var = match provider_id {
@@ -111,7 +121,10 @@ impl HttpProviderClient {
             "deepseek" => "DEEPSEEK_API_KEY",
             _ => {
                 // For custom providers, try CUSTOM_<ID>_API_KEY first
-                let custom_env = format!("CUSTOM_{}_API_KEY", provider_id.to_uppercase().replace('-', "_"));
+                let custom_env = format!(
+                    "CUSTOM_{}_API_KEY",
+                    provider_id.to_uppercase().replace('-', "_")
+                );
                 if std::env::var(&custom_env).is_ok() {
                     return Ok(std::env::var(&custom_env).unwrap());
                 }
@@ -131,7 +144,10 @@ impl HttpProviderClient {
         let mut headers = HashMap::new();
         match &self.config.auth {
             AuthConfig::Bearer => {
-                headers.insert("Authorization".to_string(), format!("Bearer {}", self.api_key));
+                headers.insert(
+                    "Authorization".to_string(),
+                    format!("Bearer {}", self.api_key),
+                );
             }
             AuthConfig::ApiKey => {
                 headers.insert("x-api-key".to_string(), self.api_key.clone());
@@ -145,7 +161,9 @@ impl HttpProviderClient {
 
     fn build_url(&self, path: &str) -> String {
         match &self.config.auth {
-            AuthConfig::QueryKey => format!("{}{}?key={}", self.config.base_url, path, self.api_key),
+            AuthConfig::QueryKey => {
+                format!("{}{}?key={}", self.config.base_url, path, self.api_key)
+            }
             _ => format!("{}{}", self.config.base_url, path),
         }
     }
@@ -321,13 +339,21 @@ impl HttpProviderClient {
         self.parse_embeddings_response(data)
     }
 
-    fn parse_chat_response(&self, data: serde_json::Value, latency_ms: i32) -> Result<ChatResponse, ProviderError> {
+    fn parse_chat_response(
+        &self,
+        data: serde_json::Value,
+        latency_ms: i32,
+    ) -> Result<ChatResponse, ProviderError> {
         // Different providers have different response formats
         let (id, model, role, content) = if self.config.openai_compatible {
             let id = data["id"].as_str().unwrap_or("unknown").to_string();
             let model = data["model"].as_str().unwrap_or("").to_string();
-            let role = data["choices"][0]["message"]["role"].as_str().unwrap_or("assistant");
-            let content = data["choices"][0]["message"]["content"].as_str().unwrap_or("");
+            let role = data["choices"][0]["message"]["role"]
+                .as_str()
+                .unwrap_or("assistant");
+            let content = data["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("");
             (id, model, role.to_string(), content.to_string())
         } else if self.config.id == "anthropic" {
             let id = format!("msg_{}", data["id"].as_str().unwrap_or("unknown"));
@@ -335,19 +361,23 @@ impl HttpProviderClient {
             let content = data["content"][0]["text"].as_str().unwrap_or("");
             (id, model, "assistant".to_string(), content.to_string())
         } else if self.config.id == "google" {
-            let id = format!("gemini_{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis());
+            let id = format!(
+                "gemini_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            );
             let model = data["model"].as_str().unwrap_or("").to_string();
             let content = data["candidates"][0]["content"]["parts"][0]["text"]
                 .as_str()
                 .unwrap_or("");
             (id, model, "assistant".to_string(), content.to_string())
         } else {
-            return Err(ProviderError::InvalidResponse(
-                format!("Unsupported provider: {}", self.config.id)
-            ));
+            return Err(ProviderError::InvalidResponse(format!(
+                "Unsupported provider: {}",
+                self.config.id
+            )));
         };
 
         let usage = data["usage"].clone();
@@ -357,14 +387,14 @@ impl HttpProviderClient {
         Ok(ChatResponse {
             id,
             model,
-            message: crate::types::Message {
-                role,
-                content,
-            },
+            message: crate::types::Message { role, content },
             usage: [
                 ("prompt_tokens".to_string(), prompt_tokens),
                 ("completion_tokens".to_string(), completion_tokens),
-                ("total_tokens".to_string(), prompt_tokens + completion_tokens),
+                (
+                    "total_tokens".to_string(),
+                    prompt_tokens + completion_tokens,
+                ),
             ]
             .into_iter()
             .collect(),
@@ -372,7 +402,10 @@ impl HttpProviderClient {
         })
     }
 
-    fn parse_embeddings_response(&self, data: serde_json::Value) -> Result<EmbeddingsResponse, ProviderError> {
+    fn parse_embeddings_response(
+        &self,
+        data: serde_json::Value,
+    ) -> Result<EmbeddingsResponse, ProviderError> {
         let embeddings = if self.config.openai_compatible {
             data["data"]
                 .as_array()
@@ -395,7 +428,9 @@ impl HttpProviderClient {
                 .map(|v| v.as_f64().unwrap_or(0.0) as f32)
                 .collect()]
         } else {
-            return Err(ProviderError::InvalidResponse("Unknown embedding format".to_string()));
+            return Err(ProviderError::InvalidResponse(
+                "Unknown embedding format".to_string(),
+            ));
         };
 
         Ok(EmbeddingsResponse { embeddings })

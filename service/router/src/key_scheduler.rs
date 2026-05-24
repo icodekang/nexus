@@ -67,9 +67,9 @@ const KEY_REVIVAL_INTERVAL_SECS: u64 = 300;
 pub struct KeyLoad {
     pub key_id: uuid::Uuid,
     pub requests_in_flight: u32,
-    pub recent_requests: u32,     // Requests in last window
-    pub total_requests: u64,      // All-time requests
-    pub latency_ms: f64,          // Average latency
+    pub recent_requests: u32, // Requests in last window
+    pub total_requests: u64,  // All-time requests
+    pub latency_ms: f64,      // Average latency
     pub last_used: Option<Instant>,
     pub consecutive_failures: u32,
     pub is_healthy: bool,
@@ -241,7 +241,9 @@ impl ProviderKeyScheduler {
     pub fn add_key(&mut self, key: ProviderKey) {
         let key_id = key.id;
         self.keys.insert(key_id, key);
-        self.loads.entry(key_id).or_insert_with(|| KeyLoad::new(key_id));
+        self.loads
+            .entry(key_id)
+            .or_insert_with(|| KeyLoad::new(key_id));
     }
 
     pub fn remove_key(&mut self, key_id: uuid::Uuid) {
@@ -257,12 +259,16 @@ impl ProviderKeyScheduler {
         self.loads.retain(|id, _| key_ids.contains(id));
         self.session_bindings.retain(|_, b| {
             key_ids.contains(&b.key_id)
-                || b.previous_key_id.map(|pid| key_ids.contains(&pid)).unwrap_or(false)
+                || b.previous_key_id
+                    .map(|pid| key_ids.contains(&pid))
+                    .unwrap_or(false)
         });
         for key in keys {
             let key_id = key.id;
             self.keys.insert(key_id, key);
-            self.loads.entry(key_id).or_insert_with(|| KeyLoad::new(key_id));
+            self.loads
+                .entry(key_id)
+                .or_insert_with(|| KeyLoad::new(key_id));
         }
     }
 
@@ -275,10 +281,7 @@ impl ProviderKeyScheduler {
     /// 3. If session has NO binding OR the binding expired:
     ///    a. Try previous_key_id if stored and still healthy → restore binding.
     ///    b. Otherwise → pick fresh key by lowest pressure, bind session.
-    pub fn select_key_for_session(
-        &mut self,
-        session_id: &str,
-    ) -> Option<SelectedKey> {
+    pub fn select_key_for_session(&mut self, session_id: &str) -> Option<SelectedKey> {
         self.tick_key_revive();
 
         // --- Step 1: Check existing binding ---
@@ -290,7 +293,8 @@ impl ProviderKeyScheduler {
             // Check health WITHOUT holding any borrow across touch_session.
             // We clone the load data we need first.
             let (is_healthy, can_retry, has_key) = {
-                self.loads.get(&key_id)
+                self.loads
+                    .get(&key_id)
                     .map(|l| (l.is_healthy, l.can_retry(), self.keys.contains_key(&key_id)))
                     .unwrap_or((false, false, false))
             };
@@ -329,14 +333,14 @@ impl ProviderKeyScheduler {
         let prev_binding = self.session_bindings.get(session_id).cloned();
 
         // Extract prev_key_id while binding is still in scope.
-        let prev_key_id_from_binding = prev_binding.as_ref()
-            .and_then(|b| b.previous_key_id);
+        let prev_key_id_from_binding = prev_binding.as_ref().and_then(|b| b.previous_key_id);
 
         if let Some(ref binding) = prev_binding {
             if let Some(prev_key_id) = binding.previous_key_id {
                 // Check health after all borrows are dropped.
                 let (is_healthy, key_exists) = {
-                    self.loads.get(&prev_key_id)
+                    self.loads
+                        .get(&prev_key_id)
                         .map(|l| (l.is_healthy, self.keys.contains_key(&prev_key_id)))
                         .unwrap_or((false, false))
                 };
@@ -439,11 +443,7 @@ impl ProviderKeyScheduler {
     }
 
     fn pick_key_by_pressure(&mut self) -> Option<SelectedKey> {
-        let active_keys: Vec<_> = self
-            .keys
-            .values()
-            .filter(|k| k.is_active)
-            .collect();
+        let active_keys: Vec<_> = self.keys.values().filter(|k| k.is_active).collect();
 
         if active_keys.is_empty() {
             return None;
@@ -462,9 +462,7 @@ impl ProviderKeyScheduler {
             return None;
         }
 
-        candidates.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let best_pressure = candidates.first()?.1;
         let good_candidates: Vec<_> = candidates
@@ -476,10 +474,7 @@ impl ProviderKeyScheduler {
         let selected_id = if good_candidates.len() > 1 {
             // Weighted random among top candidates:
             // lower pressure (most idle) → higher weight.
-            let weights: Vec<f64> = good_candidates
-                .iter()
-                .map(|(_, p)| (-p).max(0.1))
-                .collect();
+            let weights: Vec<f64> = good_candidates.iter().map(|(_, p)| (-p).max(0.1)).collect();
             let total_weight: f64 = weights.iter().sum();
             let mut r = rand_simple() * total_weight;
             for (i, weight) in weights.iter().enumerate() {
@@ -526,7 +521,9 @@ impl ProviderKeyScheduler {
             load.record_failure();
         }
         // Only rotate binding when key becomes unhealthy (3rd consecutive failure).
-        let is_unhealthy = self.loads.get(&key_id)
+        let is_unhealthy = self
+            .loads
+            .get(&key_id)
             .map(|l| !l.is_healthy)
             .unwrap_or(false);
 
@@ -579,11 +576,14 @@ impl ProviderKeyScheduler {
         // Then, restore bindings for sessions that had this key as their last bound key
         for (sid, &last_key) in self.last_bound_key.iter() {
             if last_key == key_id && !self.session_bindings.contains_key(sid) {
-                self.session_bindings.insert(sid.clone(), SessionBinding {
-                    key_id,
-                    last_used: Instant::now(),
-                    previous_key_id: None,
-                });
+                self.session_bindings.insert(
+                    sid.clone(),
+                    SessionBinding {
+                        key_id,
+                        last_used: Instant::now(),
+                        previous_key_id: None,
+                    },
+                );
             }
         }
     }
@@ -626,7 +626,10 @@ fn rand_simple() -> f64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .subsec_nanos();
-    ((nanos as u64).wrapping_mul(6364136223846793005).wrapping_add(1) >> 33) as f64
+    ((nanos as u64)
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1)
+        >> 33) as f64
         / u32::MAX as f64
 }
 
@@ -676,12 +679,7 @@ impl GlobalKeyScheduler {
         }
     }
 
-    pub fn record_success(
-        &mut self,
-        provider_slug: &str,
-        key_id: uuid::Uuid,
-        latency_ms: f64,
-    ) {
+    pub fn record_success(&mut self, provider_slug: &str, key_id: uuid::Uuid, latency_ms: f64) {
         if let Some(scheduler) = self.providers.get_mut(provider_slug) {
             scheduler.record_success(key_id, latency_ms);
         }
@@ -801,7 +799,8 @@ mod tests {
         let s2 = sched.select_key_for_session("session-abc");
         assert!(s2.is_some());
         assert_ne!(
-            s2.as_ref().unwrap().key.id, bound_key_id,
+            s2.as_ref().unwrap().key.id,
+            bound_key_id,
             "Session should NOT stay bound to the same key after failure"
         );
     }
@@ -845,8 +844,7 @@ mod tests {
         let s2 = sched.select_key_for_session("session-x");
         assert!(s2.is_some());
         assert!(
-            s2.as_ref().unwrap().restored_from_previous
-                || s2.as_ref().unwrap().key.id == key1_id
+            s2.as_ref().unwrap().restored_from_previous || s2.as_ref().unwrap().key.id == key1_id
         );
     }
 

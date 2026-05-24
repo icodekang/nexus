@@ -67,10 +67,7 @@ pub enum LoginEvent {
         cookies_json: Option<String>,
     },
     /// URL 变化
-    UrlChanged {
-        session_id: Uuid,
-        url: String,
-    },
+    UrlChanged { session_id: Uuid, url: String },
     /// 手机验证码已发送，等待用户输入
     WaitingForCode {
         session_id: Uuid,
@@ -78,10 +75,7 @@ pub enum LoginEvent {
         message: String,
     },
     /// 错误
-    Error {
-        session_id: Uuid,
-        error: String,
-    },
+    Error { session_id: Uuid, error: String },
 }
 
 impl HeadlessBrowserManager {
@@ -104,7 +98,9 @@ impl HeadlessBrowserManager {
         match provider.to_lowercase().as_str() {
             "deepseek" => Ok("https://chat.deepseek.com/sign_in".to_string()),
             "claude" | "claude.ai" => Ok("https://claude.ai/login".to_string()),
-            "chatgpt" | "chat.openai.com" | "openai" => Ok("https://chatgpt.com/auth/login".to_string()),
+            "chatgpt" | "chat.openai.com" | "openai" => {
+                Ok("https://chatgpt.com/auth/login".to_string())
+            }
             _ => Err(ProviderError::ProviderNotFound(provider.to_string())),
         }
     }
@@ -167,13 +163,21 @@ impl HeadlessBrowserManager {
     fn detect_login_success(provider: &str, url: &str) -> bool {
         let url_lower = url.to_lowercase();
         match provider.to_lowercase().as_str() {
-            "deepseek" => url_lower.contains("chat.deepseek.com") && !url_lower.contains("/signin") && !url_lower.contains("/login"),
-            "claude" | "claude.ai" => url_lower.contains("claude.ai") && !url_lower.contains("/login") && !url_lower.contains("/authenticate"),
+            "deepseek" => {
+                url_lower.contains("chat.deepseek.com")
+                    && !url_lower.contains("/signin")
+                    && !url_lower.contains("/login")
+            }
+            "claude" | "claude.ai" => {
+                url_lower.contains("claude.ai")
+                    && !url_lower.contains("/login")
+                    && !url_lower.contains("/authenticate")
+            }
             "chatgpt" | "chat.openai.com" => {
                 (url_lower.contains("chat.openai.com") || url_lower.contains("chatgpt.com"))
-                && !url_lower.contains("/login")
-                && !url_lower.contains("/auth")
-            },
+                    && !url_lower.contains("/login")
+                    && !url_lower.contains("/auth")
+            }
             _ => false,
         }
     }
@@ -199,10 +203,12 @@ impl HeadlessBrowserManager {
             ..Default::default()
         };
 
-        let browser = Browser::new(launch_options)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to launch browser: {}", e)))?;
+        let browser = Browser::new(launch_options).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to launch browser: {}", e))
+        })?;
 
-        let tab = browser.new_tab()
+        let tab = browser
+            .new_tab()
             .map_err(|e| ProviderError::InternalError(format!("Failed to create tab: {}", e)))?;
 
         tab.navigate_to(&login_url)
@@ -246,19 +252,18 @@ impl HeadlessBrowserManager {
     ///
     /// 检测是否登录成功。如果检测到登录，自动从浏览器捕获 Cookie
     /// 并通过事件总线广播给监听者（如 SSE 连接）
-    pub async fn refresh_session(
-        &self,
-        session_id: Uuid,
-    ) -> Result<LoginSession, ProviderError> {
+    pub async fn refresh_session(&self, session_id: Uuid) -> Result<LoginSession, ProviderError> {
         let (browser, mut session) = {
             let browsers = self.browsers.read().await;
             let sessions = self.sessions.read().await;
 
-            let browser = browsers.get(&session_id)
+            let browser = browsers
+                .get(&session_id)
                 .ok_or_else(|| ProviderError::InternalError("Session not found".to_string()))?
                 .clone();
 
-            let session = sessions.get(&session_id)
+            let session = sessions
+                .get(&session_id)
                 .ok_or_else(|| ProviderError::InternalError("Session not found".to_string()))?
                 .clone();
 
@@ -275,7 +280,8 @@ impl HeadlessBrowserManager {
         };
 
         // 获取当前 URL
-        let current_url = tab.as_ref()
+        let current_url = tab
+            .as_ref()
             .map(|t| t.get_url())
             .unwrap_or_else(|| session.current_url.clone());
 
@@ -293,14 +299,16 @@ impl HeadlessBrowserManager {
                         Ok(cookies) => {
                             tracing::info!(
                                 "Automatically captured cookies for session {} ({} chars)",
-                                session_id, cookies.len()
+                                session_id,
+                                cookies.len()
                             );
                             session.cookies_json = cookies;
                         }
                         Err(e) => {
                             tracing::warn!(
                                 "Failed to capture cookies on login detection for session {}: {}",
-                                session_id, e
+                                session_id,
+                                e
                             );
                         }
                     }
@@ -363,12 +371,18 @@ impl HeadlessBrowserManager {
         Self::detect_chrome_binary()?;
 
         let login_url = Self::get_login_url(provider)?;
-        tracing::info!("Initiating phone login for provider: {}, phone: {}", provider, phone);
+        tracing::info!(
+            "Initiating phone login for provider: {}, phone: {}",
+            provider,
+            phone
+        );
 
-        let browser = Browser::default()
-            .map_err(|e| ProviderError::InternalError(format!("Failed to launch browser: {}", e)))?;
+        let browser = Browser::default().map_err(|e| {
+            ProviderError::InternalError(format!("Failed to launch browser: {}", e))
+        })?;
 
-        let tab = browser.new_tab()
+        let tab = browser
+            .new_tab()
             .map_err(|e| ProviderError::InternalError(format!("Failed to create tab: {}", e)))?;
 
         tab.navigate_to(&login_url)
@@ -421,11 +435,17 @@ impl HeadlessBrowserManager {
         let (browser, session) = {
             let browsers = self.browsers.read().await;
             let sessions = self.sessions.read().await;
-            let browser = browsers.get(&session_id)
-                .ok_or_else(|| ProviderError::InternalError("Phone login session not found".to_string()))?
+            let browser = browsers
+                .get(&session_id)
+                .ok_or_else(|| {
+                    ProviderError::InternalError("Phone login session not found".to_string())
+                })?
                 .clone();
-            let session = sessions.get(&session_id)
-                .ok_or_else(|| ProviderError::InternalError("Phone login session not found".to_string()))?
+            let session = sessions
+                .get(&session_id)
+                .ok_or_else(|| {
+                    ProviderError::InternalError("Phone login session not found".to_string())
+                })?
                 .clone();
             (browser, session)
         };
@@ -433,16 +453,22 @@ impl HeadlessBrowserManager {
         let tab = {
             let tabs = browser.get_tabs();
             match tabs.lock() {
-                Ok(tabs_guard) => tabs_guard.first().cloned()
-                    .ok_or_else(|| ProviderError::InternalError("No tab found in browser".to_string()))?,
-                Err(_) => return Err(ProviderError::InternalError("Failed to lock tabs".to_string())),
+                Ok(tabs_guard) => tabs_guard.first().cloned().ok_or_else(|| {
+                    ProviderError::InternalError("No tab found in browser".to_string())
+                })?,
+                Err(_) => {
+                    return Err(ProviderError::InternalError(
+                        "Failed to lock tabs".to_string(),
+                    ))
+                }
             }
         };
 
         self.fill_code_field(&tab, code).await?;
         self.click_verify_button(&tab).await?;
 
-        self.wait_for_login_complete(&tab, &session.provider).await?;
+        self.wait_for_login_complete(&tab, &session.provider)
+            .await?;
 
         let cookies_json = self.get_cookies(&tab).await?;
 
@@ -466,7 +492,11 @@ impl HeadlessBrowserManager {
         Ok(cookies_json)
     }
 
-    async fn fill_phone_field(&self, tab: &headless_chrome::Tab, phone: &str) -> Result<(), ProviderError> {
+    async fn fill_phone_field(
+        &self,
+        tab: &headless_chrome::Tab,
+        phone: &str,
+    ) -> Result<(), ProviderError> {
         let phone_selectors = [
             "input[type='tel']",
             "input[name='phone']",
@@ -495,14 +525,19 @@ impl HeadlessBrowserManager {
         }
 
         if !filled {
-            return Err(ProviderError::InternalError("Could not find phone input field".to_string()));
+            return Err(ProviderError::InternalError(
+                "Could not find phone input field".to_string(),
+            ));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         Ok(())
     }
 
-    async fn click_send_code_button(&self, tab: &headless_chrome::Tab) -> Result<(), ProviderError> {
+    async fn click_send_code_button(
+        &self,
+        tab: &headless_chrome::Tab,
+    ) -> Result<(), ProviderError> {
         let script = r#"
             (function() {
                 const texts = ['获取验证码', '发送验证码', 'get code', 'send code', '发送', '获取', 'verify'];
@@ -524,19 +559,28 @@ impl HeadlessBrowserManager {
             })()
         "#;
 
-        let clicked = tab.evaluate(script, false)
+        let clicked = tab
+            .evaluate(script, false)
             .map_err(|e| ProviderError::InternalError(format!("Failed to click send code: {}", e)))?
-            .value.and_then(|v| v.as_bool()).unwrap_or(false);
+            .value
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if !clicked {
-            return Err(ProviderError::InternalError("Could not find send-code button".to_string()));
+            return Err(ProviderError::InternalError(
+                "Could not find send-code button".to_string(),
+            ));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         Ok(())
     }
 
-    async fn fill_code_field(&self, tab: &headless_chrome::Tab, code: &str) -> Result<(), ProviderError> {
+    async fn fill_code_field(
+        &self,
+        tab: &headless_chrome::Tab,
+        code: &str,
+    ) -> Result<(), ProviderError> {
         let code_selectors = [
             "input[type='tel']",
             "input[name='code']",
@@ -565,7 +609,9 @@ impl HeadlessBrowserManager {
         }
 
         if !filled {
-            return Err(ProviderError::InternalError("Could not find verification code input field".to_string()));
+            return Err(ProviderError::InternalError(
+                "Could not find verification code input field".to_string(),
+            ));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -594,9 +640,12 @@ impl HeadlessBrowserManager {
             })()
         "#;
 
-        let clicked = tab.evaluate(script, false)
+        let clicked = tab
+            .evaluate(script, false)
             .map_err(|e| ProviderError::InternalError(format!("Failed to click verify: {}", e)))?
-            .value.and_then(|v| v.as_bool()).unwrap_or(false);
+            .value
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if !clicked {
             let enter_script = r#"
@@ -609,11 +658,14 @@ impl HeadlessBrowserManager {
                     return false;
                 })()
             "#;
-            let enter_ok = tab.evaluate(enter_script, false)
-                .map_err(|e| ProviderError::InternalError(format!("Failed to submit via enter: {}", e)))?;
+            let enter_ok = tab.evaluate(enter_script, false).map_err(|e| {
+                ProviderError::InternalError(format!("Failed to submit via enter: {}", e))
+            })?;
 
             if !enter_ok.value.and_then(|v| v.as_bool()).unwrap_or(false) {
-                return Err(ProviderError::InternalError("Could not find verify/login button".to_string()));
+                return Err(ProviderError::InternalError(
+                    "Could not find verify/login button".to_string(),
+                ));
             }
         }
 
@@ -622,12 +674,10 @@ impl HeadlessBrowserManager {
     }
 
     /// 获取登录 URL 用于生成二维码
-    pub async fn get_login_url_for_qr(
-        &self,
-        session_id: Uuid,
-    ) -> Result<String, ProviderError> {
+    pub async fn get_login_url_for_qr(&self, session_id: Uuid) -> Result<String, ProviderError> {
         let sessions = self.sessions.read().await;
-        let session = sessions.get(&session_id)
+        let session = sessions
+            .get(&session_id)
             .ok_or_else(|| ProviderError::InternalError("Session not found".to_string()))?;
 
         Ok(session.current_url.clone())
@@ -657,9 +707,9 @@ impl HeadlessBrowserManager {
             ("deepseek", "chat.deepseek.com"),
         ];
 
-        let matched_url = known_login_urls.iter().find(|(p, _)| {
-            provider.to_lowercase() == *p
-        });
+        let matched_url = known_login_urls
+            .iter()
+            .find(|(p, _)| provider.to_lowercase() == *p);
 
         if let Some((_, expected_url)) = matched_url {
             if url_lower.contains(expected_url) {
@@ -721,12 +771,18 @@ impl HeadlessBrowserManager {
 
         let login_url = Self::get_login_url(provider)?;
 
-        tracing::info!("Starting password login for provider: {}, URL: {}", provider, login_url);
+        tracing::info!(
+            "Starting password login for provider: {}, URL: {}",
+            provider,
+            login_url
+        );
 
-        let browser = Browser::default()
-            .map_err(|e| ProviderError::InternalError(format!("Failed to launch browser: {}", e)))?;
+        let browser = Browser::default().map_err(|e| {
+            ProviderError::InternalError(format!("Failed to launch browser: {}", e))
+        })?;
 
-        let tab = browser.new_tab()
+        let tab = browser
+            .new_tab()
             .map_err(|e| ProviderError::InternalError(format!("Failed to create tab: {}", e)))?;
 
         tab.navigate_to(&login_url)
@@ -776,7 +832,10 @@ impl HeadlessBrowserManager {
         Ok(())
     }
 
-    async fn inject_stealth_scripts(&self, tab: &headless_chrome::Tab) -> Result<(), ProviderError> {
+    async fn inject_stealth_scripts(
+        &self,
+        tab: &headless_chrome::Tab,
+    ) -> Result<(), ProviderError> {
         let stealth_script = r#"
             (function() {
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
@@ -826,10 +885,16 @@ impl HeadlessBrowserManager {
         }
 
         if !email_filled {
-            let html = tab.get_content()
-                .map_err(|e| ProviderError::InternalError(format!("Failed to get page content: {}", e)))?;
-            tracing::error!("Could not find email field. Page HTML (first 2000 chars): {}", &html[..html.len().min(2000)]);
-            return Err(ProviderError::InternalError("Could not find email input field".to_string()));
+            let html = tab.get_content().map_err(|e| {
+                ProviderError::InternalError(format!("Failed to get page content: {}", e))
+            })?;
+            tracing::error!(
+                "Could not find email field. Page HTML (first 2000 chars): {}",
+                &html[..html.len().min(2000)]
+            );
+            return Err(ProviderError::InternalError(
+                "Could not find email input field".to_string(),
+            ));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -898,12 +963,17 @@ impl HeadlessBrowserManager {
             })()
         "#;
 
-        let clicked = tab.evaluate(script, false)
+        let clicked = tab
+            .evaluate(script, false)
             .map_err(|e| ProviderError::InternalError(format!("Failed to click continue: {}", e)))?
-            .value.and_then(|v| v.as_bool()).unwrap_or(false);
+            .value
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if !clicked {
-            return Err(ProviderError::InternalError("Could not click continue button".to_string()));
+            return Err(ProviderError::InternalError(
+                "Could not click continue button".to_string(),
+            ));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -940,10 +1010,16 @@ impl HeadlessBrowserManager {
         }
 
         if !password_filled {
-            let html = tab.get_content()
-                .map_err(|e| ProviderError::InternalError(format!("Failed to get page content: {}", e)))?;
-            tracing::error!("Could not find password field. Page HTML (first 2000 chars): {}", &html[..html.len().min(2000)]);
-            return Err(ProviderError::InternalError("Could not find password input field".to_string()));
+            let html = tab.get_content().map_err(|e| {
+                ProviderError::InternalError(format!("Failed to get page content: {}", e))
+            })?;
+            tracing::error!(
+                "Could not find password field. Page HTML (first 2000 chars): {}",
+                &html[..html.len().min(2000)]
+            );
+            return Err(ProviderError::InternalError(
+                "Could not find password input field".to_string(),
+            ));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -955,7 +1031,11 @@ impl HeadlessBrowserManager {
 
     /// 等待页面元素出现
     #[allow(dead_code)]
-    async fn wait_for_element(&self, tab: &headless_chrome::Tab, selector: &str) -> Result<(), ProviderError> {
+    async fn wait_for_element(
+        &self,
+        tab: &headless_chrome::Tab,
+        selector: &str,
+    ) -> Result<(), ProviderError> {
         let max_attempts = 60;
         let mut attempts = 0;
 
@@ -975,13 +1055,24 @@ impl HeadlessBrowserManager {
             attempts += 1;
         }
 
-        Err(ProviderError::InternalError(format!("Timeout waiting for element: {}", selector)))
+        Err(ProviderError::InternalError(format!(
+            "Timeout waiting for element: {}",
+            selector
+        )))
     }
 
     /// 填写输入框
-    async fn fill_input(&self, tab: &headless_chrome::Tab, selector: &str, value: &str) -> Result<(), ProviderError> {
+    async fn fill_input(
+        &self,
+        tab: &headless_chrome::Tab,
+        selector: &str,
+        value: &str,
+    ) -> Result<(), ProviderError> {
         let escaped_selector = selector.replace("'", "\\'");
-        let escaped_value = value.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "\\\"");
+        let escaped_value = value
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\"", "\\\"");
 
         let script = format!(
             r#"(function() {{
@@ -1000,11 +1091,15 @@ impl HeadlessBrowserManager {
             escaped_selector, escaped_value
         );
 
-        let result = tab.evaluate(&script, false)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to execute fill script: {}", e)))?;
+        let result = tab.evaluate(&script, false).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to execute fill script: {}", e))
+        })?;
 
         if !result.value.and_then(|v| v.as_bool()).unwrap_or(false) {
-            return Err(ProviderError::InternalError(format!("Element not found or not visible: {}", selector)));
+            return Err(ProviderError::InternalError(format!(
+                "Element not found or not visible: {}",
+                selector
+            )));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1042,9 +1137,12 @@ impl HeadlessBrowserManager {
             })()
         "#;
 
-        let clicked = tab.evaluate(click_script, false)
+        let clicked = tab
+            .evaluate(click_script, false)
             .map_err(|e| ProviderError::InternalError(format!("Failed to click submit: {}", e)))?
-            .value.and_then(|v| v.as_bool()).unwrap_or(false);
+            .value
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if !clicked {
             let enter_script = r#"
@@ -1059,11 +1157,18 @@ impl HeadlessBrowserManager {
                     return false;
                 })()
             "#;
-            let enter_result = tab.evaluate(enter_script, false)
+            let enter_result = tab
+                .evaluate(enter_script, false)
                 .map_err(|e| ProviderError::InternalError(format!("Failed to submit: {}", e)))?;
 
-            if !enter_result.value.and_then(|v| v.as_bool()).unwrap_or(false) {
-                return Err(ProviderError::InternalError("Could not find submit button or password field".to_string()));
+            if !enter_result
+                .value
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                return Err(ProviderError::InternalError(
+                    "Could not find submit button or password field".to_string(),
+                ));
             }
         }
 
@@ -1071,7 +1176,11 @@ impl HeadlessBrowserManager {
         Ok(())
     }
 
-    async fn wait_for_login_complete(&self, tab: &headless_chrome::Tab, provider: &str) -> Result<(), ProviderError> {
+    async fn wait_for_login_complete(
+        &self,
+        tab: &headless_chrome::Tab,
+        provider: &str,
+    ) -> Result<(), ProviderError> {
         let max_attempts = 120;
 
         for i in 0..max_attempts {
@@ -1124,10 +1233,16 @@ impl HeadlessBrowserManager {
                             }
                             if text.to_lowercase().contains("incorrect password")
                                 || text.to_lowercase().contains("invalid credentials")
-                                || text.to_lowercase().contains("wrong password") {
-                                return Err(ProviderError::AuthenticationError("Incorrect password".to_string()));
+                                || text.to_lowercase().contains("wrong password")
+                            {
+                                return Err(ProviderError::AuthenticationError(
+                                    "Incorrect password".to_string(),
+                                ));
                             }
-                            return Err(ProviderError::LoginFailed(format!("Login error: {}", text)));
+                            return Err(ProviderError::LoginFailed(format!(
+                                "Login error: {}",
+                                text
+                            )));
                         }
                     }
                 }
@@ -1140,22 +1255,28 @@ impl HeadlessBrowserManager {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
 
-        Err(ProviderError::AuthenticationError("Login timeout".to_string()))
+        Err(ProviderError::AuthenticationError(
+            "Login timeout".to_string(),
+        ))
     }
 
     /// 获取页面所有 cookies
     async fn get_cookies(&self, tab: &headless_chrome::Tab) -> Result<String, ProviderError> {
         // Use CDP Network.getCookies to capture ALL cookies including HttpOnly.
         // document.cookie (JS) misses HttpOnly cookies — most auth tokens use that flag.
-        let cdp_cookies = tab.get_cookies()
-            .map_err(|e| ProviderError::InternalError(format!("Failed to get cookies via CDP: {}", e)))?;
+        let cdp_cookies = tab.get_cookies().map_err(|e| {
+            ProviderError::InternalError(format!("Failed to get cookies via CDP: {}", e))
+        })?;
 
         let mut cookie_map = std::collections::HashMap::new();
         for c in cdp_cookies {
             cookie_map.insert(c.name.clone(), c.value.clone());
         }
 
-        tracing::info!("CDP cookie capture: {} cookies (incl. HttpOnly)", cookie_map.len());
+        tracing::info!(
+            "CDP cookie capture: {} cookies (incl. HttpOnly)",
+            cookie_map.len()
+        );
 
         let session = serde_json::json!({
             "cookies": cookie_map,
@@ -1163,8 +1284,9 @@ impl HeadlessBrowserManager {
             "expires_at": null
         });
 
-        serde_json::to_string(&session)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to serialize session: {}", e)))
+        serde_json::to_string(&session).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to serialize session: {}", e))
+        })
     }
 
     /// 通过无头浏览器执行 JS 聊天请求（用于 DeepSeek 等需要浏览器执行 JS 的提供商）
@@ -1180,23 +1302,31 @@ impl HeadlessBrowserManager {
 
         let browser = {
             let browsers = self.browsers.read().await;
-            browsers.get(&account_id)
-                .ok_or_else(|| ProviderError::InternalError("Browser not found for account".to_string()))?
+            browsers
+                .get(&account_id)
+                .ok_or_else(|| {
+                    ProviderError::InternalError("Browser not found for account".to_string())
+                })?
                 .clone()
         };
 
         let tab = {
             let tabs = browser.get_tabs();
-            let tabs_guard = tabs.lock().map_err(|_| ProviderError::InternalError("Failed to lock tabs".to_string()))?;
-            tabs_guard.first()
+            let tabs_guard = tabs
+                .lock()
+                .map_err(|_| ProviderError::InternalError("Failed to lock tabs".to_string()))?;
+            tabs_guard
+                .first()
                 .ok_or_else(|| ProviderError::InternalError("No tab found".to_string()))?
                 .clone()
         };
 
-        let messages_json = serde_json::to_string(&messages)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to serialize messages: {}", e)))?;
+        let messages_json = serde_json::to_string(&messages).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to serialize messages: {}", e))
+        })?;
 
-        let chat_script = format!(r#"
+        let chat_script = format!(
+            r#"
             (async () => {{
                 const messages = {messages_json};
                 const model = "{model}";
@@ -1240,26 +1370,32 @@ impl HeadlessBrowserManager {
 
                 return JSON.stringify({{ error: "No response found" }});
             }})();
-        "#);
+        "#
+        );
 
-        let result = tab.evaluate(&chat_script, false)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to execute chat JS: {}", e)))?;
+        let result = tab.evaluate(&chat_script, false).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to execute chat JS: {}", e))
+        })?;
 
-        let response_text = result.value
+        let response_text = result
+            .value
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "{\"error\":\"No response\"}".to_string());
 
         // Parse the JSON response
-        let response_json: HashMap<String, serde_json::Value> = serde_json::from_str(&response_text)
-            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let response_json: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&response_text).map_err(|e| {
+                ProviderError::InvalidResponse(format!("Failed to parse response: {}", e))
+            })?;
 
-        response_json.get("content")
+        response_json
+            .get("content")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| ProviderError::InvalidResponse("No content in response".to_string()))
     }
 
-/// 检查所有活跃会话的登录状态
+    /// 检查所有活跃会话的登录状态
     pub async fn check_all_sessions(&self) {
         let session_ids: Vec<Uuid> = {
             let sessions = self.sessions.read().await;
@@ -1282,8 +1418,11 @@ impl HeadlessBrowserManager {
     /// Get account_id by provider from registered accounts
     pub async fn get_account_id_by_provider(&self, provider: &str) -> Option<Uuid> {
         let sessions = self.sessions.read().await;
-        sessions.iter()
-            .find(|(_, session)| session.provider == provider && session.state == BrowserSessionState::LoggedIn)
+        sessions
+            .iter()
+            .find(|(_, session)| {
+                session.provider == provider && session.state == BrowserSessionState::LoggedIn
+            })
             .map(|(id, _)| *id)
     }
 }

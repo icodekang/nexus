@@ -48,8 +48,12 @@ impl StreamHandler for OpenAIStreamHandler {
             });
         }
         let parsed: serde_json::Value = serde_json::from_str(data).ok()?;
-        let delta = parsed["choices"][0]["delta"]["content"].as_str().unwrap_or("");
-        let finish_reason = parsed["choices"][0]["finish_reason"].as_str().map(|s| s.to_string());
+        let delta = parsed["choices"][0]["delta"]["content"]
+            .as_str()
+            .unwrap_or("");
+        let finish_reason = parsed["choices"][0]["finish_reason"]
+            .as_str()
+            .map(|s| s.to_string());
         Some(StreamChunk {
             delta: delta.to_string(),
             finished: finish_reason.is_some(),
@@ -84,20 +88,20 @@ impl StreamHandler for AnthropicStreamHandler {
                 })
             }
             "message_delta" => {
-                let stop_reason = parsed["delta"]["stop_reason"].as_str().map(|s| s.to_string());
+                let stop_reason = parsed["delta"]["stop_reason"]
+                    .as_str()
+                    .map(|s| s.to_string());
                 Some(StreamChunk {
                     delta: String::new(),
                     finished: false,
                     finish_reason: stop_reason,
                 })
             }
-            "message_stop" => {
-                Some(StreamChunk {
-                    delta: String::new(),
-                    finished: true,
-                    finish_reason: Some("stop".to_string()),
-                })
-            }
+            "message_stop" => Some(StreamChunk {
+                delta: String::new(),
+                finished: true,
+                finish_reason: Some("stop".to_string()),
+            }),
             _ => None, // Skip message_start, content_block_start, ping, etc.
         }
     }
@@ -177,7 +181,11 @@ impl ProviderAdapterRegistry {
         self.register_stream_handler("google", Box::new(GoogleStreamHandler));
     }
 
-    pub fn register_transformer(&mut self, provider: &str, transformer: Box<dyn MessageTransformer>) {
+    pub fn register_transformer(
+        &mut self,
+        provider: &str,
+        transformer: Box<dyn MessageTransformer>,
+    ) {
         self.transformers.insert(provider.to_string(), transformer);
     }
 
@@ -267,21 +275,28 @@ impl MessageTransformer for GoogleTransformer {
 }
 
 /// Global registry instance
-static REGISTRY: LazyLock<RwLock<ProviderAdapterRegistry>> = LazyLock::new(|| RwLock::new(ProviderAdapterRegistry::new()));
+static REGISTRY: LazyLock<RwLock<ProviderAdapterRegistry>> =
+    LazyLock::new(|| RwLock::new(ProviderAdapterRegistry::new()));
 
 pub async fn get_registry() -> tokio::sync::RwLockReadGuard<'static, ProviderAdapterRegistry> {
     REGISTRY.read().await
 }
 
 /// Register a new provider transformer at runtime
-pub async fn register_transformer(provider: &str, transformer: Box<dyn MessageTransformer>) -> Result<(), ProviderError> {
+pub async fn register_transformer(
+    provider: &str,
+    transformer: Box<dyn MessageTransformer>,
+) -> Result<(), ProviderError> {
     let mut registry = REGISTRY.write().await;
     registry.register_transformer(provider, transformer);
     Ok(())
 }
 
 /// Register a new provider stream handler at runtime
-pub async fn register_stream_handler(provider: &str, handler: Box<dyn StreamHandler>) -> Result<(), ProviderError> {
+pub async fn register_stream_handler(
+    provider: &str,
+    handler: Box<dyn StreamHandler>,
+) -> Result<(), ProviderError> {
     let mut registry = REGISTRY.write().await;
     registry.register_stream_handler(provider, handler);
     Ok(())

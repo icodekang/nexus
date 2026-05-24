@@ -1,13 +1,16 @@
-#![allow(unused_imports)]
-use axum::{routing::{get, post, delete}, Router, Json, Extension, extract::State};
-use std::sync::Arc;
+use axum::{
+    extract::State,
+    routing::{delete, get},
+    Extension, Json, Router,
+};
 use serde::Deserialize;
+use std::sync::Arc;
 
-use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
-use models::{ApiKey, SubscriptionPlan, subscription::SubscriptionPlanInfo};
+use crate::state::AppState;
 use auth::ApiKeyGenerator;
+use models::{subscription::SubscriptionPlanInfo, ApiKey, SubscriptionPlan};
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -35,7 +38,7 @@ pub async fn subscription(
     Extension(auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user = &auth.user;
-    
+
     Ok(Json(serde_json::json!({
         "user_id": user.id.to_string(),
         "email": user.email,
@@ -52,7 +55,7 @@ pub async fn subscription(
 /// 获取所有可用的订阅套餐列表
 pub async fn subscription_plans() -> Result<Json<serde_json::Value>, ApiError> {
     let plans = SubscriptionPlanInfo::all();
-    
+
     Ok(Json(serde_json::json!({
         "plans": plans
     })))
@@ -86,7 +89,9 @@ pub async fn subscribe(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let plan = SubscriptionPlan::from_str(&request.plan);
     if plan == SubscriptionPlan::None {
-        return Err(ApiError::InvalidRequest("Invalid subscription plan".to_string()));
+        return Err(ApiError::InvalidRequest(
+            "Invalid subscription plan".to_string(),
+        ));
     }
 
     // Calculate subscription duration
@@ -103,7 +108,9 @@ pub async fn subscribe(
     let end = now + chrono::Duration::days(duration_days);
 
     // Update user subscription
-    state.db.update_user_subscription(auth.user.id, plan, now, end)
+    state
+        .db
+        .update_user_subscription(auth.user.id, plan, now, end)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to update subscription")))?;
 
@@ -140,11 +147,12 @@ pub async fn usage(
     // Determine billing period
     let now = chrono::Utc::now();
     let period_start = user.subscription_start.unwrap_or(now);
-    let period_end = user.subscription_end.unwrap_or(
-        now + chrono::Duration::days(user.subscription_plan.billing_cycle_days())
-    );
+    let period_end = user
+        .subscription_end
+        .unwrap_or(now + chrono::Duration::days(user.subscription_plan.billing_cycle_days()));
 
-    let stats = state.db
+    let stats = state
+        .db
         .get_user_usage_stats(user.id, period_start, period_end)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get usage stats: {}", e)))?;
@@ -198,20 +206,25 @@ pub async fn list_keys(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let keys = state.db.list_api_keys_by_user(auth.user.id)
+    let keys = state
+        .db
+        .list_api_keys_by_user(auth.user.id)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to list API keys")))?;
 
-    let keys_data: Vec<serde_json::Value> = keys.iter().map(|k| {
-        serde_json::json!({
-            "id": k.id.to_string(),
-            "name": k.name,
-            "key_prefix": k.key_prefix,
-            "is_active": k.is_active,
-            "last_used_at": k.last_used_at,
-            "created_at": k.created_at,
+    let keys_data: Vec<serde_json::Value> = keys
+        .iter()
+        .map(|k| {
+            serde_json::json!({
+                "id": k.id.to_string(),
+                "name": k.name,
+                "key_prefix": k.key_prefix,
+                "is_active": k.is_active,
+                "last_used_at": k.last_used_at,
+                "created_at": k.created_at,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "data": keys_data
@@ -245,13 +258,19 @@ pub async fn create_key(
     let generator = ApiKeyGenerator::new("sk-nexus");
     let (plain_key, hashed_key) = generator.generate();
 
-    let mut api_key = ApiKey::new(auth.user.id, hashed_key, format!("sk-nexus-{}", &plain_key[9..20]));
-    
+    let mut api_key = ApiKey::new(
+        auth.user.id,
+        hashed_key,
+        format!("sk-nexus-{}", &plain_key[9..20]),
+    );
+
     if let Some(name) = request.name {
         api_key = api_key.with_name(name);
     }
 
-    state.db.create_api_key(&api_key)
+    state
+        .db
+        .create_api_key(&api_key)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to create API key")))?;
 
@@ -272,13 +291,25 @@ pub async fn create_key(
 /// * `Path(key_id)` - 要删除的 Key ID
 pub async fn delete_key(
     State(state): State<Arc<AppState>>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     axum::extract::Path(key_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let key_uuid = uuid::Uuid::parse_str(&key_id)
         .map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
 
-    state.db.delete_api_key(key_uuid)
+    let keys = state
+        .db
+        .list_api_keys_by_user(auth.user.id)
+        .await
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to list API keys")))?;
+
+    if !keys.iter().any(|k| k.id == key_uuid) {
+        return Err(ApiError::Forbidden);
+    }
+
+    state
+        .db
+        .delete_api_key(key_uuid)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete API key")))?;
 
@@ -296,8 +327,10 @@ pub async fn zero_token_status(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user = &auth.user;
     let can_use_zero_token = user.subscription_plan.is_zero_token()
-        || matches!(user.subscription_plan,
-            SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team);
+        || matches!(
+            user.subscription_plan,
+            SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team
+        );
 
     if !can_use_zero_token {
         return Ok(Json(serde_json::json!({
@@ -308,10 +341,14 @@ pub async fn zero_token_status(
         })));
     }
 
-    let accounts = state.db.list_browser_accounts().await
+    let accounts = state
+        .db
+        .list_browser_accounts()
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list accounts: {}", e)))?;
 
-    let active_providers: Vec<String> = accounts.into_iter()
+    let active_providers: Vec<String> = accounts
+        .into_iter()
         .filter(|a| a.is_active())
         .map(|a| a.provider)
         .collect::<std::collections::HashSet<_>>()

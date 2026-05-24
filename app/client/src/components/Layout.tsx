@@ -5,8 +5,9 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Search, Key, BookOpen, Layers, LogOut, Zap, Menu, X, CreditCard, Plus } from 'lucide-react';
+import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, CreditCard, Plus, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
 import './Layout.css';
 
@@ -16,27 +17,32 @@ import './Layout.css';
  */
 export default function Layout() {
   const { user, logout } = useAuthStore();
+  const {
+    conversations,
+    activeConversationId,
+    setActiveConversation,
+    deleteConversation,
+    createConversation,
+    selectedModelId,
+  } = useChatStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const { t, locale, setLocale } = useI18n();
 
-  // 导航菜单项配置
   const navItems = [
-    { to: '/search', label: t('layout.chat'), icon: Search },
+    { to: '/chat', label: t('layout.chat'), icon: MessageSquare },
     { to: '/models', label: t('layout.models'), icon: Layers },
     { to: '/keys', label: t('layout.apiKeys'), icon: Key },
     { to: '/subscription', label: t('layout.subscription'), icon: CreditCard },
     { to: '/guide', label: t('layout.guide'), icon: BookOpen },
   ];
 
-  // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  // 点击外部关闭移动端菜单
   useEffect(() => {
     if (!mobileMenuOpen) return;
     const handler = (e: MouseEvent) => {
@@ -47,6 +53,25 @@ export default function Layout() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [mobileMenuOpen]);
+
+  const handleNewChat = () => {
+    const modelId = selectedModelId || 'gpt-4o-mini';
+    const id = createConversation(modelId);
+    setActiveConversation(id);
+    navigate('/chat');
+  };
+
+  const handleSelectConv = (id: string) => {
+    setActiveConversation(id);
+    navigate('/chat');
+  };
+
+  const handleDeleteConv = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    deleteConversation(id);
+  };
+
+  const recentConversations = conversations.slice(0, 20);
 
   return (
     <div className="layout">
@@ -67,6 +92,13 @@ export default function Layout() {
           </button>
         </div>
 
+        <div className="sidebar-new-chat-wrapper">
+          <button className="sidebar-new-chat-btn" onClick={handleNewChat}>
+            <Plus size={16} />
+            <span>{t('chat.newChat')}</span>
+          </button>
+        </div>
+
         <nav className="sidebar-nav">
           {navItems.map((item) => (
             <NavLink
@@ -80,8 +112,36 @@ export default function Layout() {
               <span>{item.label}</span>
             </NavLink>
           ))}
+        </nav>
 
-          </nav>
+        <div className="sidebar-conversations">
+          <div className="sidebar-conversations-divider">
+            <span className="sidebar-conversations-divider-label">{t('chat.conversations')}</span>
+          </div>
+          <div className="sidebar-conversations-list">
+            {recentConversations.length === 0 ? (
+              <div className="sidebar-conversations-empty">{t('chat.noConversations')}</div>
+            ) : (
+              recentConversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  className={`sidebar-conversation-item ${conv.id === activeConversationId ? 'active' : ''}`}
+                  onClick={() => handleSelectConv(conv.id)}
+                >
+                  <span className="sidebar-conversation-title">
+                    {conv.title || t('chat.newConversation')}
+                  </span>
+                  <button
+                    className="sidebar-conversation-delete"
+                    onClick={(e) => handleDeleteConv(e, conv.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
 
         <div className="sidebar-footer">
           <div className="sidebar-user">
@@ -121,7 +181,7 @@ export default function Layout() {
           </div>
           <button
             className="mobile-new-chat-btn"
-            onClick={() => navigate('/search')}
+            onClick={handleNewChat}
           >
             <Plus size={18} />
           </button>

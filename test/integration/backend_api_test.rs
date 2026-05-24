@@ -888,7 +888,7 @@ mod tests {
 
         for path in paths {
             // 验证路径格式
-            assert!(path.starts_with("/admin/") || path.startsWith("/v1/"));
+            assert!(path.starts_with("/admin/") || path.starts_with("/v1/"));
 
             // 验证路径不包含空格
             assert!(!path.contains(' '));

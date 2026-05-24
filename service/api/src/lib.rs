@@ -7,6 +7,6 @@
 //! - state: 应用状态管理
 
 pub mod error;
-pub mod routes;
 pub mod middleware;
+pub mod routes;
 pub mod state;

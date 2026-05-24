@@ -285,9 +285,26 @@ install_postgres() {
     log_cmd "安装 PostgreSQL 16"
     case "$OS_FAMILY" in
         debian)
-            sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg 2>/dev/null
-            _pkg_update; _pkg_install postgresql-16 postgresql-client-16
+            local pg_codename
+            pg_codename=$(lsb_release -cs)
+            # PostgreSQL APT repo uses signed-by keyring (required since Debian 12 / Ubuntu 24.04)
+            sudo install -d -m 0755 /etc/apt/keyrings
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | \
+                sudo gpg --dearmor --yes -o /etc/apt/keyrings/postgresql-archive-keyring.gpg
+            sudo tee "/etc/apt/sources.list.d/pgdg.list" > /dev/null <<PGEOF
+deb [signed-by=/etc/apt/keyrings/postgresql-archive-keyring.gpg] https://apt.postgresql.org/pub/repos/apt ${pg_codename}-pgdg main
+PGEOF
+            if sudo apt-get update -qq 2>/dev/null && _pkg_install postgresql-16 postgresql-client-16; then
+                : # success via pgdg repo
+            else
+                # Fallback: try the distribution's own postgresql packages
+                log_warn "PostgreSQL 16 在 pgdg/${pg_codename} 仓库不可用，尝试系统自带版本..."
+                sudo rm -f /etc/apt/sources.list.d/pgdg.list
+                sudo apt-get update -qq 2>/dev/null || true
+                _pkg_install postgresql postgresql-client || {
+                    log_cmd_fail "PostgreSQL 安装失败"; exit 1
+                }
+            fi
             ;;
         rhel|fedora)
             _pkg_install postgresql16-server postgresql16

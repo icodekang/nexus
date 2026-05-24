@@ -2,9 +2,9 @@
 //!
 //! 提供限流、会话管理、缓存、短信验证等功能
 
-use redis::AsyncCommands;
-use deadpool_redis::{Pool, Config as DeadpoolConfig, Runtime};
 use anyhow::Result;
+use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use redis::AsyncCommands;
 
 /// Redis 连接池
 pub struct RedisPool(Pool);
@@ -56,7 +56,8 @@ impl RedisPool {
 
         if count >= limit {
             // 获取最旧的条目以计算重置时间
-            let oldest_score: Option<i64> = conn.zrange_withscores::<_, Vec<(String, i64)>>(&key, 0, 0)
+            let oldest_score: Option<i64> = conn
+                .zrange_withscores::<_, Vec<(String, i64)>>(&key, 0, 0)
                 .await?
                 .into_iter()
                 .next()
@@ -70,7 +71,7 @@ impl RedisPool {
         let _: () = conn.zadd(&key, format!("{}", now), now).await?;
         let _: () = conn.expire(&key, window_seconds).await?;
 
-        Ok((true, limit - count - 1, now + window_seconds))
+        Ok((true, (limit - count - 1).max(0), now + window_seconds))
     }
 
     // ============ 缓存 ============

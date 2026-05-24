@@ -178,27 +178,6 @@ export async function fetchModels(provider?: string) {
 }
 
 /**
- * sendChat - 发送聊天消息（非流式）
- * @param model - 模型 ID
- * @param messages - 消息历史
- * @param sessionId - 可选会话 ID
- * @returns AI 响应消息和使用量统计
- */
-export async function sendChat(model: string, messages: ChatMessage[], sessionId?: string) {
-  const headers: Record<string, string> = {};
-  if (sessionId) headers['x-session-id'] = sessionId;
-  return request<{
-    id: string;
-    choices: Array<{ message: { role: string; content: string } }>;
-    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-  }>('/v1/chat/completions', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ model, messages, stream: false }),
-  });
-}
-
-/**
  * streamChat - 发送聊天消息（流式）
  * @description 使用 Server-Sent Events (SSE) 流式接收 AI 响应
  * @param model - 模型 ID
@@ -286,17 +265,6 @@ export async function fetchUsage() {
   return request<UsageData>('/v1/me/usage');
 }
 
-export interface ZeroTokenStatus {
-  enabled: boolean;
-  available_providers: string[];
-  quota_total: number;
-  quota_used: number;
-}
-
-export async function fetchZeroTokenStatus() {
-  return request<ZeroTokenStatus>('/v1/me/zero-token/status');
-}
-
 /**
  * fetchApiKeys - 获取用户的 API 密钥列表
  * @returns API 密钥列表
@@ -337,92 +305,5 @@ export async function subscribeToPlan(plan: string) {
   return request<{ message: string; plan: string; subscription_start: string; subscription_end: string }>('/v1/me/subscription', {
     method: 'POST',
     body: JSON.stringify({ plan }),
-  });
-}
-
-// ── 批量查询（多模型对比） ──────────────────────────────────────────────────
-
-/**
- * ModelResult - 单个模型的查询结果
- */
-export interface ModelResult {
-  model: string;
-  provider: string;
-  content: string;
-  score: number;
-  reason: string;
-  latency_ms: number;
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-  success: boolean;
-  error?: string;
-}
-
-/**
- * BatchChatResponse - 批量查询响应
- */
-export interface BatchChatResponse {
-  id: string;
-  query: string;
-  results: ModelResult[];
-  judge_model: string;
-  total_latency_ms: number;
-  selection_category: string;
-  selected_models: string[];
-  has_scoring: boolean;
-}
-
-/**
- * BatchJudgeRequest - 评分请求
- */
-export interface BatchJudgeRequest {
-  query: string;
-  results: ModelResult[];
-}
-
-/**
- * JudgeScoreInfo - 单个评分
- */
-export interface JudgeScoreInfo {
-  model: string;
-  score: number;
-  reason: string;
-}
-
-/**
- * BatchJudgeResponse - 评分响应
- */
-export interface BatchJudgeResponse {
-  scores: JudgeScoreInfo[];
-  judge_model: string;
-}
-
-/**
- * fetchBatchChat - 多模型并行查询
- * @param messages - 消息列表
- * @param models - 可选指定模型列表
- * @returns 各模型回答结果（未排序，评分由 judge 端点单独获取）
- */
-export async function fetchBatchChat(
-  messages: ChatMessage[],
-  models?: string[],
-): Promise<BatchChatResponse> {
-  const body: Record<string, unknown> = { messages };
-  if (models && models.length > 0) {
-    body.models = models;
-  }
-  return request<BatchChatResponse>('/v1/chat/batch', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-/**
- * fetchBatchJudge - 异步获取评分
- * @returns 各模型评分结果
- */
-export async function fetchBatchJudge(req: BatchJudgeRequest): Promise<BatchJudgeResponse> {
-  return request<BatchJudgeResponse>('/v1/chat/batch/judge', {
-    method: 'POST',
-    body: JSON.stringify(req),
   });
 }

@@ -6,25 +6,26 @@
 
 ```
 test/
-├── models/              # Rust 模型单元测试
-│   ├── user_test.rs
-│   ├── provider_test.rs
-│   ├── model_test.rs
-│   ├── subscription_test.rs
-│   └── mod.rs
-├── auth/               # Rust 认证模块测试
-│   ├── password_test.rs
-│   ├── jwt_test.rs
-│   └── mod.rs
-├── api/                # API 数据结构测试
-│   └── mod.rs
-├── adapters/          # 适配器模块测试
-│   └── mod.rs
-├── frontend/          # 前端测试
-│   ├── api-client.test.js   # Admin API 测试
-│   ├── client-api.test.js    # Client API 测试
-│   ├── components.test.js    # Admin 组件测试
-│   └── client-pages.test.js  # Client 页面测试
+├── unit/
+│   ├── models/              # Rust 模型单元测试
+│   │   ├── user_test.rs
+│   │   ├── provider_test.rs
+│   │   ├── model_test.rs
+│   │   ├── subscription_test.rs
+│   │   └── mod.rs
+│   ├── auth/               # Rust 认证模块测试
+│   │   ├── password_test.rs
+│   │   ├── jwt_test.rs
+│   │   └── mod.rs
+│   ├── api/                # API 数据结构测试
+│   │   └── mod.rs
+│   ├── adapters/          # 适配器模块测试
+│   │   └── mod.rs
+│   └── frontend/          # 前端测试
+│       ├── api-client.test.js   # Admin API 测试
+│       ├── client-api.test.js    # Client API 测试
+│       ├── components.test.js    # Admin 组件测试
+│       └── client-pages.test.js  # Client 页面测试
 └── README.md
 ```
 
@@ -41,13 +42,13 @@ cargo test
 
 ```bash
 # 运行所有前端测试
-node test/frontend/api-client.test.js
-node test/frontend/client-api.test.js
-node test/frontend/components.test.js
-node test/frontend/client-pages.test.js
+node test/unit/frontend/api-client.test.js
+node test/unit/frontend/client-api.test.js
+node test/unit/frontend/components.test.js
+node test/unit/frontend/client-pages.test.js
 
 # 或运行所有前端测试
-for f in test/frontend/*.test.js; do node "$f"; done
+for f in test/unit/frontend/*.test.js; do node "$f"; done
 ```
 
 ## 测试覆盖

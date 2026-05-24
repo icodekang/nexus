@@ -2,9 +2,9 @@
 //!
 //! 提供 JWT Token 的生成和验证功能
 
+use chrono::{Duration, Utc};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
-use chrono::{Utc, Duration};
 use uuid::Uuid;
 
 use crate::AuthError;
@@ -19,7 +19,9 @@ fn get_jwt_secret() -> Vec<u8> {
         .unwrap_or_else(|_| {
             // Test mode fallback - only used when JWT_SECRET is not set
             // In production, JWT_SECRET must be properly set
-            "test-secret-key-for-testing-only-do-not-use-in-production".to_string().into_bytes()
+            "test-secret-key-for-testing-only-do-not-use-in-production"
+                .to_string()
+                .into_bytes()
         })
 }
 
@@ -80,7 +82,8 @@ impl JwtService {
             &Header::default(),
             &claims,
             &EncodingKey::from_secret(&secret),
-        ).map_err(|_| AuthError::InvalidToken)
+        )
+        .map_err(|_| AuthError::InvalidToken)
     }
 
     /// 验证并解码 JWT Token

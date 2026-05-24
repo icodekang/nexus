@@ -37,7 +37,12 @@ impl ProviderKey {
     /// * `api_key_encrypted` - 加密的 API Key
     /// * `api_key_prefix` - API Key 前缀
     /// * `base_url` - API 基础 URL
-    pub fn new(provider_slug: String, api_key_encrypted: String, api_key_prefix: String, base_url: String) -> Self {
+    pub fn new(
+        provider_slug: String,
+        api_key_encrypted: String,
+        api_key_prefix: String,
+        base_url: String,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             provider_slug,
@@ -66,7 +71,11 @@ impl ProviderKey {
     /// `"sk-...a1b2"`
     pub fn masked_key(&self) -> String {
         if self.api_key_prefix.len() >= 4 {
-            format!("{}...{}", &self.api_key_prefix[..4], &self.api_key_prefix[self.api_key_prefix.len()-4..])
+            format!(
+                "{}...{}",
+                &self.api_key_prefix[..4],
+                &self.api_key_prefix[self.api_key_prefix.len() - 4..]
+            )
         } else {
             format!("{}...", self.api_key_prefix)
         }

@@ -91,11 +91,11 @@ export default function LoginPage() {
       if (emailStep === 'login') {
         const res = await login(email, password);
         storeLogin(res.token, res.user);
-        navigate('/search');
+        navigate('/chat');
       } else {
         const res = await register(email, password);
         storeLogin(res.token, res.user);
-        navigate('/search');
+        navigate('/chat');
       }
     } catch (err) {
       setError(getErrorMessage(err, t));
@@ -138,7 +138,7 @@ export default function LoginPage() {
     try {
       const res = await verifySmsCode(fullPhone, code);
       storeLogin(res.token, res.user);
-      navigate('/search');
+      navigate('/chat');
     } catch (err) {
       setError(getErrorMessage(err, t));
     } finally {

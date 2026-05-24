@@ -10,7 +10,10 @@ pub async fn start_session_health_checker(
     db: Arc<PostgresPool>,
     account_pool: std::sync::Arc<provider_client::AccountPool>,
 ) {
-    tracing::info!("Session health checker started (interval: {}s)", CHECK_INTERVAL_SECS);
+    tracing::info!(
+        "Session health checker started (interval: {}s)",
+        CHECK_INTERVAL_SECS
+    );
 
     let mut ticker = interval(Duration::from_secs(CHECK_INTERVAL_SECS));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -31,7 +34,7 @@ async fn check_expired_sessions(
     let accounts = db.list_browser_accounts().await?;
 
     for account in accounts {
-        if account.session_status != "active" {
+        if !account.is_active() {
             continue;
         }
 
@@ -43,12 +46,17 @@ async fn check_expired_sessions(
         let days_until_expiry = (expires_at - now).num_days();
 
         if days_until_expiry < 7 {
-            tracing::info!("Account {} session expires in {} days", account.id, days_until_expiry);
+            tracing::info!(
+                "Account {} session expires in {} days",
+                account.id,
+                days_until_expiry
+            );
         }
 
         if days_until_expiry < 0 {
             tracing::warn!("Account {} session expired", account.id);
-            db.update_browser_account_status(account.id, models::BrowserAccountStatus::Expired).await?;
+            db.update_browser_account_status(account.id, models::BrowserAccountStatus::Expired)
+                .await?;
             account_pool.unregister_account(account.id).await;
         }
     }

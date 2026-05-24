@@ -11,23 +11,23 @@
 //! - POST /accounts/:id/complete - 完成登录（手动触发）
 
 use axum::{
-    routing::{get, post, delete},
-    Router, Json, Extension,
-    extract::{Path, State, Query},
+    extract::{Path, Query, State},
     response::sse::{Event, Sse},
+    routing::{delete, get, post},
+    Extension, Json, Router,
 };
-use std::sync::Arc;
 use futures_util::{Stream, StreamExt};
-use tokio_stream::wrappers::BroadcastStream;
-use tokio::sync::broadcast;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
-use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
+use crate::state::AppState;
 use models::BrowserAccount;
-use provider_client::headless_browser::{LoginEvent, BrowserSessionState};
+use provider_client::headless_browser::{BrowserSessionState, LoginEvent};
 /// 创建浏览器账户路由
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -37,7 +37,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/accounts/:id/password-login", post(password_login))
         .route("/accounts/:id/inject-session", post(inject_session))
         .route("/accounts/:id/phone-login/init", post(initiate_phone_login))
-        .route("/accounts/:id/phone-login/verify", post(complete_phone_login))
+        .route(
+            "/accounts/:id/phone-login/verify",
+            post(complete_phone_login),
+        )
         .route("/accounts/:id/login-url", get(get_login_url))
         .route("/accounts/:id/status", get(get_account_status))
         .route("/accounts/complete-login", post(complete_login))
@@ -77,7 +80,10 @@ async fn list_accounts(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let accounts = state.db.list_browser_accounts().await
+    let accounts = state
+        .db
+        .list_browser_accounts()
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list accounts: {}", e)))?;
 
     let data: Vec<AccountResponse> = accounts.into_iter().map(Into::into).collect();
@@ -107,7 +113,7 @@ async fn create_account(
     let provider = body.provider.to_lowercase();
     if provider != "deepseek" && provider != "claude" && provider != "chatgpt" {
         return Err(ApiError::InvalidRequest(
-            "Provider must be 'deepseek', 'claude' or 'chatgpt'".to_string()
+            "Provider must be 'deepseek', 'claude' or 'chatgpt'".to_string(),
         ));
     }
 
@@ -116,7 +122,10 @@ async fn create_account(
         account = account.with_name(name.clone());
     }
 
-    state.db.create_browser_account(&account).await
+    state
+        .db
+        .create_browser_account(&account)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create account: {}", e)))?;
 
     Ok(Json(account.into()))
@@ -140,7 +149,10 @@ async fn delete_account(
     let _ = state.headless_browser.close_session(account_id).await;
 
     // Delete from database
-    state.db.delete_browser_account(account_id).await
+    state
+        .db
+        .delete_browser_account(account_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete account: {}", e)))?;
 
     // Clean up Redis session
@@ -210,12 +222,18 @@ async fn start_login(
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
     // Get account from database
-    let account = state.db.get_browser_account(account_id).await
+    let account = state
+        .db
+        .get_browser_account(account_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
     // Create headless browser login session (visible window for interactive login)
-    let session = state.headless_browser.create_login_session(&account.provider, false).await
+    let session = state
+        .headless_browser
+        .create_login_session(&account.provider, false)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to start login: {}", e)))?;
 
     // Generate a short code for verification (optional, for simpler auth)
@@ -223,7 +241,10 @@ async fn start_login(
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(10);
 
     // Store QR session in Redis for optional code verification
-    state.redis.store_qr_session(&code, &session.id.to_string()).await
+    state
+        .redis
+        .store_qr_session(&code, &session.id.to_string())
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
 
     Ok(Json(LoginUrlResponse {
@@ -247,7 +268,10 @@ async fn password_login(
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
-    let account = state.db.get_browser_account(account_id).await
+    let account = state
+        .db
+        .get_browser_account(account_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
@@ -284,24 +308,20 @@ async fn password_login(
         }
     })?;
 
-    let session_data: provider_client::PersistedSession =
-        serde_json::from_str(&cookies_json)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
+    let session_data: provider_client::PersistedSession = serde_json::from_str(&cookies_json)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
 
-    state.db.update_browser_account_session(
-        account_id,
-        &cookies_json,
-        Some(&body.email),
-        None,
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
+    state
+        .db
+        .update_browser_account_session(account_id, &cookies_json, Some(&body.email), None)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
 
-    state.account_pool.register_account(
-        account_id,
-        account.provider.clone(),
-        session_data,
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+    state
+        .account_pool
+        .register_account(account_id, account.provider.clone(), session_data)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
 
     Ok(Json(PasswordLoginResponse {
         success: true,
@@ -335,28 +355,32 @@ async fn inject_session(
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
-    let account = state.db.get_browser_account(account_id).await
+    let account = state
+        .db
+        .get_browser_account(account_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
-    let session_data: provider_client::PersistedSession =
-        serde_json::from_str(&body.cookies_json)
-            .map_err(|e| ApiError::InvalidRequest(format!("Invalid cookies JSON: {}", e)))?;
+    let session_data: provider_client::PersistedSession = serde_json::from_str(&body.cookies_json)
+        .map_err(|e| ApiError::InvalidRequest(format!("Invalid cookies JSON: {}", e)))?;
 
-    state.db.update_browser_account_session(
-        account_id,
-        &body.cookies_json,
-        body.email.as_deref(),
-        body.name.as_deref(),
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
+    state
+        .db
+        .update_browser_account_session(
+            account_id,
+            &body.cookies_json,
+            body.email.as_deref(),
+            body.name.as_deref(),
+        )
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
 
-    state.account_pool.register_account(
-        account_id,
-        account.provider.clone(),
-        session_data.clone(),
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+    state
+        .account_pool
+        .register_account(account_id, account.provider.clone(), session_data.clone())
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
 
     if account.provider == "deepseek" {
         match provider_client::headless_browser::HeadlessBrowserManager::detect_chrome_binary() {
@@ -367,15 +391,22 @@ async fn inject_session(
                         if let Ok(tab) = browser.new_tab() {
                             if tab.navigate_to("https://chat.deepseek.com/chat").is_ok() {
                                 tracing::info!("Navigated to DeepSeek chat page");
-                                std::thread::sleep(std::time::Duration::from_secs(3));
+                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
                                 let cookie_pairs_json = serde_json::to_string(
-                                    &session_data.cookies.iter()
+                                    &session_data
+                                        .cookies
+                                        .iter()
                                         .map(|(k, v)| [k.as_str(), v.as_str()])
-                                        .collect::<Vec<_>>()
-                                ).unwrap_or_else(|_| "[]".to_string());
-                                tracing::info!("Injecting {} DeepSeek cookies", session_data.cookies.len());
-                                let cookies_script = format!(r#"
+                                        .collect::<Vec<_>>(),
+                                )
+                                .unwrap_or_else(|_| "[]".to_string());
+                                tracing::info!(
+                                    "Injecting {} DeepSeek cookies",
+                                    session_data.cookies.len()
+                                );
+                                let cookies_script = format!(
+                                    r#"
                                     (function() {{
                                         const pairs = {cookie_pairs_json};
                                         pairs.forEach(function(pair) {{
@@ -385,14 +416,16 @@ async fn inject_session(
                                         }});
                                         return document.cookie;
                                     }})();
-                                "#, cookie_pairs_json = cookie_pairs_json);
+                                "#,
+                                    cookie_pairs_json = cookie_pairs_json
+                                );
                                 let _ = tab.evaluate(&cookies_script, false);
                                 tracing::info!("Cookies injected via JS");
 
                                 // Reload page so cookies are sent to the server and session is activated
                                 let _ = tab.navigate_to("https://chat.deepseek.com/");
                                 tracing::info!("Reloading DeepSeek page with cookies");
-                                std::thread::sleep(std::time::Duration::from_secs(5));
+                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                                 // Verify we're on the chat page (not login)
                                 let check_script = r#"
@@ -413,8 +446,14 @@ async fn inject_session(
 
                                 let browser_arc = Arc::new(browser);
                                 tracing::info!("Registering browser for account {}", account_id);
-                                state.account_pool.register_browser(account_id, browser_arc.clone()).await;
-                                tracing::info!("DeepSeek browser registered for account {}", account_id);
+                                state
+                                    .account_pool
+                                    .register_browser(account_id, browser_arc.clone())
+                                    .await;
+                                tracing::info!(
+                                    "DeepSeek browser registered for account {}",
+                                    account_id
+                                );
                             } else {
                                 tracing::warn!("Failed to navigate to DeepSeek chat");
                             }
@@ -433,7 +472,11 @@ async fn inject_session(
         }
     }
 
-    tracing::info!("Session injected for account {} (provider: {})", account_id, account.provider);
+    tracing::info!(
+        "Session injected for account {} (provider: {})",
+        account_id,
+        account.provider
+    );
 
     Ok(Json(PasswordLoginResponse {
         success: true,
@@ -470,11 +513,15 @@ async fn initiate_phone_login(
     Path(id): Path<String>,
     Json(body): Json<PhoneLoginInitRequest>,
 ) -> Result<Json<PhoneLoginInitResponse>, ApiError> {
-    let account = state.db.get_browser_account(
-        Uuid::parse_str(&id).map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
-    .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
+    let account = state
+        .db
+        .get_browser_account(
+            Uuid::parse_str(&id)
+                .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?,
+        )
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
+        .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
     let session = state.headless_browser.initiate_phone_login(
         &account.provider,
@@ -490,9 +537,11 @@ async fn initiate_phone_login(
         other => ApiError::LoginFailed(format!("{}", other)),
     })?;
 
-
     let redis_key = format!("phone_login:{}", id);
-    state.redis.set_with_ttl(&redis_key, &session.id.to_string(), 600).await
+    state
+        .redis
+        .set_with_ttl(&redis_key, &session.id.to_string(), 600)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?;
 
     Ok(Json(PhoneLoginInitResponse {
@@ -513,44 +562,48 @@ async fn complete_phone_login(
     let account_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
-    let account = state.db.get_browser_account(account_id).await
+    let account = state
+        .db
+        .get_browser_account(account_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("Account not found".to_string()))?;
 
     let redis_key = format!("phone_login:{}", id);
-    let session_id = state.redis.get(&redis_key).await
+    let session_id = state
+        .redis
+        .get(&redis_key)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?
         .and_then(|s| Uuid::parse_str(&s).ok())
-        .ok_or(ApiError::InvalidRequest("Phone login session expired. Please initiate again.".to_string()))?;
+        .ok_or(ApiError::InvalidRequest(
+            "Phone login session expired. Please initiate again.".to_string(),
+        ))?;
 
-    let cookies_json = state.headless_browser.complete_phone_login(
-        session_id,
-        &body.code,
-    ).await
-    .map_err(|e| match e {
-        provider_client::ProviderError::AuthenticationError(msg) => ApiError::LoginFailed(msg),
-        provider_client::ProviderError::LoginFailed(msg) => ApiError::LoginFailed(msg),
-        other => ApiError::LoginFailed(format!("{}", other)),
-    })?;
+    let cookies_json = state
+        .headless_browser
+        .complete_phone_login(session_id, &body.code)
+        .await
+        .map_err(|e| match e {
+            provider_client::ProviderError::AuthenticationError(msg) => ApiError::LoginFailed(msg),
+            provider_client::ProviderError::LoginFailed(msg) => ApiError::LoginFailed(msg),
+            other => ApiError::LoginFailed(format!("{}", other)),
+        })?;
 
-    let session_data: provider_client::PersistedSession =
-        serde_json::from_str(&cookies_json)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
+    let session_data: provider_client::PersistedSession = serde_json::from_str(&cookies_json)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to parse session: {}", e)))?;
 
-    state.db.update_browser_account_session(
-        account_id,
-        &cookies_json,
-        None,
-        None,
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
+    state
+        .db
+        .update_browser_account_session(account_id, &cookies_json, None, None)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update session: {}", e)))?;
 
-    state.account_pool.register_account(
-        account_id,
-        account.provider.clone(),
-        session_data,
-    ).await
-    .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
+    state
+        .account_pool
+        .register_account(account_id, account.provider.clone(), session_data)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to register account: {}", e)))?;
 
     let _ = state.redis.delete(&redis_key).await;
 
@@ -575,7 +628,10 @@ async fn get_login_url(
         .map_err(|_| ApiError::InvalidRequest("Invalid account ID".to_string()))?;
 
     // Refresh session state
-    let session = state.headless_browser.refresh_session(account_id).await
+    let session = state
+        .headless_browser
+        .refresh_session(account_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to refresh session: {}", e)))?;
 
     let is_waiting = session.state == BrowserSessionState::WaitingForLogin;
@@ -606,14 +662,15 @@ async fn get_account_status(
 
     // Validate token from query param for SSE (EventSource doesn't support headers)
     if let Some(token) = params.get("token") {
-        let claims = auth::JwtService::validate_token(token)
-            .map_err(|_| ApiError::Unauthorized)?;
+        let claims = auth::JwtService::validate_token(token).map_err(|_| ApiError::Unauthorized)?;
 
-        let user_id = claims.user_id()
-            .map_err(|_| ApiError::Unauthorized)?;
+        let user_id = claims.user_id().map_err(|_| ApiError::Unauthorized)?;
 
         // Verify user is admin
-        let user = state.db.get_user_by_id(user_id).await
+        let user = state
+            .db
+            .get_user_by_id(user_id)
+            .await
             .map_err(|_| ApiError::Unauthorized)?
             .ok_or(ApiError::Unauthorized)?;
 
@@ -640,7 +697,11 @@ async fn get_account_status(
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
             // Refresh session state
-            match state_clone.headless_browser.refresh_session(account_id).await {
+            match state_clone
+                .headless_browser
+                .refresh_session(account_id)
+                .await
+            {
                 Ok(session) => {
                     let current_status = format!("{:?}", session.state);
                     let current_url = session.current_url.clone();
@@ -658,53 +719,67 @@ async fn get_account_status(
                                 let email: Option<String> = None; // Simplified - actual email extraction would require parsing
 
                                 // Update account in database
-                                let _ = state_clone.db.update_browser_account_session(
-                                    account_id,
-                                    &cookies_json,
-                                    email.as_deref(),
-                                    None,
-                                ).await;
+                                let _ = state_clone
+                                    .db
+                                    .update_browser_account_session(
+                                        account_id,
+                                        &cookies_json,
+                                        email.as_deref(),
+                                        None,
+                                    )
+                                    .await;
 
                                 // Store session in Redis
-                                let _ = state_clone.redis.store_account_session(
-                                    &account_id.to_string(),
-                                    &cookies_json,
-                                ).await;
+                                let _ = state_clone
+                                    .redis
+                                    .store_account_session(&account_id.to_string(), &cookies_json)
+                                    .await;
 
                                 // Register in account pool
                                 use provider_client::PersistedSession;
-                                if let Ok(session_data) = serde_json::from_str::<PersistedSession>(&cookies_json) {
-                                    let _ = state_clone.account_pool.register_account(
-                                        account_id,
-                                        session.provider.clone(),
-                                        session_data,
-                                    ).await;
+                                if let Ok(session_data) =
+                                    serde_json::from_str::<PersistedSession>(&cookies_json)
+                                {
+                                    let _ = state_clone
+                                        .account_pool
+                                        .register_account(
+                                            account_id,
+                                            session.provider.clone(),
+                                            session_data,
+                                        )
+                                        .await;
                                 }
 
-                                ("status", serde_json::json!({
-                                    "status": "active",
-                                    "email": email,
-                                    "message": "Login successful!"
-                                }))
+                                (
+                                    "status",
+                                    serde_json::json!({
+                                        "status": "active",
+                                        "email": email,
+                                        "message": "Login successful!"
+                                    }),
+                                )
                             }
-                            BrowserSessionState::Failed => {
-                                ("status", serde_json::json!({
+                            BrowserSessionState::Failed => (
+                                "status",
+                                serde_json::json!({
                                     "status": "error",
                                     "message": "Login failed or timeout"
-                                }))
-                            }
-                            BrowserSessionState::Closed => {
-                                ("status", serde_json::json!({
+                                }),
+                            ),
+                            BrowserSessionState::Closed => (
+                                "status",
+                                serde_json::json!({
                                     "status": "closed",
                                     "message": "Session closed"
-                                }))
-                            }
-                            BrowserSessionState::WaitingForLogin => {
-                                ("status", serde_json::json!({
+                                }),
+                            ),
+                            BrowserSessionState::WaitingForLogin => (
+                                "status",
+                                serde_json::json!({
                                     "status": "waiting",
                                     "message": "Waiting for login..."
-                                }))
-                            }
+                                }),
+                            ),
                         };
 
                         let event = Event::default()
@@ -726,11 +801,12 @@ async fn get_account_status(
                     if last_url.as_ref() != Some(&current_url) {
                         last_url = Some(current_url.clone());
 
-                        let event = Event::default()
-                            .event("url")
-                            .data(serde_json::json!({
+                        let event = Event::default().event("url").data(
+                            serde_json::json!({
                                 "url": current_url
-                            }).to_string());
+                            })
+                            .to_string(),
+                        );
 
                         let _ = tx.send(Ok(event));
                     }
@@ -743,21 +819,28 @@ async fn get_account_status(
             // Also check for headless browser events
             while let Ok(event) = event_rx.try_recv() {
                 match event {
-                    LoginEvent::StateChanged { session_id, new_state, cookies_json, .. } if session_id == account_id => {
+                    LoginEvent::StateChanged {
+                        session_id,
+                        new_state,
+                        cookies_json,
+                        ..
+                    } if session_id == account_id => {
                         let (event_type, event_data) = match new_state {
-                            BrowserSessionState::LoggedIn => {
-                                ("status", serde_json::json!({
+                            BrowserSessionState::LoggedIn => (
+                                "status",
+                                serde_json::json!({
                                     "status": "active",
                                     "cookies": cookies_json,
                                     "message": "Login successful!"
-                                }))
-                            }
-                            BrowserSessionState::Failed => {
-                                ("status", serde_json::json!({
+                                }),
+                            ),
+                            BrowserSessionState::Failed => (
+                                "status",
+                                serde_json::json!({
                                     "status": "error",
                                     "message": "Login failed"
-                                }))
-                            }
+                                }),
+                            ),
                             _ => continue,
                         };
 
@@ -767,7 +850,9 @@ async fn get_account_status(
 
                         let _ = tx.send(Ok(event));
 
-                        if new_state == BrowserSessionState::LoggedIn || new_state == BrowserSessionState::Failed {
+                        if new_state == BrowserSessionState::LoggedIn
+                            || new_state == BrowserSessionState::Failed
+                        {
                             break;
                         }
                     }
@@ -827,15 +912,20 @@ async fn complete_login(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Verify QR session if code is provided
     if let Some(code) = &body.code {
-        let _qr_session_id = state.redis.get_qr_session(code).await
+        let _qr_session_id = state
+            .redis
+            .get_qr_session(code)
+            .await
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Redis error: {}", e)))?
-            .ok_or(ApiError::InvalidRequest("Invalid or expired code".to_string()))?;
+            .ok_or(ApiError::InvalidRequest(
+                "Invalid or expired code".to_string(),
+            ))?;
     }
 
     // If session_data is provided directly, use it
     if body.session_data.is_some() {
         return Err(ApiError::InvalidRequest(
-            "session_data requires account_id in query params".to_string()
+            "session_data requires account_id in query params".to_string(),
         ));
     }
 

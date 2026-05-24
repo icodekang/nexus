@@ -92,7 +92,8 @@ impl SubscriptionStatusInfo {
 
         let now = Utc::now();
         let is_expired = subscription.end_at <= now;
-        let is_active = subscription.status == models::subscription::SubscriptionStatus::Active && !is_expired;
+        let is_active =
+            subscription.status == models::subscription::SubscriptionStatus::Active && !is_expired;
         let days_remaining = if is_expired {
             0
         } else {

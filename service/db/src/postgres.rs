@@ -1,15 +1,18 @@
 //! PostgreSQL 数据库模块
 
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::Row;
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use rust_decimal::Decimal;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 use crate::DbError;
-use models::{User, ApiKey, Provider, ProviderKey, LlmModel, Subscription, Transaction, ApiLog, SubscriptionPlan};
+use models::{
+    ApiKey, ApiLog, LlmModel, Provider, ProviderKey, Subscription, SubscriptionPlan, Transaction,
+    User,
+};
 use models::{BrowserAccount, BrowserAccountStatus};
 
 /// PostgreSQL 连接池
@@ -21,7 +24,7 @@ impl PostgresPool {
             .max_connections(10)
             .connect(database_url)
             .await?;
-        
+
         Ok(Self(pool))
     }
 
@@ -55,7 +58,7 @@ impl PostgresPool {
         .bind(user.updated_at)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
     }
 
@@ -64,7 +67,7 @@ impl PostgresPool {
             .bind(id)
             .fetch_optional(self.inner())
             .await?;
-        
+
         Ok(row.map(|r| self.row_to_user(&r)))
     }
 
@@ -106,7 +109,7 @@ impl PostgresPool {
         .bind(end)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
     }
 
@@ -116,7 +119,9 @@ impl PostgresPool {
             email: row.get("email"),
             phone: row.get("phone"),
             password_hash: row.get("password_hash"),
-            subscription_plan: SubscriptionPlan::from_str(&row.get::<String, _>("subscription_plan")),
+            subscription_plan: SubscriptionPlan::from_str(
+                &row.get::<String, _>("subscription_plan"),
+            ),
             subscription_start: row.get("subscription_start"),
             subscription_end: row.get("subscription_end"),
             is_admin: row.get("is_admin"),
@@ -148,24 +153,26 @@ impl PostgresPool {
             tracing::error!("create_api_key failed: id={}, user_id={}, key_prefix={}, error={:?}", key.id, key.user_id, key.key_prefix, e);
             e
         })?;
-        
+
         Ok(())
     }
 
     pub async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, DbError> {
-        let row: Option<PgRow> = sqlx::query("SELECT * FROM api_keys WHERE key_hash = $1 AND is_active = true")
-            .bind(key_hash)
-            .fetch_optional(self.inner())
-            .await?;
-        
+        let row: Option<PgRow> =
+            sqlx::query("SELECT * FROM api_keys WHERE key_hash = $1 AND is_active = true")
+                .bind(key_hash)
+                .fetch_optional(self.inner())
+                .await?;
+
         Ok(row.map(|r| self.row_to_api_key(&r)))
     }
 
     pub async fn list_api_keys_by_user(&self, user_id: Uuid) -> Result<Vec<ApiKey>, DbError> {
-        let rows = sqlx::query("SELECT * FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC")
-            .bind(user_id)
-            .fetch_all(self.inner())
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC")
+                .bind(user_id)
+                .fetch_all(self.inner())
+                .await?;
 
         Ok(rows.iter().map(|r| self.row_to_api_key(r)).collect())
     }
@@ -182,20 +189,23 @@ impl PostgresPool {
         .fetch_all(self.inner())
         .await?;
 
-        Ok(rows.iter().map(|r| {
-            let api_key = ApiKey {
-                id: r.get("id"),
-                user_id: r.get("user_id"),
-                key_hash: r.get("key_hash"),
-                key_prefix: r.get("key_prefix"),
-                name: r.get("name"),
-                is_active: r.get("is_active"),
-                last_used_at: r.get("last_used_at"),
-                created_at: r.get("created_at"),
-            };
-            let user_email: String = r.get("user_email");
-            (api_key, user_email)
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let api_key = ApiKey {
+                    id: r.get("id"),
+                    user_id: r.get("user_id"),
+                    key_hash: r.get("key_hash"),
+                    key_prefix: r.get("key_prefix"),
+                    name: r.get("name"),
+                    is_active: r.get("is_active"),
+                    last_used_at: r.get("last_used_at"),
+                    created_at: r.get("created_at"),
+                };
+                let user_email: String = r.get("user_email");
+                (api_key, user_email)
+            })
+            .collect())
     }
 
     pub async fn delete_api_key(&self, key_id: Uuid) -> Result<(), DbError> {
@@ -247,7 +257,7 @@ impl PostgresPool {
         .bind(provider.created_at)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
     }
 
@@ -255,7 +265,7 @@ impl PostgresPool {
         let rows = sqlx::query("SELECT * FROM providers WHERE is_active = true ORDER BY priority")
             .fetch_all(self.inner())
             .await?;
-        
+
         Ok(rows.iter().map(|r| self.row_to_provider(r)).collect())
     }
 
@@ -295,7 +305,7 @@ impl PostgresPool {
         .bind(model.created_at)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
     }
 
@@ -303,44 +313,49 @@ impl PostgresPool {
         let rows = sqlx::query("SELECT * FROM models WHERE is_active = true ORDER BY name")
             .fetch_all(self.inner())
             .await?;
-        
+
         Ok(rows.iter().map(|r| self.row_to_model(r)).collect())
     }
 
-    pub async fn list_models_by_provider(&self, provider_slug: &str) -> Result<Vec<LlmModel>, DbError> {
+    pub async fn list_models_by_provider(
+        &self,
+        provider_slug: &str,
+    ) -> Result<Vec<LlmModel>, DbError> {
         let rows = sqlx::query(
             "SELECT m.* FROM models m JOIN providers p ON m.provider_id = p.slug WHERE p.slug = $1 AND m.is_active = true ORDER BY m.name"
         )
         .bind(provider_slug)
         .fetch_all(self.inner())
         .await?;
-        
+
         Ok(rows.iter().map(|r| self.row_to_model(r)).collect())
     }
 
     pub async fn get_model_by_slug(&self, slug: &str) -> Result<Option<LlmModel>, DbError> {
-        let row: Option<PgRow> = sqlx::query("SELECT * FROM models WHERE slug = $1 AND is_active = true")
-            .bind(slug)
-            .fetch_optional(self.inner())
-            .await?;
-        
+        let row: Option<PgRow> =
+            sqlx::query("SELECT * FROM models WHERE slug = $1 AND is_active = true")
+                .bind(slug)
+                .fetch_optional(self.inner())
+                .await?;
+
         Ok(row.map(|r| self.row_to_model(&r)))
     }
 
     pub async fn model_slug_exists(&self, slug: &str) -> Result<bool, DbError> {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM models WHERE slug = $1)")
-            .bind(slug)
-            .fetch_one(self.inner())
-            .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM models WHERE slug = $1)")
+                .bind(slug)
+                .fetch_one(self.inner())
+                .await?;
         Ok(exists)
     }
 
     fn row_to_model(&self, row: &PgRow) -> LlmModel {
         use models::ModelMode;
-        
+
         let capabilities: serde_json::Value = row.get("capabilities");
         let capabilities: Vec<String> = serde_json::from_value(capabilities).unwrap_or_default();
-        
+
         LlmModel {
             id: row.get("id"),
             provider_id: row.get("provider_id"),
@@ -371,17 +386,20 @@ impl PostgresPool {
         .bind(sub.id)
         .bind(sub.user_id)
         .bind(sub.plan.as_str())
-        .bind(format!("{:?}", sub.status).to_lowercase())
+        .bind(sub.status.as_str())
         .bind(sub.start_at)
         .bind(sub.end_at)
         .bind(sub.created_at)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
     }
 
-    pub async fn get_active_subscription(&self, user_id: Uuid) -> Result<Option<Subscription>, DbError> {
+    pub async fn get_active_subscription(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<Subscription>, DbError> {
         let row: Option<PgRow> = sqlx::query(
             r#"
             SELECT * FROM subscriptions 
@@ -392,14 +410,14 @@ impl PostgresPool {
         .bind(user_id)
         .fetch_optional(self.inner())
         .await?;
-        
+
         Ok(row.map(|r| self.row_to_subscription(&r)))
     }
 
     fn row_to_subscription(&self, row: &PgRow) -> Subscription {
         use models::subscription::SubscriptionStatus;
         use models::SubscriptionPlan;
-        
+
         Subscription {
             id: row.get("id"),
             user_id: row.get("user_id"),
@@ -426,34 +444,38 @@ impl PostgresPool {
         )
         .bind(tx.id)
         .bind(tx.user_id)
-        .bind(format!("{:?}", tx.transaction_type).to_lowercase())
+        .bind(tx.transaction_type.as_str())
         .bind(Decimal::from_f64_retain(tx.amount).unwrap_or_default())
         .bind(tx.plan.as_ref().map(|p: &SubscriptionPlan| p.as_str()))
-        .bind(format!("{:?}", tx.status).to_lowercase())
+        .bind(tx.status.as_str())
         .bind(&tx.description)
         .bind(tx.created_at)
         .execute(self.inner())
         .await?;
-        
+
         Ok(())
     }
 
-    pub async fn list_transactions(&self, user_id: Uuid, limit: i32) -> Result<Vec<Transaction>, DbError> {
+    pub async fn list_transactions(
+        &self,
+        user_id: Uuid,
+        limit: i32,
+    ) -> Result<Vec<Transaction>, DbError> {
         let rows = sqlx::query(
-            "SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2"
+            "SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
         )
         .bind(user_id)
         .bind(limit)
         .fetch_all(self.inner())
         .await?;
-        
+
         Ok(rows.iter().map(|r| self.row_to_transaction(r)).collect())
     }
 
     fn row_to_transaction(&self, row: &PgRow) -> Transaction {
         use models::subscription::{TransactionStatus, TransactionType};
         use models::SubscriptionPlan;
-        
+
         Transaction {
             id: row.get("id"),
             user_id: row.get("user_id"),
@@ -463,8 +485,11 @@ impl PostgresPool {
                 "subscription_cancellation" => TransactionType::SubscriptionCancellation,
                 _ => TransactionType::Refund,
             },
-            amount: rust_decimal::prelude::ToPrimitive::to_f64(&row.get::<Decimal, _>("amount")).unwrap_or(0.0),
-            plan: row.get::<Option<String>, _>("plan").map(|p| SubscriptionPlan::from_str(&p)),
+            amount: rust_decimal::prelude::ToPrimitive::to_f64(&row.get::<Decimal, _>("amount"))
+                .unwrap_or(0.0),
+            plan: row
+                .get::<Option<String>, _>("plan")
+                .map(|p| SubscriptionPlan::from_str(&p)),
             status: match row.get::<String, _>("status").as_str() {
                 "pending" => TransactionStatus::Pending,
                 "failed" => TransactionStatus::Failed,
@@ -495,7 +520,7 @@ impl PostgresPool {
         .bind(log.input_tokens)
         .bind(log.output_tokens)
         .bind(log.latency_ms)
-        .bind(format!("{:?}", log.status).to_lowercase())
+        .bind(log.status.as_str())
         .bind(&log.error_message)
         .bind(log.created_at)
         .execute(self.inner())
@@ -612,25 +637,36 @@ impl PostgresPool {
             total_input_tokens: row.get("total_input_tokens"),
             total_output_tokens: row.get("total_output_tokens"),
             total_latency_ms: row.get("total_latency_ms"),
-            usage_by_provider: provider_rows.iter().map(|r| models::ProviderUsage {
-                provider: r.get("provider_id"),
-                requests: r.get("requests"),
-                input_tokens: r.get("input_tokens"),
-                output_tokens: r.get("output_tokens"),
-            }).collect(),
-            usage_by_model: model_rows.iter().map(|r| models::ModelUsage {
-                model: r.get("model_id"),
-                provider: r.get("provider_id"),
-                requests: r.get("requests"),
-                input_tokens: r.get("input_tokens"),
-                output_tokens: r.get("output_tokens"),
-            }).collect(),
+            usage_by_provider: provider_rows
+                .iter()
+                .map(|r| models::ProviderUsage {
+                    provider: r.get("provider_id"),
+                    requests: r.get("requests"),
+                    input_tokens: r.get("input_tokens"),
+                    output_tokens: r.get("output_tokens"),
+                })
+                .collect(),
+            usage_by_model: model_rows
+                .iter()
+                .map(|r| models::ModelUsage {
+                    model: r.get("model_id"),
+                    provider: r.get("provider_id"),
+                    requests: r.get("requests"),
+                    input_tokens: r.get("input_tokens"),
+                    output_tokens: r.get("output_tokens"),
+                })
+                .collect(),
         })
     }
 
     // ============ Admin operations ============
 
-    pub async fn list_users(&self, offset: i64, limit: i64, search: &str) -> Result<Vec<User>, DbError> {
+    pub async fn list_users(
+        &self,
+        offset: i64,
+        limit: i64,
+        search: &str,
+    ) -> Result<Vec<User>, DbError> {
         let rows = sqlx::query(
             r#"
             SELECT * FROM users
@@ -676,11 +712,13 @@ impl PostgresPool {
                 .await?;
         }
         if let Some(plan) = subscription_plan {
-            sqlx::query("UPDATE users SET subscription_plan = $2, updated_at = NOW() WHERE id = $1")
-                .bind(user_id)
-                .bind(plan)
-                .execute(self.inner())
-                .await?;
+            sqlx::query(
+                "UPDATE users SET subscription_plan = $2, updated_at = NOW() WHERE id = $1",
+            )
+            .bind(user_id)
+            .bind(plan)
+            .execute(self.inner())
+            .await?;
         }
         Ok(())
     }
@@ -778,11 +816,16 @@ impl PostgresPool {
         Ok(row.map(|r| self.row_to_provider_key(&r)))
     }
 
-    pub async fn get_provider_key_by_slug(&self, slug: &str) -> Result<Option<ProviderKey>, DbError> {
-        let row = sqlx::query("SELECT * FROM provider_keys WHERE provider_slug = $1 AND is_active = true")
-            .bind(slug)
-            .fetch_optional(self.inner())
-            .await?;
+    pub async fn get_provider_key_by_slug(
+        &self,
+        slug: &str,
+    ) -> Result<Option<ProviderKey>, DbError> {
+        let row = sqlx::query(
+            "SELECT * FROM provider_keys WHERE provider_slug = $1 AND is_active = true",
+        )
+        .bind(slug)
+        .fetch_optional(self.inner())
+        .await?;
 
         Ok(row.map(|r| self.row_to_provider_key(&r)))
     }
@@ -921,14 +964,21 @@ impl PostgresPool {
         .fetch_all(self.inner())
         .await?;
 
-        Ok(rows.iter().map(|r| {
-            let tx = self.row_to_transaction(r);
-            let email: String = r.get("user_email");
-            (tx, email)
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let tx = self.row_to_transaction(r);
+                let email: String = r.get("user_email");
+                (tx, email)
+            })
+            .collect())
     }
 
-    pub async fn count_all_transactions(&self, tx_type: &str, status: &str) -> Result<i64, DbError> {
+    pub async fn count_all_transactions(
+        &self,
+        tx_type: &str,
+        status: &str,
+    ) -> Result<i64, DbError> {
         let row = sqlx::query(
             r#"
             SELECT COUNT(*) as count FROM transactions
@@ -967,12 +1017,11 @@ impl PostgresPool {
         .parse::<f64>()
         .unwrap_or(0.0);
 
-        let api_calls_today: i64 = sqlx::query(
-            "SELECT COUNT(*) as count FROM api_logs WHERE created_at >= CURRENT_DATE"
-        )
-        .fetch_one(self.inner())
-        .await?
-        .get("count");
+        let api_calls_today: i64 =
+            sqlx::query("SELECT COUNT(*) as count FROM api_logs WHERE created_at >= CURRENT_DATE")
+                .fetch_one(self.inner())
+                .await?
+                .get("count");
 
         Ok(DashboardStats {
             total_users: user_count,
@@ -1013,7 +1062,10 @@ impl PostgresPool {
             .fetch_all(self.inner())
             .await?;
 
-        Ok(rows.iter().map(|r| self.row_to_browser_account(r)).collect())
+        Ok(rows
+            .iter()
+            .map(|r| self.row_to_browser_account(r))
+            .collect())
     }
 
     pub async fn get_browser_account(&self, id: Uuid) -> Result<Option<BrowserAccount>, DbError> {
@@ -1072,14 +1124,16 @@ impl PostgresPool {
         Ok(())
     }
 
-    pub async fn update_browser_account_status(&self, id: Uuid, status: BrowserAccountStatus) -> Result<(), DbError> {
-        sqlx::query(
-            "UPDATE browser_accounts SET status = $2, updated_at = NOW() WHERE id = $1"
-        )
-        .bind(id)
-        .bind(status.as_str())
-        .execute(self.inner())
-        .await?;
+    pub async fn update_browser_account_status(
+        &self,
+        id: Uuid,
+        status: BrowserAccountStatus,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE browser_accounts SET status = $2, updated_at = NOW() WHERE id = $1")
+            .bind(id)
+            .bind(status.as_str())
+            .execute(self.inner())
+            .await?;
 
         Ok(())
     }
@@ -1155,17 +1209,20 @@ impl PostgresPool {
                 AND t.amount > 0
             GROUP BY day
             ORDER BY day
-            "#
+            "#,
         )
         .bind(days)
         .fetch_all(self.inner())
         .await?;
 
-        Ok(rows.into_iter().map(|row| RevenueTrend {
-            label: row.get("label"),
-            value: row.get::<f64, _>("value"),
-            date: row.get("date"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| RevenueTrend {
+                label: row.get("label"),
+                value: row.get::<f64, _>("value"),
+                date: row.get("date"),
+            })
+            .collect())
     }
 
     pub async fn get_recent_activity(&self, limit: i64) -> Result<Vec<RecentActivity>, DbError> {
@@ -1203,23 +1260,26 @@ impl PostgresPool {
         .fetch_all(self.inner())
         .await?;
 
-        Ok(rows.into_iter().map(|row| {
-            let seconds: i32 = row.get("seconds_ago");
-            let time_ago = if seconds < 60 {
-                format!("{}s", seconds)
-            } else if seconds < 3600 {
-                format!("{}m", seconds / 60)
-            } else if seconds < 86400 {
-                format!("{}h", seconds / 3600)
-            } else {
-                format!("{}d", seconds / 86400)
-            };
-            RecentActivity {
-                user_email: row.get("user_email"),
-                action_type: row.get("action_type"),
-                description: row.get("description"),
-                time_ago,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let seconds: i32 = row.get("seconds_ago");
+                let time_ago = if seconds < 60 {
+                    format!("{}s", seconds)
+                } else if seconds < 3600 {
+                    format!("{}m", seconds / 60)
+                } else if seconds < 86400 {
+                    format!("{}h", seconds / 3600)
+                } else {
+                    format!("{}d", seconds / 86400)
+                };
+                RecentActivity {
+                    user_email: row.get("user_email"),
+                    action_type: row.get("action_type"),
+                    description: row.get("description"),
+                    time_ago,
+                }
+            })
+            .collect())
     }
 }

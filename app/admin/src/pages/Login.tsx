@@ -3,7 +3,7 @@
  * 提供邮箱/密码登录功能，支持中英文切换
  * 登录成功后跳转到仪表盘
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useI18n } from '../i18n';
@@ -22,11 +22,11 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // 已登录用户直接跳转到仪表盘
-  if (isAuthenticated) {
-    navigate('/dashboard', { replace: true });
-    return null;
-  }
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   // 处理登录表单提交
   const handleSubmit = async (e: React.FormEvent) => {

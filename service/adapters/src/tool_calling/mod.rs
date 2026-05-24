@@ -74,10 +74,7 @@ impl ToolCallMiddleware {
 
             for call in &calls {
                 let tool_result = execute_tool(call);
-                all_content.push_str(&format!(
-                    "\n[Tool: {}] {}\n",
-                    call.tool, tool_result
-                ));
+                all_content.push_str(&format!("\n[Tool: {}] {}\n", call.tool, tool_result));
 
                 messages_for_model.push(Message::assistant(format!(
                     "```tool_json\n{{\"tool\": \"{}\", \"args\": {}}}\n```",
@@ -117,24 +114,24 @@ impl ToolCallMiddleware {
 fn execute_tool(call: &ToolCall) -> String {
     match call.tool.as_str() {
         "web_search" => {
-            let query = call.args.get("query")
+            let query = call
+                .args
+                .get("query")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             format!("[web_search not available offline] query: {}", query)
         }
         "read" => {
-            let path = call.args.get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let path = call.args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             std::fs::read_to_string(path)
                 .map(|s| s.chars().take(4000).collect::<String>())
                 .unwrap_or_else(|e| format!("Error reading: {}", e))
         }
         "write" => {
-            let path = call.args.get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let content = call.args.get("content")
+            let path = call.args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = call
+                .args
+                .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             match std::fs::write(path, content) {
@@ -143,33 +140,19 @@ fn execute_tool(call: &ToolCall) -> String {
             }
         }
         "exec" => {
-            let command = call.args.get("command")
+            let command = call
+                .args
+                .get("command")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let output = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(command)
-                .output();
-            match output {
-                Ok(o) => {
-                    let stdout = String::from_utf8_lossy(&o.stdout);
-                    let stderr = String::from_utf8_lossy(&o.stderr);
-                    let mut result = stdout.to_string();
-                    if !stderr.is_empty() {
-                        result.push_str("\nstderr: ");
-                        result.push_str(&stderr);
-                    }
-                    result.chars().take(4000).collect()
-                }
-                Err(e) => format!("Error executing: {}", e),
-            }
+            format!("[exec blocked for security] command: {}", command)
         }
-        "message" => {
-            call.args.get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
+        "message" => call
+            .args
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         _ => format!("Unknown tool: {}", call.tool),
     }
 }
@@ -192,11 +175,9 @@ impl ProviderClient for ToolCallMiddleware {
         self.chat_with_tools(request, self.provider_id()).await
     }
 
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-    ) -> Result<Vec<ChatChunk>, ProviderError> {
-        self.chat_stream_with_tools(request, self.provider_id()).await
+    async fn chat_stream(&self, request: ChatRequest) -> Result<Vec<ChatChunk>, ProviderError> {
+        self.chat_stream_with_tools(request, self.provider_id())
+            .await
     }
 
     async fn embeddings(

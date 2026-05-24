@@ -106,6 +106,16 @@ pub enum ApiLogStatus {
     RateLimited,
 }
 
+impl ApiLogStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApiLogStatus::Success => "success",
+            ApiLogStatus::Error => "error",
+            ApiLogStatus::RateLimited => "rate_limited",
+        }
+    }
+}
+
 /// 用户使用统计
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageStats {

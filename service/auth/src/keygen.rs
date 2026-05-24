@@ -2,7 +2,7 @@
 //!
 //! 提供 API Key 的生成、哈希和验证功能
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// API Key 生成器
@@ -117,7 +117,9 @@ mod tests {
         assert!(!ApiKeyGenerator::validate_format("invalid"));
         assert!(!ApiKeyGenerator::validate_format("sk-short"));
         assert!(!ApiKeyGenerator::validate_format("sk-nexus-short"));
-        assert!(!ApiKeyGenerator::validate_format("wrong-prefix-abcdef1234567890abcdef1234567890"));
+        assert!(!ApiKeyGenerator::validate_format(
+            "wrong-prefix-abcdef1234567890abcdef1234567890"
+        ));
     }
 
     #[test]

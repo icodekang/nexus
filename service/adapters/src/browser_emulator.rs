@@ -20,8 +20,7 @@
 
 use crate::error::ProviderError;
 use crate::types::{
-    ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, Message,
-    ProviderType,
+    ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, Message, ProviderType,
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -131,9 +130,13 @@ impl BrowserEmulatorClient {
 
     /// Initialize session by hitting the main page to get cookies
     async fn init_session(&self, session: &mut BrowserSession) -> Result<(), ProviderError> {
-        let resp = self.client
+        let resp = self
+            .client
             .get(&self.base_url)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
             .header("Accept-Language", "en-US,en;q=0.9")
             .header("Accept-Encoding", "gzip, deflate, br")
             .header("Connection", "keep-alive")
@@ -143,9 +146,10 @@ impl BrowserEmulatorClient {
             .map_err(|e| ProviderError::RequestFailed(e))?;
 
         if !resp.status().is_success() && resp.status().as_u16() != 403 {
-            return Err(ProviderError::InvalidResponse(
-                format!("Failed to initialize session: {}", resp.status())
-            ));
+            return Err(ProviderError::InvalidResponse(format!(
+                "Failed to initialize session: {}",
+                resp.status()
+            )));
         }
 
         // Extract cookies from headers (simple approach without cookie_store)
@@ -167,7 +171,7 @@ impl BrowserEmulatorClient {
         let session = self.session.read().await;
         if !session.is_valid() {
             return Err(ProviderError::AuthenticationError(
-                "Browser session expired or invalid".to_string()
+                "Browser session expired or invalid".to_string(),
             ));
         }
 
@@ -179,11 +183,14 @@ impl BrowserEmulatorClient {
     }
 
     /// Send a streaming chat message via browser session
-    pub async fn chat_stream(&self, request: ChatRequest) -> Result<Vec<crate::client::ChatChunk>, ProviderError> {
+    pub async fn chat_stream(
+        &self,
+        request: ChatRequest,
+    ) -> Result<Vec<crate::client::ChatChunk>, ProviderError> {
         let session = self.session.read().await;
         if !session.is_valid() {
             return Err(ProviderError::AuthenticationError(
-                "Browser session expired or invalid".to_string()
+                "Browser session expired or invalid".to_string(),
             ));
         }
 
@@ -204,7 +211,9 @@ impl BrowserEmulatorClient {
     fn build_chat_payload(&self, request: &ChatRequest) -> serde_json::Value {
         match self.provider.as_str() {
             "deepseek" => {
-                let prompt = request.messages.iter()
+                let prompt = request
+                    .messages
+                    .iter()
                     .map(|m| format!("{}: {}", m.role, m.content))
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -240,13 +249,16 @@ impl BrowserEmulatorClient {
         let url = self.build_chat_url();
         let payload = self.build_chat_payload(request);
 
-        let mut req = self.client
+        let mut req = self
+            .client
             .post(&url)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json");
 
         // Add cookies
-        let cookie_str: String = session.cookies.iter()
+        let cookie_str: String = session
+            .cookies
+            .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join("; ");
@@ -267,11 +279,13 @@ impl BrowserEmulatorClient {
 
         if resp.status() == 401 || resp.status() == 403 {
             return Err(ProviderError::AuthenticationError(
-                "Browser session authentication failed".to_string()
+                "Browser session authentication failed".to_string(),
             ));
         }
 
-        resp.json().await.map_err(|e| ProviderError::InvalidResponse(e.to_string()))
+        resp.json()
+            .await
+            .map_err(|e| ProviderError::InvalidResponse(e.to_string()))
     }
 
     /// Send streaming chat request
@@ -287,7 +301,8 @@ impl BrowserEmulatorClient {
             obj.insert("stream".to_string(), serde_json::json!(true));
         }
 
-        let mut req = self.client
+        let mut req = self
+            .client
             .post(&url)
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
@@ -295,7 +310,9 @@ impl BrowserEmulatorClient {
             .header("Connection", "keep-alive");
 
         // Add cookies
-        let cookie_str: String = session.cookies.iter()
+        let cookie_str: String = session
+            .cookies
+            .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join("; ");
@@ -316,7 +333,7 @@ impl BrowserEmulatorClient {
 
         if resp.status() == 401 || resp.status() == 403 {
             return Err(ProviderError::AuthenticationError(
-                "Browser session authentication failed".to_string()
+                "Browser session authentication failed".to_string(),
             ));
         }
 
@@ -360,10 +377,7 @@ impl BrowserEmulatorClient {
                                 (delta, finished, reason)
                             }
                             _ => {
-                                let delta = json["delta"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_string();
+                                let delta = json["delta"].as_str().unwrap_or("").to_string();
                                 let finished = json["finished"].as_bool().unwrap_or(false);
                                 let reason = json["finish_reason"].as_str().map(|s| s.to_string());
                                 (delta, finished, reason)
@@ -397,18 +411,12 @@ impl BrowserEmulatorClient {
         let (id, content) = match self.provider.as_str() {
             "claude" => {
                 let id = data["id"].as_str().unwrap_or("unknown").to_string();
-                let content = data["content"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
+                let content = data["content"].as_str().unwrap_or("").to_string();
                 (id, content)
             }
             "chatgpt" => {
                 let id = data["id"].as_str().unwrap_or("unknown").to_string();
-                let content = data["message"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
+                let content = data["message"].as_str().unwrap_or("").to_string();
                 (id, content)
             }
             "deepseek" => {
@@ -424,14 +432,20 @@ impl BrowserEmulatorClient {
             }
             _ => {
                 return Err(ProviderError::InvalidResponse(
-                    "Unknown browser provider".to_string()
+                    "Unknown browser provider".to_string(),
                 ));
             }
         };
 
         let usage = data.get("usage").cloned().unwrap_or_default();
-        let prompt_tokens = usage.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let completion_tokens = usage.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let prompt_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+        let completion_tokens = usage
+            .get("completion_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
 
         Ok(ChatResponse {
             id,
@@ -443,7 +457,10 @@ impl BrowserEmulatorClient {
             usage: [
                 ("prompt_tokens".to_string(), prompt_tokens),
                 ("completion_tokens".to_string(), completion_tokens),
-                ("total_tokens".to_string(), prompt_tokens + completion_tokens),
+                (
+                    "total_tokens".to_string(),
+                    prompt_tokens + completion_tokens,
+                ),
             ]
             .into_iter()
             .collect(),

@@ -1,12 +1,15 @@
 //! 模型列表路由模块
 //! 提供模型列表查询接口
 
-use axum::{extract::{Query, State}, Json};
+use axum::{
+    extract::{Query, State},
+    Json,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::state::AppState;
 use crate::error::ApiError;
+use crate::state::AppState;
 use models::{ModelWithProvider, Provider};
 
 /// 模型查询参数
@@ -45,20 +48,27 @@ pub async fn list_models(
     }
 
     // Load providers from database
-    let providers = state.db.list_providers().await
+    let providers = state
+        .db
+        .list_providers()
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to load providers: {}", e)))?;
 
-    let provider_map: std::collections::HashMap<String, &Provider> = providers
-        .iter()
-        .map(|p| (p.slug.clone(), p))
-        .collect();
+    let provider_map: std::collections::HashMap<String, &Provider> =
+        providers.iter().map(|p| (p.slug.clone(), p)).collect();
 
     // Load models from database
     let all_models = if let Some(ref provider_slug) = query.provider {
-        state.db.list_models_by_provider(provider_slug).await
+        state
+            .db
+            .list_models_by_provider(provider_slug)
+            .await
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to load models: {}", e)))?
     } else {
-        state.db.list_models().await
+        state
+            .db
+            .list_models()
+            .await
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to load models: {}", e)))?
     };
 
@@ -66,7 +76,8 @@ pub async fn list_models(
     let models_with_providers: Vec<ModelWithProvider> = all_models
         .iter()
         .filter_map(|m| {
-            provider_map.get(&m.provider_id)
+            provider_map
+                .get(&m.provider_id)
                 .map(|p| ModelWithProvider::from_model(m, p))
         })
         .collect();
@@ -84,7 +95,10 @@ pub async fn list_models(
     })))
 }
 
-fn filter_models(models: Vec<ModelWithProvider>, provider: &Option<String>) -> Vec<ModelWithProvider> {
+fn filter_models(
+    models: Vec<ModelWithProvider>,
+    provider: &Option<String>,
+) -> Vec<ModelWithProvider> {
     match provider {
         Some(p) => models.into_iter().filter(|m| m.provider == *p).collect(),
         None => models,

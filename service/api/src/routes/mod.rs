@@ -7,10 +7,10 @@
 //! - admin: 管理后台路由
 //! - v1: API v1 版本路由
 
-pub mod v1;
+pub mod admin;
 pub mod auth;
 pub mod me;
-pub mod admin;
+pub mod v1;
 
 use axum::Json;
 

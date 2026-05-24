@@ -2,33 +2,30 @@
 //!
 //! 请求/响应格式与 OpenAI Chat Completions API 完全兼容
 
-use std::sync::Arc;
 use axum::{
     extract::{Query, State},
     http::HeaderMap,
-    response::{IntoResponse, Response, sse::Event},
-    Json, Extension,
+    response::{sse::Event, IntoResponse, Response},
+    Extension, Json,
 };
-use tokio_stream::wrappers::BroadcastStream;
-use tokio::sync::broadcast;
 use futures_util::StreamExt;
 use serde::Deserialize;
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::error::ApiError;
-use crate::state::AppState;
 use crate::middleware::auth::AuthContext;
-use models::{Message as InternalMessage, ChatChunk};
+use crate::state::AppState;
+use models::{ChatChunk, Message as InternalMessage};
 use provider_client::{
-    ChatRequest as ProviderChatRequest,
-    Message as ProviderMessage,
-    HttpProviderClient,
+    ChatRequest as ProviderChatRequest, HttpProviderClient, Message as ProviderMessage,
 };
 
 use super::shared::{
-    rate_limit_for_plan, select_key, create_client, record_result,
-    extract_session_id, default_session_id,
-    check_subscription, check_token_quota,
-    validate_temperature, add_rate_limit_headers, log_api_call,
+    add_rate_limit_headers, check_subscription, check_token_quota, create_client,
+    default_session_id, extract_session_id, log_api_call, rate_limit_for_plan, record_result,
+    select_key, validate_temperature,
 };
 
 // ─── 请求类型 ───────────────────────────────────────────────────────────
@@ -81,7 +78,11 @@ pub struct OpenAIMessage {
 
 impl From<OpenAIMessage> for InternalMessage {
     fn from(m: OpenAIMessage) -> Self {
-        InternalMessage { role: m.role, content: m.content, name: m.name }
+        InternalMessage {
+            role: m.role,
+            content: m.content,
+            name: m.name,
+        }
     }
 }
 
@@ -105,7 +106,10 @@ pub async fn openai_chat_completions(
     let session_id = extract_session_id(&headers).or_else(|| default_session_id(&auth));
 
     unified_chat(
-        state, auth, provider_slug, model_slug,
+        state,
+        auth,
+        provider_slug,
+        model_slug,
         request.messages.into_iter().map(Into::into).collect(),
         request.temperature.unwrap_or(0.7),
         request.max_tokens,
@@ -127,7 +131,9 @@ pub async fn openai_list_models(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     use super::shared::list_models_impl;
     let models = list_models_impl(&state).await?;
-    Ok(Json(serde_json::json!({ "object": "list", "data": models })))
+    Ok(Json(
+        serde_json::json!({ "object": "list", "data": models }),
+    ))
 }
 
 // ─── 统一聊天处理器 ────────────────────────────────────────────────────
@@ -174,7 +180,8 @@ async fn unified_chat(
     if let Some(mt) = max_tokens {
         if mt <= 0 || mt > db_model.context_window {
             return Err(ApiError::InvalidRequest(format!(
-                "max_tokens ({}) out of range", mt
+                "max_tokens ({}) out of range",
+                mt
             )));
         }
     }
@@ -206,14 +213,32 @@ async fn unified_chat(
     let start_time = std::time::Instant::now();
 
     if is_stream {
-        openai_stream_handler(state, auth, provider_slug, model, start_time,
-                              rpm, remaining, reset_time,
-                              provider_for_request, provider_request)
+        openai_stream_handler(
+            state,
+            auth,
+            provider_slug,
+            model,
+            start_time,
+            rpm,
+            remaining,
+            reset_time,
+            provider_for_request,
+            provider_request,
+        )
         .await
     } else {
-        openai_blocking_handler(state, auth, provider_slug, model, start_time,
-                               rpm, remaining, reset_time,
-                               provider_for_request, provider_request)
+        openai_blocking_handler(
+            state,
+            auth,
+            provider_slug,
+            model,
+            start_time,
+            rpm,
+            remaining,
+            reset_time,
+            provider_for_request,
+            provider_request,
+        )
         .await
     }
 }
@@ -287,15 +312,35 @@ async fn openai_blocking_handler(
     }
 
     let provider_resp = provider_resp.ok_or_else(|| {
-        ApiError::ProviderError(format!("All providers failed. Last error: {:?}", last_error))
+        ApiError::ProviderError(format!(
+            "All providers failed. Last error: {:?}",
+            last_error
+        ))
     })?;
 
     let latency_ms = start_time.elapsed().as_millis() as i32;
-    let prompt_tokens = provider_resp.usage.get("prompt_tokens").copied().unwrap_or(0);
-    let completion_tokens = provider_resp.usage.get("completion_tokens").copied().unwrap_or(0);
+    let prompt_tokens = provider_resp
+        .usage
+        .get("prompt_tokens")
+        .copied()
+        .unwrap_or(0);
+    let completion_tokens = provider_resp
+        .usage
+        .get("completion_tokens")
+        .copied()
+        .unwrap_or(0);
 
-    log_api_call(&state, &auth, &provider_for_request, &model_name,
-                 "chat", prompt_tokens, completion_tokens, latency_ms).await;
+    log_api_call(
+        &state,
+        &auth,
+        &provider_for_request,
+        &model_name,
+        "chat",
+        prompt_tokens,
+        completion_tokens,
+        latency_ms,
+    )
+    .await;
 
     let mut response = Json(provider_resp).into_response();
     add_rate_limit_headers(&mut response, rpm, remaining, reset_time);
@@ -326,6 +371,12 @@ async fn openai_stream_handler(
 
     tokio::spawn(async move {
         let mut used_key_id: Option<uuid::Uuid> = None;
+        let estimated_input_tokens = provider_request
+            .messages
+            .iter()
+            .map(|m| (m.content.len() / 4) as i32)
+            .sum::<i32>()
+            .max(1);
 
         let selected_key = {
             let mut scheduler = state_clone.key_scheduler.write().await;
@@ -343,38 +394,36 @@ async fn openai_stream_handler(
         };
 
         match client_result {
-            Ok(client) => {
-                match client.chat_stream(provider_request).await {
-                    Ok(chunks) => {
-                        for chunk in chunks {
-                            let event = if chunk.finished {
-                                let chat_chunk = ChatChunk::new(&model_name, "", true);
-                                Event::default()
-                                    .event("message")
-                                    .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
-                            } else {
-                                let chat_chunk = ChatChunk::new(&model_name, &chunk.delta, false);
-                                Event::default()
-                                    .event("message")
-                                    .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
-                            };
-                            let _ = tx.send(Ok(event));
-                            if chunk.finished {
-                                break;
-                            }
+            Ok(client) => match client.chat_stream(provider_request).await {
+                Ok(chunks) => {
+                    for chunk in chunks {
+                        let event = if chunk.finished {
+                            let chat_chunk = ChatChunk::new(&model_name, "", true);
+                            Event::default()
+                                .event("message")
+                                .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
+                        } else {
+                            let chat_chunk = ChatChunk::new(&model_name, &chunk.delta, false);
+                            Event::default()
+                                .event("message")
+                                .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
+                        };
+                        let _ = tx.send(Ok(event));
+                        if chunk.finished {
+                            break;
                         }
-                    }
-                    Err(e) => {
-                        if let Some(kid) = used_key_id {
-                            let mut s = state_clone.key_scheduler.write().await;
-                            s.record_failure(&provider_clone, kid);
-                        }
-                        let _ = tx.send(Ok(Event::default()
-                            .event("error")
-                            .data(format!("{{\"error\": \"{}\"}}", e))));
                     }
                 }
-            }
+                Err(e) => {
+                    if let Some(kid) = used_key_id {
+                        let mut s = state_clone.key_scheduler.write().await;
+                        s.record_failure(&provider_clone, kid);
+                    }
+                    let _ = tx.send(Ok(Event::default()
+                        .event("error")
+                        .data(format!("{{\"error\": \"{}\"}}", e))));
+                }
+            },
             Err(e) => {
                 let _ = tx.send(Ok(Event::default()
                     .event("error")
@@ -389,8 +438,17 @@ async fn openai_stream_handler(
         }
 
         let latency_ms = start_time.elapsed().as_millis() as i32;
-        log_api_call(&state_clone, &auth_clone, &provider_clone, &model_clone,
-                     "chat", 0, 0, latency_ms).await;
+        log_api_call(
+            &state_clone,
+            &auth_clone,
+            &provider_clone,
+            &model_clone,
+            "chat",
+            estimated_input_tokens,
+            0,
+            latency_ms,
+        )
+        .await;
     });
 
     let stream = BroadcastStream::new(rx).filter_map(|item| async {
@@ -408,8 +466,8 @@ async fn openai_stream_handler(
 // ─── 辅助函数 ───────────────────────────────────────────────────────────
 
 /// 解析模型字符串
-    ///
-    /// 支持 "provider/model" 或 "model" 格式
+///
+/// 支持 "provider/model" 或 "model" 格式
 fn parse_model_string(model_str: &str) -> (String, String) {
     if let Some((provider, model)) = model_str.split_once('/') {
         (provider.to_string(), model.to_string())

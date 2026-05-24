@@ -44,17 +44,18 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     // 执行数据库迁移
-    let migrations_path = std::env::var("MIGRATIONS_PATH")
-        .unwrap_or_else(|_| "./db/migrations".to_string());
-    if let Err(e) = db::run_migrations(db.pool(), &migrations_path).await
-    {
-        anyhow::bail!("Database migrations failed — refusing to start with incomplete schema: {}", e);
+    let migrations_path =
+        std::env::var("MIGRATIONS_PATH").unwrap_or_else(|_| "./db/migrations".to_string());
+    if let Err(e) = db::run_migrations(db.pool(), &migrations_path).await {
+        anyhow::bail!(
+            "Database migrations failed — refusing to start with incomplete schema: {}",
+            e
+        );
     }
 
     // 初始化 Redis 连接
     let redis = db::RedisPool::new(
-        &std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        &std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
     )
     .await?;
 
@@ -83,7 +84,8 @@ async fn main() -> anyhow::Result<()> {
     let db_for_health_check = state.db.clone();
     let account_pool_for_health_check = state.account_pool.clone();
     tokio::spawn(async move {
-        router::start_session_health_checker(db_for_health_check, account_pool_for_health_check).await;
+        router::start_session_health_checker(db_for_health_check, account_pool_for_health_check)
+            .await;
     });
 
     // 配置 CORS - 只允许指定的域名
@@ -102,7 +104,10 @@ async fn main() -> anyhow::Result<()> {
             ]
         });
 
-    tracing::info!("CORS configured with {} allowed origins", allowed_origins.len());
+    tracing::info!(
+        "CORS configured with {} allowed origins",
+        allowed_origins.len()
+    );
 
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::AllowOrigin::list(allowed_origins))

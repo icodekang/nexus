@@ -393,7 +393,7 @@ function CollapsibleAutoLogin({ meta, account, onSuccess, t }: {
     if (!email.trim() || !password.trim()) return;
     setLoading(true); setError(null);
     try { await loginWithBrowserAccount(account.id, email.trim(), password); onSuccess(); }
-    catch (err) { setError(getErrorMessage(err, { t: () => '' } as any) || String(err)); }
+    catch (err) { setError(getErrorMessage(err, t) || String(err)); }
     finally { setLoading(false); }
   };
 
@@ -401,7 +401,7 @@ function CollapsibleAutoLogin({ meta, account, onSuccess, t }: {
     if (!phone.trim()) return;
     setLoading(true); setError(null);
     try { await initiatePhoneLogin(account.id, phone.trim()); setPhoneStep('code'); setCountdown(60); }
-    catch (err) { setError(getErrorMessage(err, { t: () => '' } as any) || String(err)); }
+    catch (err) { setError(getErrorMessage(err, t) || String(err)); }
     finally { setLoading(false); }
   };
 
@@ -409,7 +409,7 @@ function CollapsibleAutoLogin({ meta, account, onSuccess, t }: {
     if (!code.trim()) return;
     setLoading(true); setError(null);
     try { await completePhoneLogin(account.id, code.trim()); onSuccess(); }
-    catch (err) { setError(getErrorMessage(err, { t: () => '' } as any) || String(err)); }
+    catch (err) { setError(getErrorMessage(err, t) || String(err)); }
     finally { setLoading(false); }
   };
 

@@ -21,20 +21,20 @@
 //! - GET /transactions - 交易记录列表
 //! - /accounts/* - 浏览器账户管理（嵌套路由）
 
-use axum::{
-    routing::{get, post, put, delete},
-    Router, Json, Extension,
-    extract::{Query, Path, State},
-};
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use crate::state::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
-use models::{Provider, ProviderKey, LlmModel, ModelMode};
-use db::postgres::{DashboardStats, RevenueTrend, RecentActivity};
-use db::{encrypt_api_key, decrypt_api_key};
+use crate::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    routing::{delete, get, post, put},
+    Extension, Json, Router,
+};
+use db::postgres::{DashboardStats, RecentActivity, RevenueTrend};
+use db::{decrypt_api_key, encrypt_api_key};
+use models::{LlmModel, ModelMode, Provider, ProviderKey};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use uuid::Uuid;
 
 pub mod accounts;
 
@@ -47,9 +47,18 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/users", get(list_users))
         .route("/users/:id", put(update_user))
         .route("/providers", get(list_providers).post(create_provider))
-        .route("/providers/:id", put(update_provider).delete(delete_provider))
-        .route("/provider-keys", get(list_provider_keys).post(create_provider_key))
-        .route("/provider-keys/:id", put(update_provider_key).delete(delete_provider_key))
+        .route(
+            "/providers/:id",
+            put(update_provider).delete(delete_provider),
+        )
+        .route(
+            "/provider-keys",
+            get(list_provider_keys).post(create_provider_key),
+        )
+        .route(
+            "/provider-keys/:id",
+            put(update_provider_key).delete(delete_provider_key),
+        )
         .route("/provider-keys/:id/test", post(test_provider_key))
         .route("/user-keys", get(list_user_api_keys))
         .route("/user-keys/:id", delete(delete_user_api_key))
@@ -68,8 +77,10 @@ async fn dashboard_stats(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
 ) -> Result<Json<DashboardStats>, ApiError> {
-    let stats = state.db.get_dashboard_stats().await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get dashboard stats: {}", e)))?;
+    let stats =
+        state.db.get_dashboard_stats().await.map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("Failed to get dashboard stats: {}", e))
+        })?;
 
     Ok(Json(stats))
 }
@@ -83,8 +94,10 @@ async fn revenue_trends(
     Query(params): Query<RevenueTrendsQuery>,
 ) -> Result<Json<Vec<RevenueTrend>>, ApiError> {
     let days = params.days.unwrap_or(30).clamp(7, 90);
-    let trends = state.db.get_revenue_trends(days).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get revenue trends: {}", e)))?;
+    let trends =
+        state.db.get_revenue_trends(days).await.map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("Failed to get revenue trends: {}", e))
+        })?;
     Ok(Json(trends))
 }
 
@@ -95,8 +108,10 @@ async fn recent_activity(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
 ) -> Result<Json<Vec<RecentActivity>>, ApiError> {
-    let activities = state.db.get_recent_activity(10).await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get recent activity: {}", e)))?;
+    let activities =
+        state.db.get_recent_activity(10).await.map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("Failed to get recent activity: {}", e))
+        })?;
     Ok(Json(activities))
 }
 
@@ -140,25 +155,34 @@ async fn list_users(
     let search = query.search.unwrap_or_default();
     let offset = (page - 1) * per_page;
 
-    let users = state.db.list_users(offset as i64, per_page as i64, &search).await
+    let users = state
+        .db
+        .list_users(offset as i64, per_page as i64, &search)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list users: {}", e)))?;
 
-    let total = state.db.count_users(&search).await
+    let total = state
+        .db
+        .count_users(&search)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to count users: {}", e)))?;
 
-    let data: Vec<UserListItem> = users.into_iter().map(|u| {
-        let is_active = u.is_subscription_active();
-        UserListItem {
-            id: u.id.to_string(),
-            email: u.email,
-            phone: u.phone,
-            subscription_plan: u.subscription_plan.as_str().to_string(),
-            is_admin: u.is_admin,
-            is_active,
-            created_at: u.created_at.to_rfc3339(),
-            updated_at: u.updated_at.to_rfc3339(),
-        }
-    }).collect();
+    let data: Vec<UserListItem> = users
+        .into_iter()
+        .map(|u| {
+            let is_active = u.is_subscription_active();
+            UserListItem {
+                id: u.id.to_string(),
+                email: u.email,
+                phone: u.phone,
+                subscription_plan: u.subscription_plan.as_str().to_string(),
+                is_admin: u.is_admin,
+                is_active,
+                created_at: u.created_at.to_rfc3339(),
+                updated_at: u.updated_at.to_rfc3339(),
+            }
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({
         "data": data,
@@ -189,15 +213,21 @@ async fn update_user(
     let user_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid user ID".to_string()))?;
 
-    state.db.update_user_admin(
-        user_id,
-        body.phone.as_deref(),
-        body.subscription_plan.as_deref(),
-    ).await
+    state
+        .db
+        .update_user_admin(
+            user_id,
+            body.phone.as_deref(),
+            body.subscription_plan.as_deref(),
+        )
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update user: {}", e)))?;
 
     // Return updated user
-    let user = state.db.get_user_by_id(user_id).await
+    let user = state
+        .db
+        .get_user_by_id(user_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
         .ok_or(ApiError::InvalidRequest("User not found".to_string()))?;
 
@@ -232,22 +262,28 @@ async fn list_providers(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let providers = state.db.list_all_providers().await
+    let providers = state
+        .db
+        .list_all_providers()
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list providers: {}", e)))?;
 
-    let data: Vec<serde_json::Value> = providers.iter().map(|p| {
-        serde_json::json!({
-            "id": p.id.to_string(),
-            "name": p.name,
-            "slug": p.slug,
-            "logo_url": p.logo_url,
-            "api_base_url": p.api_base_url,
-            "api_type": p.api_type,
-            "is_active": p.is_active,
-            "priority": p.priority,
-            "created_at": p.created_at.to_rfc3339(),
+    let data: Vec<serde_json::Value> = providers
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "id": p.id.to_string(),
+                "name": p.name,
+                "slug": p.slug,
+                "logo_url": p.logo_url,
+                "api_base_url": p.api_base_url,
+                "api_type": p.api_type,
+                "is_active": p.is_active,
+                "priority": p.priority,
+                "created_at": p.created_at.to_rfc3339(),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({ "data": data })))
 }
@@ -263,7 +299,8 @@ async fn create_provider(
     let mut provider = Provider::new(
         body.name,
         body.slug,
-        body.api_base_url.unwrap_or_else(|| "https://api.example.com/v1".to_string()),
+        body.api_base_url
+            .unwrap_or_else(|| "https://api.example.com/v1".to_string()),
     );
     if let Some(p) = body.priority {
         provider = provider.with_priority(p);
@@ -272,7 +309,10 @@ async fn create_provider(
         provider = provider.with_api_type(t);
     }
 
-    state.db.create_provider(&provider).await
+    state
+        .db
+        .create_provider(&provider)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create provider: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -310,15 +350,18 @@ async fn update_provider(
     let provider_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid provider ID".to_string()))?;
 
-    state.db.update_provider(
-        provider_id,
-        body.name.as_deref(),
-        body.slug.as_deref(),
-        body.api_base_url.as_deref(),
-        body.api_type.as_deref(),
-        body.is_active,
-        body.priority,
-    ).await
+    state
+        .db
+        .update_provider(
+            provider_id,
+            body.name.as_deref(),
+            body.slug.as_deref(),
+            body.api_base_url.as_deref(),
+            body.api_type.as_deref(),
+            body.is_active,
+            body.priority,
+        )
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update provider: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "updated": true })))
@@ -335,7 +378,10 @@ async fn delete_provider(
     let provider_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid provider ID".to_string()))?;
 
-    state.db.delete_provider_soft(provider_id).await
+    state
+        .db
+        .delete_provider_soft(provider_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete provider: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
@@ -369,23 +415,29 @@ async fn list_models(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let models = state.db.list_all_models().await
+    let models = state
+        .db
+        .list_all_models()
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list models: {}", e)))?;
 
-    let data: Vec<serde_json::Value> = models.iter().map(|m| {
-        serde_json::json!({
-            "id": m.id.to_string(),
-            "provider_id": m.provider_id,
-            "name": m.name,
-            "slug": m.slug,
-            "model_id": m.model_id,
-            "mode": m.mode.as_str(),
-            "context_window": m.context_window,
-            "capabilities": m.capabilities,
-            "is_active": m.is_active,
-            "created_at": m.created_at.to_rfc3339(),
+    let data: Vec<serde_json::Value> = models
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "id": m.id.to_string(),
+                "provider_id": m.provider_id,
+                "name": m.name,
+                "slug": m.slug,
+                "model_id": m.model_id,
+                "mode": m.mode.as_str(),
+                "context_window": m.context_window,
+                "capabilities": m.capabilities,
+                "is_active": m.is_active,
+                "created_at": m.created_at.to_rfc3339(),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({ "data": data })))
 }
@@ -405,11 +457,17 @@ async fn create_model(
     };
 
     // Check for duplicate slug
-    let slug_exists = state.db.model_slug_exists(&body.slug).await
+    let slug_exists = state
+        .db
+        .model_slug_exists(&body.slug)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("DB error: {}", e)))?;
 
     if slug_exists {
-        return Err(ApiError::InvalidRequest(format!("Model with slug '{}' already exists", body.slug)));
+        return Err(ApiError::InvalidRequest(format!(
+            "Model with slug '{}' already exists",
+            body.slug
+        )));
     }
 
     let model = LlmModel::new(
@@ -419,9 +477,13 @@ async fn create_model(
         body.model_id,
         mode,
         body.context_window.unwrap_or(4096),
-    ).with_capabilities(body.capabilities.unwrap_or_default());
+    )
+    .with_capabilities(body.capabilities.unwrap_or_default());
 
-    state.db.create_model(&model).await
+    state
+        .db
+        .create_model(&model)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create model: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -464,16 +526,19 @@ async fn update_model(
 
     let caps_json = body.capabilities.map(|c| serde_json::to_value(&c).unwrap());
 
-    state.db.update_model(
-        model_id,
-        body.name.as_deref(),
-        body.slug.as_deref(),
-        body.model_id.as_deref(),
-        body.provider_id.as_deref(),
-        body.context_window,
-        caps_json,
-        body.is_active,
-    ).await
+    state
+        .db
+        .update_model(
+            model_id,
+            body.name.as_deref(),
+            body.slug.as_deref(),
+            body.model_id.as_deref(),
+            body.provider_id.as_deref(),
+            body.context_window,
+            caps_json,
+            body.is_active,
+        )
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update model: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "updated": true })))
@@ -490,7 +555,10 @@ async fn delete_model(
     let model_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid model ID".to_string()))?;
 
-    state.db.delete_model_soft(model_id).await
+    state
+        .db
+        .delete_model_soft(model_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete model: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
@@ -521,28 +589,32 @@ async fn list_provider_keys(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let keys = state.db.list_provider_keys().await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list provider keys: {}", e)))?;
+    let keys =
+        state.db.list_provider_keys().await.map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("Failed to list provider keys: {}", e))
+        })?;
 
-    let data: Vec<serde_json::Value> = keys.iter().map(|k| {
-        let preview = decrypt_api_key(&k.api_key_encrypted)
-            .unwrap_or_default();
-        serde_json::json!({
-            "id": k.id.to_string(),
-            "provider_slug": k.provider_slug,
-            "api_key_masked": k.masked_key(),
-            "api_key_preview": if preview.len() > 8 {
-                format!("{}...{}", &preview[..4], &preview[preview.len()-4..])
-            } else {
-                preview
-            },
-            "base_url": k.base_url,
-            "is_active": k.is_active,
-            "priority": k.priority,
-            "created_at": k.created_at.to_rfc3339(),
-            "updated_at": k.updated_at.to_rfc3339(),
+    let data: Vec<serde_json::Value> = keys
+        .iter()
+        .map(|k| {
+            let preview = decrypt_api_key(&k.api_key_encrypted).unwrap_or_default();
+            serde_json::json!({
+                "id": k.id.to_string(),
+                "provider_slug": k.provider_slug,
+                "api_key_masked": k.masked_key(),
+                "api_key_preview": if preview.len() > 8 {
+                    format!("{}...{}", &preview[..4], &preview[preview.len()-4..])
+                } else {
+                    preview
+                },
+                "base_url": k.base_url,
+                "is_active": k.is_active,
+                "priority": k.priority,
+                "created_at": k.created_at.to_rfc3339(),
+                "updated_at": k.updated_at.to_rfc3339(),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({ "data": data })))
 }
@@ -565,7 +637,10 @@ async fn create_provider_key(
         key = key.with_priority(p);
     }
 
-    state.db.create_provider_key(&key).await
+    state
+        .db
+        .create_provider_key(&key)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create provider key: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -603,14 +678,17 @@ async fn update_provider_key(
         None => (None, None),
     };
 
-    state.db.update_provider_key(
-        key_id,
-        encrypted.as_deref(),
-        prefix.as_deref(),
-        body.base_url.as_deref(),
-        body.is_active,
-        body.priority,
-    ).await
+    state
+        .db
+        .update_provider_key(
+            key_id,
+            encrypted.as_deref(),
+            prefix.as_deref(),
+            body.base_url.as_deref(),
+            body.is_active,
+            body.priority,
+        )
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update provider key: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "updated": true })))
@@ -624,7 +702,10 @@ async fn delete_provider_key(
     let key_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid provider key ID".to_string()))?;
 
-    state.db.delete_provider_key(key_id).await
+    state
+        .db
+        .delete_provider_key(key_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete provider key: {}", e)))?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
@@ -638,9 +719,14 @@ async fn test_provider_key(
     let key_id = Uuid::parse_str(&id)
         .map_err(|_| ApiError::InvalidRequest("Invalid provider key ID".to_string()))?;
 
-    let provider_key = state.db.get_provider_key_by_id(key_id).await
+    let provider_key = state
+        .db
+        .get_provider_key_by_id(key_id)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Database error: {}", e)))?
-        .ok_or(ApiError::InvalidRequest("Provider key not found".to_string()))?;
+        .ok_or(ApiError::InvalidRequest(
+            "Provider key not found".to_string(),
+        ))?;
 
     let api_key = decrypt_api_key(&provider_key.api_key_encrypted)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to decrypt API key: {}", e)))?;
@@ -653,14 +739,19 @@ async fn test_provider_key(
         format!("{}/models", provider_key.base_url.trim_end_matches('/'))
     };
 
-    let result = client.get(&test_url)
+    let result = client
+        .get(&test_url)
         .header("Authorization", format!("Bearer {}", api_key))
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await;
 
     match result {
-        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 401 || resp.status().as_u16() == 403 => {
+        Ok(resp)
+            if resp.status().is_success()
+                || resp.status().as_u16() == 401
+                || resp.status().as_u16() == 403 =>
+        {
             // 401/403 means the key was recognized (just may lack permissions for /models)
             // This still proves the key is valid and the endpoint is reachable
             let success = resp.status().is_success() || resp.status().as_u16() == 403;
@@ -669,18 +760,14 @@ async fn test_provider_key(
                 "message": if success { "Connection successful" } else { "Invalid API key" }
             })))
         }
-        Ok(resp) => {
-            Ok(Json(serde_json::json!({
-                "success": false,
-                "message": format!("Unexpected response: {}", resp.status())
-            })))
-        }
-        Err(e) => {
-            Ok(Json(serde_json::json!({
-                "success": false,
-                "message": format!("Connection failed: {}", e)
-            })))
-        }
+        Ok(resp) => Ok(Json(serde_json::json!({
+            "success": false,
+            "message": format!("Unexpected response: {}", resp.status())
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({
+            "success": false,
+            "message": format!("Connection failed: {}", e)
+        }))),
     }
 }
 
@@ -697,25 +784,37 @@ async fn list_user_api_keys(
     Extension(_auth): Extension<AuthContext>,
     Query(query): Query<UserApiKeyQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let keys = state.db.list_all_api_keys_with_users().await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list user API keys: {}", e)))?;
+    let keys =
+        state.db.list_all_api_keys_with_users().await.map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("Failed to list user API keys: {}", e))
+        })?;
 
-    let data: Vec<serde_json::Value> = keys.iter().filter(|(k, email)| {
-        let matches_user_id = query.user_id.as_ref().map_or(true, |uid| k.user_id.to_string() == *uid);
-        let matches_email = query.user_email.as_ref().map_or(true, |em| email.contains(em));
-        matches_user_id && matches_email
-    }).map(|(k, email)| {
-        serde_json::json!({
-            "id": k.id.to_string(),
-            "user_id": k.user_id.to_string(),
-            "user_email": email,
-            "name": k.name,
-            "key_prefix": k.key_prefix,
-            "is_active": k.is_active,
-            "last_used_at": k.last_used_at,
-            "created_at": k.created_at.to_rfc3339(),
+    let data: Vec<serde_json::Value> = keys
+        .iter()
+        .filter(|(k, email)| {
+            let matches_user_id = query
+                .user_id
+                .as_ref()
+                .map_or(true, |uid| k.user_id.to_string() == *uid);
+            let matches_email = query
+                .user_email
+                .as_ref()
+                .map_or(true, |em| email.contains(em));
+            matches_user_id && matches_email
         })
-    }).collect();
+        .map(|(k, email)| {
+            serde_json::json!({
+                "id": k.id.to_string(),
+                "user_id": k.user_id.to_string(),
+                "user_email": email,
+                "name": k.name,
+                "key_prefix": k.key_prefix,
+                "is_active": k.is_active,
+                "last_used_at": k.last_used_at,
+                "created_at": k.created_at.to_rfc3339(),
+            })
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({ "data": data })))
 }
@@ -725,10 +824,13 @@ async fn delete_user_api_key(
     Extension(_auth): Extension<AuthContext>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let key_id = Uuid::parse_str(&id)
-        .map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
+    let key_id =
+        Uuid::parse_str(&id).map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
 
-    state.db.delete_api_key(key_id).await
+    state
+        .db
+        .delete_api_key(key_id)
+        .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete API key")))?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
@@ -756,25 +858,34 @@ async fn list_transactions(
     let status = query.status.unwrap_or_default();
     let offset = (page - 1) * per_page;
 
-    let rows = state.db.list_all_transactions(offset as i64, per_page as i64, &tx_type, &status).await
+    let rows = state
+        .db
+        .list_all_transactions(offset as i64, per_page as i64, &tx_type, &status)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list transactions: {}", e)))?;
 
-    let total = state.db.count_all_transactions(&tx_type, &status).await
+    let total = state
+        .db
+        .count_all_transactions(&tx_type, &status)
+        .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to count transactions: {}", e)))?;
 
-    let data: Vec<serde_json::Value> = rows.iter().map(|(tx, email)| {
-        serde_json::json!({
-            "id": tx.id.to_string(),
-            "user_id": tx.user_id.to_string(),
-            "user_email": email,
-            "transaction_type": format!("{:?}", tx.transaction_type).to_lowercase(),
-            "amount": tx.amount,
-            "plan": tx.plan.as_ref().map(|p| p.as_str()),
-            "status": format!("{:?}", tx.status).to_lowercase(),
-            "description": tx.description,
-            "created_at": tx.created_at.to_rfc3339(),
+    let data: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|(tx, email)| {
+            serde_json::json!({
+                "id": tx.id.to_string(),
+                "user_id": tx.user_id.to_string(),
+                "user_email": email,
+                "transaction_type": format!("{:?}", tx.transaction_type).to_lowercase(),
+                "amount": tx.amount,
+                "plan": tx.plan.as_ref().map(|p| p.as_str()),
+                "status": format!("{:?}", tx.status).to_lowercase(),
+                "description": tx.description,
+                "created_at": tx.created_at.to_rfc3339(),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(serde_json::json!({
         "data": data,

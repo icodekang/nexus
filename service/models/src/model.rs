@@ -137,32 +137,119 @@ pub struct BuiltinModels;
 impl BuiltinModels {
     /// 获取所有内置模型
     pub fn all() -> Vec<LlmModel> {
-
         vec![
             // OpenAI 模型
-            Self::chat("openai", "GPT-4o", "gpt-4o", "gpt-4o", 128000, vec!["vision".to_string(), "function_call".to_string()]),
-            Self::chat("openai", "GPT-4o Mini", "gpt-4o-mini", "gpt-4o-mini", 128000, vec!["function_call".to_string()]),
-            Self::chat("openai", "GPT-4 Turbo", "gpt-4-turbo", "gpt-4-turbo", 128000, vec!["vision".to_string()]),
-            Self::chat("openai", "GPT-3.5 Turbo", "gpt-3.5-turbo", "gpt-3.5-turbo-1106", 16385, vec![]),
-
+            Self::chat(
+                "openai",
+                "GPT-4o",
+                "gpt-4o",
+                "gpt-4o",
+                128000,
+                vec!["vision".to_string(), "function_call".to_string()],
+            ),
+            Self::chat(
+                "openai",
+                "GPT-4o Mini",
+                "gpt-4o-mini",
+                "gpt-4o-mini",
+                128000,
+                vec!["function_call".to_string()],
+            ),
+            Self::chat(
+                "openai",
+                "GPT-4 Turbo",
+                "gpt-4-turbo",
+                "gpt-4-turbo",
+                128000,
+                vec!["vision".to_string()],
+            ),
+            Self::chat(
+                "openai",
+                "GPT-3.5 Turbo",
+                "gpt-3.5-turbo",
+                "gpt-3.5-turbo-1106",
+                16385,
+                vec![],
+            ),
             // Anthropic 模型
-            Self::chat("anthropic", "Claude 3.5 Sonnet", "claude-3-5-sonnet", "claude-3-5-sonnet-20241022", 200000, vec!["vision".to_string()]),
-            Self::chat("anthropic", "Claude 3 Opus", "claude-3-opus", "claude-3-opus-20240229", 200000, vec!["vision".to_string()]),
-            Self::chat("anthropic", "Claude 3 Haiku", "claude-3-haiku", "claude-3-haiku-20240307", 200000, vec![]),
-
+            Self::chat(
+                "anthropic",
+                "Claude 3.5 Sonnet",
+                "claude-3-5-sonnet",
+                "claude-3-5-sonnet-20241022",
+                200000,
+                vec!["vision".to_string()],
+            ),
+            Self::chat(
+                "anthropic",
+                "Claude 3 Opus",
+                "claude-3-opus",
+                "claude-3-opus-20240229",
+                200000,
+                vec!["vision".to_string()],
+            ),
+            Self::chat(
+                "anthropic",
+                "Claude 3 Haiku",
+                "claude-3-haiku",
+                "claude-3-haiku-20240307",
+                200000,
+                vec![],
+            ),
             // Google 模型
-            Self::chat("google", "Gemini 1.5 Pro", "gemini-1-5-pro", "gemini-1.5-pro", 2000000, vec!["vision".to_string()]),
-            Self::chat("google", "Gemini 1.5 Flash", "gemini-1-5-flash", "gemini-1.5-flash", 1000000, vec!["vision".to_string()]),
-            Self::chat("google", "Gemini 1.0 Pro", "gemini-1-0-pro", "gemini-pro", 32768, vec![]),
-
+            Self::chat(
+                "google",
+                "Gemini 1.5 Pro",
+                "gemini-1-5-pro",
+                "gemini-1.5-pro",
+                2000000,
+                vec!["vision".to_string()],
+            ),
+            Self::chat(
+                "google",
+                "Gemini 1.5 Flash",
+                "gemini-1-5-flash",
+                "gemini-1.5-flash",
+                1000000,
+                vec!["vision".to_string()],
+            ),
+            Self::chat(
+                "google",
+                "Gemini 1.0 Pro",
+                "gemini-1-0-pro",
+                "gemini-pro",
+                32768,
+                vec![],
+            ),
             // DeepSeek 模型
-            Self::chat("deepseek", "DeepSeek V3", "deepseek-chat", "deepseek-chat", 64000, vec![]),
-            Self::chat("deepseek", "DeepSeek Coder", "deepseek-coder", "deepseek-coder", 64000, vec![]),
+            Self::chat(
+                "deepseek",
+                "DeepSeek V3",
+                "deepseek-chat",
+                "deepseek-chat",
+                64000,
+                vec![],
+            ),
+            Self::chat(
+                "deepseek",
+                "DeepSeek Coder",
+                "deepseek-coder",
+                "deepseek-coder",
+                64000,
+                vec![],
+            ),
         ]
     }
 
     /// 创建聊天模式模型
-    fn chat(provider: &str, name: &str, slug: &str, model_id: &str, context_window: i32, capabilities: Vec<String>) -> LlmModel {
+    fn chat(
+        provider: &str,
+        name: &str,
+        slug: &str,
+        model_id: &str,
+        context_window: i32,
+        capabilities: Vec<String>,
+    ) -> LlmModel {
         LlmModel::new(
             provider.to_string(),
             name.to_string(),

@@ -50,7 +50,6 @@ export default function SubscriptionPage() {
       zeroToken: 'zero_token',
       monthly: 'monthly',
       autoRenew: 'monthly',
-      quarterly: 'monthly',
       yearly: 'yearly',
     };
     const apiPlan = planMap[planKey] || planKey;

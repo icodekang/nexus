@@ -1,7 +1,9 @@
 use crate::browser_emulator::BrowserSession;
 use crate::client::{ChatChunk, ProviderClient};
 use crate::error::ProviderError;
-use crate::types::{ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, Message, ProviderType};
+use crate::types::{
+    ChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse, Message, ProviderType,
+};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -32,7 +34,11 @@ impl DeepSeekWebClient {
         })
     }
 
-    pub async fn restore_session(&self, cookies: &std::collections::HashMap<String, String>, auth_tokens: &std::collections::HashMap<String, String>) {
+    pub async fn restore_session(
+        &self,
+        cookies: &std::collections::HashMap<String, String>,
+        auth_tokens: &std::collections::HashMap<String, String>,
+    ) {
         let mut session = self.session.write().await;
         session.cookies = cookies.clone();
         session.auth_tokens = auth_tokens.clone();
@@ -108,10 +114,7 @@ impl DeepSeekWebClient {
         Ok(serde_json::to_string(&answer).unwrap_or_default())
     }
 
-    pub async fn chat_internal(
-        &self,
-        request: ChatRequest,
-    ) -> Result<ChatResponse, ProviderError> {
+    pub async fn chat_internal(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError> {
         let session = self.session.read().await;
         let start = Instant::now();
 
@@ -375,10 +378,7 @@ impl ProviderClient for DeepSeekWebClient {
         self.chat_internal(request).await
     }
 
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-    ) -> Result<Vec<ChatChunk>, ProviderError> {
+    async fn chat_stream(&self, request: ChatRequest) -> Result<Vec<ChatChunk>, ProviderError> {
         self.chat_stream_internal(request).await
     }
 

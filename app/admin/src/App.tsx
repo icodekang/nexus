@@ -110,7 +110,7 @@ function Sidebar() {
 }
 
 // 各导航图标组件
-function DashboardIcon(_props: { active: boolean }) {
+function DashboardIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="9" rx="1.5" />
@@ -121,7 +121,7 @@ function DashboardIcon(_props: { active: boolean }) {
   );
 }
 
-function UsersIcon(_props: { active: boolean }) {
+function UsersIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -132,7 +132,7 @@ function UsersIcon(_props: { active: boolean }) {
   );
 }
 
-function ProvidersIcon(_props: { active: boolean }) {
+function ProvidersIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
@@ -140,7 +140,7 @@ function ProvidersIcon(_props: { active: boolean }) {
   );
 }
 
-function ProviderKeysIcon(_props: { active: boolean }) {
+function ProviderKeysIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
@@ -148,7 +148,7 @@ function ProviderKeysIcon(_props: { active: boolean }) {
   );
 }
 
-function ModelsIcon(_props: { active: boolean }) {
+function ModelsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
@@ -157,7 +157,7 @@ function ModelsIcon(_props: { active: boolean }) {
   );
 }
 
-function TransactionsIcon(_props: { active: boolean }) {
+function TransactionsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2" y="5" width="20" height="14" rx="2" />
@@ -166,7 +166,7 @@ function TransactionsIcon(_props: { active: boolean }) {
   );
 }
 
-function BrowserAccountsIcon(_props: { active: boolean }) {
+function BrowserAccountsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" />

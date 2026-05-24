@@ -68,13 +68,19 @@ impl User {
     /// # 返回
     /// 如果订阅处于有效期内返回 true
     pub fn is_subscription_active(&self) -> bool {
-        if let (Some(_start), Some(_end), SubscriptionPlan::None) =
-            (self.subscription_start, self.subscription_end, &self.subscription_plan)
-        {
+        if let (Some(_start), Some(_end), SubscriptionPlan::None) = (
+            self.subscription_start,
+            self.subscription_end,
+            &self.subscription_plan,
+        ) {
             return false;
         }
 
-        match (&self.subscription_start, &self.subscription_end, &self.subscription_plan) {
+        match (
+            &self.subscription_start,
+            &self.subscription_end,
+            &self.subscription_plan,
+        ) {
             (Some(start), Some(end), plan) if *plan != SubscriptionPlan::None => {
                 let now = Utc::now();
                 now >= *start && now <= *end
@@ -136,18 +142,21 @@ impl SubscriptionPlan {
     /// 每月可用 Token 数量
     pub fn monthly_token_quota(&self) -> i64 {
         match self {
-            SubscriptionPlan::None => 10_000,           // 免费: 10K tokens/月
-            SubscriptionPlan::ZeroToken => 100_000,     // 10元/月: 100K tokens/月（基于浏览器）
-            SubscriptionPlan::Monthly => 2_000_000,     // 19.9美元/月: 2M tokens/月
-            SubscriptionPlan::Yearly => 2_000_000,      // 199美元/年: 2M tokens/月
-            SubscriptionPlan::Team => 10_000_000,       // 99美元/月: 10M tokens/月
-            SubscriptionPlan::Enterprise => i64::MAX,   // 企业版: 无限
+            SubscriptionPlan::None => 10_000,         // 免费: 10K tokens/月
+            SubscriptionPlan::ZeroToken => 100_000,   // 10元/月: 100K tokens/月（基于浏览器）
+            SubscriptionPlan::Monthly => 2_000_000,   // 19.9美元/月: 2M tokens/月
+            SubscriptionPlan::Yearly => 2_000_000,    // 199美元/年: 2M tokens/月
+            SubscriptionPlan::Team => 10_000_000,     // 99美元/月: 10M tokens/月
+            SubscriptionPlan::Enterprise => i64::MAX, // 企业版: 无限
         }
     }
 
     /// 是否支持自动续订
     pub fn supports_recurring(&self) -> bool {
-        matches!(self, SubscriptionPlan::ZeroToken | SubscriptionPlan::Monthly | SubscriptionPlan::Team)
+        matches!(
+            self,
+            SubscriptionPlan::ZeroToken | SubscriptionPlan::Monthly | SubscriptionPlan::Team
+        )
     }
 
     /// 一个计费周期的时长（天）
@@ -169,7 +178,13 @@ impl SubscriptionPlan {
 
     /// 是否可在 API Key 不可用时 fallback 到零 Token 浏览器访问
     pub fn can_fallback_to_zero_token(&self) -> bool {
-        matches!(self, SubscriptionPlan::Monthly | SubscriptionPlan::Yearly | SubscriptionPlan::Team | SubscriptionPlan::Enterprise)
+        matches!(
+            self,
+            SubscriptionPlan::Monthly
+                | SubscriptionPlan::Yearly
+                | SubscriptionPlan::Team
+                | SubscriptionPlan::Enterprise
+        )
     }
 }
 

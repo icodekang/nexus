@@ -137,9 +137,13 @@ impl BuiltinProviders {
     }
 
     pub fn google() -> ProviderConfig {
-        ProviderConfig::new("google", "Google", "https://generativelanguage.googleapis.com/v1beta")
-            .with_auth(AuthConfig::QueryKey)
-            .with_openai_compatible(false)
+        ProviderConfig::new(
+            "google",
+            "Google",
+            "https://generativelanguage.googleapis.com/v1beta",
+        )
+        .with_auth(AuthConfig::QueryKey)
+        .with_openai_compatible(false)
     }
 
     pub fn deepseek() -> ProviderConfig {
@@ -175,8 +179,14 @@ impl CustomProviders {
 
                 ProviderConfig::new(&def.id, &def.name, &def.base_url)
                     .with_auth(auth)
-                    .with_chat_path(&def.chat_path.unwrap_or_else(|| "/chat/completions".to_string()))
-                    .with_embeddings_path(&def.embeddings_path.unwrap_or_else(|| "/embeddings".to_string()))
+                    .with_chat_path(
+                        &def.chat_path
+                            .unwrap_or_else(|| "/chat/completions".to_string()),
+                    )
+                    .with_embeddings_path(
+                        &def.embeddings_path
+                            .unwrap_or_else(|| "/embeddings".to_string()),
+                    )
                     .with_openai_compatible(def.openai_compatible.unwrap_or(true))
             })
             .collect()

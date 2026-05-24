@@ -6,11 +6,11 @@
 //! Manages a pool of authenticated browser sessions for each provider.
 //! Sessions are loaded from database and cached in memory for fast access.
 
+use headless_chrome::Browser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use headless_chrome::Browser;
 
 use crate::browser_emulator::{BrowserEmulatorClient, PersistedSession};
 use crate::client::ProviderClient;
@@ -73,29 +73,42 @@ impl AccountPool {
         let browsers = self.browsers.read().await;
         let account_id = {
             let accounts = self.accounts.read().await;
-            accounts.iter()
+            accounts
+                .iter()
                 .find(|(_, (p, _))| p == provider)
                 .map(|(id, _)| *id)
         };
 
-        let account_id = account_id.ok_or_else(|| ProviderError::InternalError(
-            format!("No browser account registered for provider: {}", provider)
-        ))?;
+        let account_id = account_id.ok_or_else(|| {
+            ProviderError::InternalError(format!(
+                "No browser account registered for provider: {}",
+                provider
+            ))
+        })?;
 
-        tracing::debug!("execute_browser_chat: found account_id {:?} for provider {}", account_id, provider);
+        tracing::debug!(
+            "execute_browser_chat: found account_id {:?} for provider {}",
+            account_id,
+            provider
+        );
 
-        let browser = browsers.get(&account_id)
-            .ok_or_else(|| ProviderError::InternalError(
-                format!("Browser not found for account: {}", account_id)
-            ))?;
+        let browser = browsers.get(&account_id).ok_or_else(|| {
+            ProviderError::InternalError(format!("Browser not found for account: {}", account_id))
+        })?;
 
-        tracing::debug!("execute_browser_chat: got browser for account {:?}", account_id);
+        tracing::debug!(
+            "execute_browser_chat: got browser for account {:?}",
+            account_id
+        );
 
         // Get the first tab
         let tab = {
             let tabs = browser.get_tabs();
-            let tabs_guard = tabs.lock().map_err(|_| ProviderError::InternalError("Failed to lock tabs".to_string()))?;
-            tabs_guard.first()
+            let tabs_guard = tabs
+                .lock()
+                .map_err(|_| ProviderError::InternalError("Failed to lock tabs".to_string()))?;
+            tabs_guard
+                .first()
                 .ok_or_else(|| ProviderError::InternalError("No tab found".to_string()))?
                 .clone()
         };
@@ -116,10 +129,12 @@ impl AccountPool {
         tracing::debug!("Navigated to DeepSeek chat page");
         std::thread::sleep(std::time::Duration::from_secs(5));
 
-        let messages_json = serde_json::to_string(&messages)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to serialize messages: {}", e)))?;
+        let messages_json = serde_json::to_string(&messages).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to serialize messages: {}", e))
+        })?;
 
-        let chat_script = format!(r#"
+        let chat_script = format!(
+            r#"
             (async () => {{
                 const messages = {messages_json};
                 const model = "{model}";
@@ -239,12 +254,14 @@ impl AccountPool {
 
                 return JSON.stringify({{ error: "no response", debug }});
             }})();
-        "#);
+        "#
+        );
 
         tracing::debug!("execute_js_chat_on_tab: executing JS script");
 
-        let result = tab.evaluate(&chat_script, false)
-            .map_err(|e| ProviderError::InternalError(format!("Failed to execute chat JS: {}", e)))?;
+        let result = tab.evaluate(&chat_script, false).map_err(|e| {
+            ProviderError::InternalError(format!("Failed to execute chat JS: {}", e))
+        })?;
 
         let response_text = match &result.value {
             Some(serde_json::Value::String(s)) => s.clone(),
@@ -257,24 +274,40 @@ impl AccountPool {
 
         tracing::debug!("JS chat response_text: {}", response_text);
 
-        let response_json: HashMap<String, serde_json::Value> = serde_json::from_str(&response_text)
-            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse response: {} (text: {})", e, response_text)))?;
+        let response_json: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&response_text).map_err(|e| {
+                ProviderError::InvalidResponse(format!(
+                    "Failed to parse response: {} (text: {})",
+                    e, response_text
+                ))
+            })?;
 
         if let Some(content) = response_json.get("content").and_then(|v| v.as_str()) {
             Ok(content.to_string())
         } else if let Some(err) = response_json.get("error").and_then(|v| v.as_str()) {
-            let debug_info = response_json.get("debug")
+            let debug_info = response_json
+                .get("debug")
                 .map(|d| format!(" | debug: {}", d))
                 .unwrap_or_default();
             tracing::warn!("DeepSeek JS chat failed: {}{}", err, debug_info);
-            Err(ProviderError::InvalidResponse(format!("JS chat error: {}{}", err, debug_info)))
+            Err(ProviderError::InvalidResponse(format!(
+                "JS chat error: {}{}",
+                err, debug_info
+            )))
         } else {
-            Err(ProviderError::InvalidResponse("No content or error in response".to_string()))
+            Err(ProviderError::InvalidResponse(
+                "No content or error in response".to_string(),
+            ))
         }
     }
 
     /// Register an account with its session data
-    pub async fn register_account(&self, account_id: Uuid, provider: String, session_data: PersistedSession) -> Result<(), ProviderError> {
+    pub async fn register_account(
+        &self,
+        account_id: Uuid,
+        provider: String,
+        session_data: PersistedSession,
+    ) -> Result<(), ProviderError> {
         // Create client
         let client = Arc::new(BrowserEmulatorClient::new(&provider)?);
 
@@ -351,7 +384,9 @@ impl AccountPool {
     /// Get account info
     pub async fn get_account_info(&self, account_id: Uuid) -> Option<(String, bool)> {
         let clients = self.clients.read().await;
-        clients.get(&account_id).map(|e| (e.provider.clone(), e.is_healthy))
+        clients
+            .get(&account_id)
+            .map(|e| (e.provider.clone(), e.is_healthy))
     }
 
     /// List all registered account IDs

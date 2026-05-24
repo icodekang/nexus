@@ -66,6 +66,16 @@ pub enum SubscriptionStatus {
     Cancelled,
 }
 
+impl SubscriptionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SubscriptionStatus::Active => "active",
+            SubscriptionStatus::Expired => "expired",
+            SubscriptionStatus::Cancelled => "cancelled",
+        }
+    }
+}
+
 /// 订阅计划信息（用于价格展示）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionPlanInfo {
@@ -227,6 +237,17 @@ pub enum TransactionType {
     Refund,
 }
 
+impl TransactionType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TransactionType::SubscriptionPurchase => "subscription_purchase",
+            TransactionType::SubscriptionRenewal => "subscription_renewal",
+            TransactionType::SubscriptionCancellation => "subscription_cancellation",
+            TransactionType::Refund => "refund",
+        }
+    }
+}
+
 /// 交易状态
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -239,4 +260,15 @@ pub enum TransactionStatus {
     Failed,
     /// 已退款
     Refunded,
+}
+
+impl TransactionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TransactionStatus::Pending => "pending",
+            TransactionStatus::Completed => "completed",
+            TransactionStatus::Failed => "failed",
+            TransactionStatus::Refunded => "refunded",
+        }
+    }
 }

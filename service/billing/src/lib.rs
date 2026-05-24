@@ -2,15 +2,15 @@
 //!
 //! 提供订阅管理和交易处理功能
 
-pub mod subscription;
 pub mod error;
+pub mod subscription;
 
-pub use subscription::*;
 pub use error::*;
+pub use subscription::*;
 
 use chrono::Utc;
-use models::{Subscription, Transaction, SubscriptionPlan};
 use models::subscription::{SubscriptionStatus, TransactionType};
+use models::{Subscription, SubscriptionPlan, Transaction};
 
 /// 计费服务
 ///
@@ -148,9 +148,9 @@ mod tests {
         // Create a subscription that expires in 1 day
         let sub = billing.create_subscription(user_id, SubscriptionPlan::Monthly, 1);
 
-        assert!(billing.is_expiring_soon(&sub, 2));  // expiring within 2 days
-        assert!(billing.is_expiring_soon(&sub, 7));  // expiring within 7 days
-        assert!(!sub.is_active());  // but note: is_active checks end_at > now, which may fail in edge cases
+        assert!(billing.is_expiring_soon(&sub, 2)); // expiring within 2 days
+        assert!(billing.is_expiring_soon(&sub, 7)); // expiring within 7 days
+        assert!(!sub.is_active()); // but note: is_active checks end_at > now, which may fail in edge cases
     }
 
     #[test]

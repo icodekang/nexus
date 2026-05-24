@@ -9,13 +9,13 @@
 //! - Bearer Token 验证
 
 pub mod error;
-pub mod keygen;
 pub mod jwt;
+pub mod keygen;
 pub mod password;
 pub mod validator;
 
 pub use error::*;
-pub use keygen::*;
 pub use jwt::*;
+pub use keygen::*;
 pub use password::*;
 pub use validator::*;

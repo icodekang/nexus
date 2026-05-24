@@ -79,24 +79,30 @@ fn parse_tool_json(json_str: &str) -> Result<ToolCall, String> {
     if !repaired.trim().ends_with('}') {
         let mut depth = 0;
         for c in repaired.chars() {
-            if c == '{' { depth += 1; }
-            if c == '}' { depth -= 1; }
+            if c == '{' {
+                depth += 1;
+            }
+            if c == '}' {
+                depth -= 1;
+            }
         }
         for _ in 0..depth {
             repaired.push('}');
         }
     }
 
-    let v: Value = serde_json::from_str(&repaired)
-        .map_err(|e| format!("JSON parse error: {}", e))?;
+    let v: Value =
+        serde_json::from_str(&repaired).map_err(|e| format!("JSON parse error: {}", e))?;
 
-    let tool = v.get("tool")
+    let tool = v
+        .get("tool")
         .or_else(|| v.get("name"))
         .and_then(|t| t.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| "Missing 'tool' or 'name' field".to_string())?;
 
-    let args = v.get("args")
+    let args = v
+        .get("args")
         .or_else(|| v.get("arguments"))
         .or_else(|| v.get("parameters"))
         .cloned()
@@ -106,9 +112,7 @@ fn parse_tool_json(json_str: &str) -> Result<ToolCall, String> {
 }
 
 pub fn has_tool_call(text: &str) -> bool {
-    text.contains("```tool_json")
-        || text.contains("```tool_call")
-        || text.contains("<tool_call>")
+    text.contains("```tool_json") || text.contains("```tool_call") || text.contains("<tool_call>")
 }
 
 #[cfg(test)]

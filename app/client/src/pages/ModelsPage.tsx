@@ -3,7 +3,7 @@
  * 展示所有可用模型，支持按提供商筛选和搜索
  * 选择模型后自动跳转到聊天页面
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Layers, ChevronRight, Check, Sparkles } from 'lucide-react';
 import { useModelState } from '../stores/modelStore';
@@ -26,12 +26,14 @@ const PROVIDER_META: Record<string, { color: string; label: string }> = {
 export default function ModelsPage() {
   const navigate = useNavigate();
   const { models, loaded, loadModels } = useModelState();
-  const { selectedModel, setSelectedModel } = useChatStore();
+  const { selectedModelId, setSelectedModelId } = useChatStore();
   const { t } = useI18n();
   const [search, setSearch] = useState('');
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
-  if (!loaded) loadModels();
+  useEffect(() => {
+    if (!loaded) loadModels();
+  }, [loaded, loadModels]);
 
   // 从模型列表中提取所有提供商
   const providers = useMemo(() => {
@@ -52,8 +54,8 @@ export default function ModelsPage() {
 
   // 选择模型：更新全局选中状态并跳转到聊天页面
   const handleSelect = (modelId: string) => {
-    setSelectedModel(modelId);
-    navigate('/search');
+    setSelectedModelId(modelId);
+    navigate('/chat');
   };
 
   return (
@@ -105,7 +107,7 @@ export default function ModelsPage() {
       {/* 模型卡片网格 */}
       <div className="models-grid">
         {filtered.map((model) => {
-          const isSelected = model.id === selectedModel;
+          const isSelected = model.id === selectedModelId;
           const meta = PROVIDER_META[model.provider] || { color: '#A8A29E', label: model.provider };
           return (
             <button

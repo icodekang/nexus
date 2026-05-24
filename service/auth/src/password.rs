@@ -35,7 +35,7 @@ mod tests {
     fn test_hash_and_verify() {
         let password = "test_password123";
         let hashed = hash_password(password).unwrap();
-        
+
         assert!(verify_password(password, &hashed).unwrap());
         assert!(!verify_password("wrong_password", &hashed).unwrap());
     }

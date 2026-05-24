@@ -7,7 +7,7 @@
 //! - 第三方错误：ProviderError、SmsSendFailed
 //! - 客户端错误：InvalidRequest、NotImplemented
 
-use axum::{http::StatusCode, Json, response::IntoResponse};
+use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde_json::json;
 use thiserror::Error;
 
@@ -120,11 +120,7 @@ impl IntoResponse for ApiError {
                 "unauthorized",
                 "Unauthorized".to_string(),
             ),
-            ApiError::Forbidden => (
-                StatusCode::FORBIDDEN,
-                "forbidden",
-                "Forbidden".to_string(),
-            ),
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "Forbidden".to_string()),
             ApiError::SubscriptionExpired => (
                 StatusCode::FORBIDDEN,
                 "subscription_expired",
@@ -135,21 +131,11 @@ impl IntoResponse for ApiError {
                 "rate_limit_exceeded",
                 "Rate limit exceeded. Please try again later.".to_string(),
             ),
-            ApiError::ProviderError(e) => (
-                StatusCode::BAD_GATEWAY,
-                "provider_error",
-                e.clone(),
-            ),
-            ApiError::NotImplemented(e) => (
-                StatusCode::NOT_IMPLEMENTED,
-                "not_implemented",
-                e.clone(),
-            ),
-            ApiError::InvalidRequest(e) => (
-                StatusCode::BAD_REQUEST,
-                "invalid_request",
-                e.clone(),
-            ),
+            ApiError::ProviderError(e) => (StatusCode::BAD_GATEWAY, "provider_error", e.clone()),
+            ApiError::NotImplemented(e) => {
+                (StatusCode::NOT_IMPLEMENTED, "not_implemented", e.clone())
+            }
+            ApiError::InvalidRequest(e) => (StatusCode::BAD_REQUEST, "invalid_request", e.clone()),
             ApiError::UserAlreadyExists => (
                 StatusCode::CONFLICT,
                 "user_already_exists",
@@ -180,11 +166,7 @@ impl IntoResponse for ApiError {
                 "user_not_found",
                 "User not found.".to_string(),
             ),
-            ApiError::LoginFailed(msg) => (
-                StatusCode::UNAUTHORIZED,
-                "login_failed",
-                msg.clone(),
-            ),
+            ApiError::LoginFailed(msg) => (StatusCode::UNAUTHORIZED, "login_failed", msg.clone()),
             ApiError::SessionExpired => (
                 StatusCode::UNAUTHORIZED,
                 "session_expired",

@@ -3,7 +3,7 @@
 //! 提供 API Key 和 Bearer Token 的验证功能
 
 use db::PostgresPool;
-use models::{User, ApiKey};
+use models::{ApiKey, User};
 
 use crate::AuthError;
 
@@ -32,7 +32,9 @@ impl<'a> ApiKeyValidator<'a> {
         let key_hash = super::keygen::ApiKeyGenerator::hash_key(key);
 
         // 在数据库中查找 Key
-        let api_key = self.db.get_api_key_by_hash(&key_hash)
+        let api_key = self
+            .db
+            .get_api_key_by_hash(&key_hash)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::ApiKeyNotFound)?;
@@ -42,7 +44,9 @@ impl<'a> ApiKeyValidator<'a> {
         }
 
         // 获取用户
-        let user = self.db.get_user_by_id(api_key.user_id)
+        let user = self
+            .db
+            .get_user_by_id(api_key.user_id)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::UserNotFound)?;
@@ -100,7 +104,9 @@ impl<'a> BearerValidator<'a> {
         let key_hash = super::keygen::ApiKeyGenerator::hash_key(key);
 
         // 在数据库中查找 Key
-        let api_key = self.db.get_api_key_by_hash(&key_hash)
+        let api_key = self
+            .db
+            .get_api_key_by_hash(&key_hash)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::ApiKeyNotFound)?;
@@ -110,7 +116,9 @@ impl<'a> BearerValidator<'a> {
         }
 
         // 获取用户
-        let user = self.db.get_user_by_id(api_key.user_id)
+        let user = self
+            .db
+            .get_user_by_id(api_key.user_id)
             .await
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::UserNotFound)?;

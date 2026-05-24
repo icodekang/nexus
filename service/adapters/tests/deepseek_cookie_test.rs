@@ -22,8 +22,7 @@ struct CookieData {
 #[ignore = "requires headless Chrome and valid DeepSeek session"]
 async fn verify_deepseek_cookies_can_chat() {
     // Parse the cookie JSON
-    let data: CookieData = serde_json::from_str(COOKIE_JSON)
-        .expect("Failed to parse cookie JSON");
+    let data: CookieData = serde_json::from_str(COOKIE_JSON).expect("Failed to parse cookie JSON");
 
     println!("\n=== DeepSeek Cookie Verification ===\n");
     println!("Cookies loaded: {}", data.cookies.len());
@@ -46,7 +45,10 @@ async fn verify_deepseek_cookies_can_chat() {
     let browser = match headless_chrome::Browser::default() {
         Ok(b) => b,
         Err(e) => {
-            println!("SKIP: Cannot launch Chrome: {}. Check CHROME_PATH or install Chrome.", e);
+            println!(
+                "SKIP: Cannot launch Chrome: {}. Check CHROME_PATH or install Chrome.",
+                e
+            );
             return;
         }
     };
@@ -63,10 +65,13 @@ async fn verify_deepseek_cookies_can_chat() {
     // Inject cookies
     println!("\nInjecting {} cookies...", data.cookies.len());
     let cookie_pairs_json = serde_json::to_string(
-        &data.cookies.iter()
+        &data
+            .cookies
+            .iter()
             .map(|(k, v)| [k.as_str(), v.as_str()])
-            .collect::<Vec<_>>()
-    ).unwrap();
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
 
     let cookies_script = format!(
         r#"
@@ -83,7 +88,8 @@ async fn verify_deepseek_cookies_can_chat() {
 
     match tab.evaluate(&cookies_script, false) {
         Ok(result) => {
-            let cookies_set = result.value
+            let cookies_set = result
+                .value
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_default();
             println!("Cookies after injection: {} chars", cookies_set.len());
@@ -115,7 +121,11 @@ async fn verify_deepseek_cookies_can_chat() {
             if let Some(serde_json::Value::String(s)) = &result.value {
                 println!("Page after reload: {}", s);
                 let lower = s.to_lowercase();
-                if lower.contains("log in") || lower.contains("sign in") || lower.contains("sign_up") || lower.contains("登录") {
+                if lower.contains("log in")
+                    || lower.contains("sign in")
+                    || lower.contains("sign_up")
+                    || lower.contains("登录")
+                {
                     panic!("FAIL: Still on login/register page. Cookies may be expired or invalid.\nPage info: {}", s);
                 }
             }
@@ -201,22 +211,33 @@ async fn verify_deepseek_cookies_can_chat() {
 
     match tab.evaluate(test_script, false) {
         Ok(result) => {
-            let response_text = result.value
+            let response_text = result
+                .value
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| r#"{"error":"No return value"}"#.to_string());
 
             println!("\nChat response: {}", response_text);
 
-            let parsed: serde_json::Value = serde_json::from_str(&response_text)
-                .unwrap_or_else(|_| serde_json::json!({"error": "parse failed", "raw": response_text}));
+            let parsed: serde_json::Value = serde_json::from_str(&response_text).unwrap_or_else(
+                |_| serde_json::json!({"error": "parse failed", "raw": response_text}),
+            );
 
             if let Some(err) = parsed.get("error") {
                 panic!("FAIL: Chat JS returned error: {}", err);
             }
 
-            let has_response = parsed.get("hasResponse").and_then(|v| v.as_bool()).unwrap_or(false);
-            let preview = parsed.get("responsePreview").and_then(|v| v.as_str()).unwrap_or("");
-            let length = parsed.get("responseLength").and_then(|v| v.as_u64()).unwrap_or(0);
+            let has_response = parsed
+                .get("hasResponse")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let preview = parsed
+                .get("responsePreview")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let length = parsed
+                .get("responseLength")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
 
             if has_response && length > 5 {
                 println!("\n✓ SUCCESS: DeepSeek chat responded!");

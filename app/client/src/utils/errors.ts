@@ -4,7 +4,6 @@
  */
 
 import { ApiError } from '../api/client';
-import { useI18n } from '../i18n';
 
 /**
  * 错误码到 i18n key 的映射表
@@ -74,21 +73,4 @@ export function getErrorMessage(err: unknown, t: (key: string) => string): strin
     return t('errors.try_again');
   }
   return t('errors.try_again');
-}
-
-/**
- * getErrorWithSupport - 获取错误消息并附加客服提示
- * @param err - 错误对象
- * @param t - 翻译函数
- * @returns 错误消息（可能附加客服联系方式）
- *
- * 注意：限流错误不会附加客服提示
- */
-export function getErrorWithSupport(err: unknown, t: (key: string) => string): string {
-  const message = getErrorMessage(err, t);
-  // Don't add support message for rate limit errors
-  if (err instanceof ApiError && err.code === 'rate_limit_exceeded') {
-    return message;
-  }
-  return `${message} ${t('errors.contact_support')}`;
 }

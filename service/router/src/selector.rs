@@ -2,7 +2,7 @@
 //!
 //! 负责根据路由策略从多个提供商中选择最优的一个
 
-use models::{Provider, LlmModel};
+use models::{LlmModel, Provider};
 
 use crate::{RouteStrategy, RouterError};
 
@@ -34,10 +34,7 @@ pub fn select(
     }
 
     // 过滤出活跃的提供商
-    let active: Vec<&Provider> = providers.iter()
-        .filter(|p| p.is_active)
-        .cloned()
-        .collect();
+    let active: Vec<&Provider> = providers.iter().filter(|p| p.is_active).cloned().collect();
 
     if active.is_empty() {
         return Err(RouterError::NoProviderAvailable);
@@ -98,7 +95,8 @@ pub fn select_with_fallback(
     }
 
     // 过滤出活跃的提供商
-    let mut active: Vec<Provider> = providers.iter()
+    let mut active: Vec<Provider> = providers
+        .iter()
         .filter(|p| p.is_active)
         .cloned()
         .cloned()

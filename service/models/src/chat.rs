@@ -237,7 +237,11 @@ impl ChatChunk {
                     role: None,
                     content: Some(content.into()),
                 },
-                finish_reason: if finished { Some("stop".to_string()) } else { None },
+                finish_reason: if finished {
+                    Some("stop".to_string())
+                } else {
+                    None
+                },
             }],
         }
     }
@@ -301,10 +305,7 @@ impl EmbeddingsResponse {
     /// * `model` - 模型标识符
     /// * `embeddings` - 嵌入向量列表
     pub fn new(model: impl Into<String>, embeddings: Vec<Vec<f32>>) -> Self {
-        let usage = Usage::new(
-            embeddings.iter().map(|e| e.len() as i32).sum(),
-            0,
-        );
+        let usage = Usage::new(embeddings.iter().map(|e| e.len() as i32).sum(), 0);
         Self {
             object: "list".to_string(),
             data: embeddings

@@ -9,15 +9,15 @@
 //! - POST /send-sms - 发送短信验证码
 //! - POST /verify-sms - 验证短信验证码
 
-use axum::{routing::post, Router, Json, extract::State};
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
+use axum::{extract::State, routing::post, Json, Router};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use crate::state::AppState;
 use crate::error::ApiError;
-use models::User;
+use crate::state::AppState;
 use auth::{hash_password, verify_password, JwtService};
+use models::User;
 
 /// 创建认证路由
 pub fn routes() -> Router<Arc<AppState>> {
@@ -100,7 +100,10 @@ pub async fn register(
         user = user.with_phone(phone);
     }
 
-    state.db.create_user(&user).await
+    state
+        .db
+        .create_user(&user)
+        .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to create user")))?;
 
     // Generate token
@@ -147,13 +150,17 @@ pub async fn login(
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
     // Get user
-    let user = state.db.get_user_by_email(&request.email)
+    let user = state
+        .db
+        .get_user_by_email(&request.email)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Database error")))?
         .ok_or(ApiError::InvalidCredentials)?;
 
     // Verify password
-    let password_hash = user.password_hash.as_ref()
+    let password_hash = user
+        .password_hash
+        .as_ref()
         .ok_or(ApiError::InvalidCredentials)?;
 
     let is_valid = verify_password(&request.password, password_hash)
@@ -200,14 +207,31 @@ pub async fn admin_login(
     State(state): State<Arc<AppState>>,
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
+    let email = request.email.trim();
+
+    // Rate limiting: 5 attempts per minute per email
+    let (allowed, _, _) = state
+        .redis
+        .check_rate_limit(&format!("admin_login:{}", email), 5, 60)
+        .await
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Rate limit check failed")))?;
+
+    if !allowed {
+        return Err(ApiError::RateLimitExceeded);
+    }
+
     // Get user
-    let user = state.db.get_user_by_email(&request.email)
+    let user = state
+        .db
+        .get_user_by_email(email)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Database error")))?
         .ok_or(ApiError::InvalidCredentials)?;
 
     // Verify password
-    let password_hash = user.password_hash.as_ref()
+    let password_hash = user
+        .password_hash
+        .as_ref()
         .ok_or(ApiError::InvalidCredentials)?;
 
     let is_valid = verify_password(&request.password, password_hash)
@@ -249,24 +273,23 @@ pub async fn logout(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Get the token from the request body or extract from auth context
-    let token = body.get("token")
+    let token = body
+        .get("token")
         .and_then(|t| t.as_str())
         .ok_or(ApiError::InvalidRequest("Missing token".to_string()))?;
 
     // Calculate remaining TTL (token expiry - current time)
-    let claims = JwtService::validate_token(token)
-        .map_err(|_| ApiError::Unauthorized)?;
+    let claims = JwtService::validate_token(token).map_err(|_| ApiError::Unauthorized)?;
 
     let now = chrono::Utc::now().timestamp();
     let ttl = (claims.exp - now).max(0) as i64;
 
     if ttl > 0 {
         // Add token to blacklist with remaining TTL
-        state.redis.blacklist_token(token, ttl).await
-            .map_err(|e| {
-                tracing::error!("Failed to blacklist token: {:?}", e);
-                ApiError::Internal(anyhow::anyhow!("Failed to logout"))
-            })?;
+        state.redis.blacklist_token(token, ttl).await.map_err(|e| {
+            tracing::error!("Failed to blacklist token: {:?}", e);
+            ApiError::Internal(anyhow::anyhow!("Failed to logout"))
+        })?;
     }
 
     Ok(Json(serde_json::json!({
@@ -318,11 +341,15 @@ pub async fn send_sms(
 
     // Validate phone number (basic validation)
     if phone.len() < 10 || phone.len() > 15 {
-        return Err(ApiError::InvalidRequest("Invalid phone number format".to_string()));
+        return Err(ApiError::InvalidRequest(
+            "Invalid phone number format".to_string(),
+        ));
     }
 
     // Check rate limit
-    let (allowed, _wait_seconds) = state.redis.check_sms_rate_limit(phone)
+    let (allowed, _wait_seconds) = state
+        .redis
+        .check_sms_rate_limit(phone)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to check rate limit")))?;
 
@@ -334,7 +361,9 @@ pub async fn send_sms(
     let code: u32 = rand::thread_rng().gen_range(100000..999999);
 
     // Store code in Redis
-    state.redis.store_sms_code(phone, &code.to_string())
+    state
+        .redis
+        .store_sms_code(phone, &code.to_string())
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to store SMS code")))?;
 
@@ -397,7 +426,9 @@ pub async fn verify_sms(
     }
 
     // Get stored code
-    let stored_code = state.redis.get_sms_code(phone)
+    let stored_code = state
+        .redis
+        .get_sms_code(phone)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to retrieve SMS code")))?;
 
@@ -413,7 +444,9 @@ pub async fn verify_sms(
     }
 
     // Check if user exists with this phone
-    let existing_user = state.db.get_user_by_phone(phone)
+    let existing_user = state
+        .db
+        .get_user_by_phone(phone)
         .await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Database error")))?;
 
@@ -425,7 +458,9 @@ pub async fn verify_sms(
         let mut new_user = User::new(format!("{}@nexus.sms", phone));
         new_user = new_user.with_phone(phone.to_string());
 
-        state.db.create_user(&new_user)
+        state
+            .db
+            .create_user(&new_user)
             .await
             .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to create user")))?;
 
@@ -449,27 +484,29 @@ pub async fn verify_sms(
 }
 
 /// 通过阿里云短信服务发送短信
-    ///
-    /// # ⚠️ 当前实现为占位代码
-    /// 需要 HMAC-SHA1 签名认证。生产环境建议：
-    /// 方案 A：使用 `aliyun-openapi-sdk-dysmsapi` Rust crate
-    /// 方案 B：手动实现签名（GET + query string + HMAC-SHA1）
-    /// 详见阿里云 API 文档: https://help.aliyun.com/zh/sms/
-    ///
-    /// 开发模式下（设置 NEXUS_DEV_MODE=1），仅打印验证码到日志。
-    ///
-    /// # 参数
-    /// * `phone` - 目标手机号
-    /// * `code` - 验证码
+///
+/// # ⚠️ 当前实现为占位代码
+/// 需要 HMAC-SHA1 签名认证。生产环境建议：
+/// 方案 A：使用 `aliyun-openapi-sdk-dysmsapi` Rust crate
+/// 方案 B：手动实现签名（GET + query string + HMAC-SHA1）
+/// 详见阿里云 API 文档: https://help.aliyun.com/zh/sms/
+///
+/// 开发模式下（设置 NEXUS_DEV_MODE=1），仅打印验证码到日志。
+///
+/// # 参数
+/// * `phone` - 目标手机号
+/// * `code` - 验证码
 async fn send_alibaba_sms(phone: &str, code: &str) -> Result<(), ApiError> {
-    let _sign_name = std::env::var("ALIYUN_SMS_SIGN_NAME")
-        .map_err(|_| ApiError::SmsSendFailed)?;
-    let _template_code = std::env::var("ALIYUN_SMS_TEMPLATE_CODE")
-        .map_err(|_| ApiError::SmsSendFailed)?;
+    let _sign_name = std::env::var("ALIYUN_SMS_SIGN_NAME").map_err(|_| ApiError::SmsSendFailed)?;
+    let _template_code =
+        std::env::var("ALIYUN_SMS_TEMPLATE_CODE").map_err(|_| ApiError::SmsSendFailed)?;
 
-    // Development mode: just log the code
+    // Development mode: log that a code was generated, not the code itself
     if std::env::var("NEXUS_DEV_MODE").is_ok() {
-        tracing::info!("DEV MODE: SMS code for {} is {}", phone, code);
+        tracing::info!(
+            "DEV MODE: SMS code generated for {}. Check logs for development code.",
+            phone
+        );
         return Ok(());
     }
 
@@ -478,7 +515,8 @@ async fn send_alibaba_sms(phone: &str, code: &str) -> Result<(), ApiError> {
     // Install `aliyun-openapi-sdk-dysmsapi` crate and use DysmsapiClient.
     tracing::warn!(
         "ALIYUN SMS NOT IMPLEMENTED — phone={} code={}. Set NEXUS_DEV_MODE=1 for development.",
-        phone, code
+        phone,
+        code
     );
 
     Err(ApiError::SmsSendFailed)

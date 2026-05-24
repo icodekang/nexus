@@ -34,7 +34,9 @@ fn get_encryption_key() -> Option<[u8; 32]> {
             Some(key)
         }
         _ => {
-            tracing::warn!("API_KEY_ENCRYPTION_KEY is not valid hex. Falling back to plain Base64.");
+            tracing::warn!(
+                "API_KEY_ENCRYPTION_KEY is not valid hex. Falling back to plain Base64."
+            );
             None
         }
     }
@@ -48,9 +50,7 @@ mod hex {
         }
         (0..hex_str.len())
             .step_by(2)
-            .map(|i| {
-                u8::from_str_radix(&hex_str[i..i + 2], 16).map_err(|_| ())
-            })
+            .map(|i| u8::from_str_radix(&hex_str[i..i + 2], 16).map_err(|_| ()))
             .collect()
     }
 }
@@ -70,8 +70,7 @@ pub fn encrypt_api_key(plain_key: &str) -> String {
 
     match get_encryption_key() {
         Some(key) => {
-            let cipher = Aes256Gcm::new_from_slice(&key)
-                .expect("AES-256-GCM key must be 32 bytes");
+            let cipher = Aes256Gcm::new_from_slice(&key).expect("AES-256-GCM key must be 32 bytes");
 
             let mut nonce_bytes = [0u8; NONCE_SIZE];
             OsRng.fill_bytes(&mut nonce_bytes);
@@ -120,8 +119,8 @@ pub fn decrypt_api_key(encoded: &str) -> Result<String, String> {
     // Try AES-256-GCM decryption if key is configured
     if let Some(key) = get_encryption_key() {
         if data.len() > NONCE_SIZE {
-            let cipher = Aes256Gcm::new_from_slice(&key)
-                .map_err(|_| "Invalid AES key".to_string())?;
+            let cipher =
+                Aes256Gcm::new_from_slice(&key).map_err(|_| "Invalid AES key".to_string())?;
 
             let (nonce_bytes, ciphertext) = data.split_at(NONCE_SIZE);
             let nonce = Nonce::from_slice(nonce_bytes);
@@ -140,8 +139,7 @@ pub fn decrypt_api_key(encoded: &str) -> Result<String, String> {
     }
 
     // Fallback: plain Base64 (old format or no encryption configured)
-    String::from_utf8(data)
-        .map_err(|e| format!("API key is not valid UTF-8: {}", e))
+    String::from_utf8(data).map_err(|e| format!("API key is not valid UTF-8: {}", e))
 }
 
 #[cfg(test)]
