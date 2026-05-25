@@ -98,6 +98,7 @@ export const zh = {
     changePhone: '使用其他手机号码',
   },
   layout: {
+    home: '首页',
     chat: '对话',
     models: '模型',
     apiKeys: 'API 密钥',
@@ -253,5 +254,23 @@ export const zh = {
   },
   lang: {
     label: '中文',
+  },
+  home: {
+    eyebrow: 'AI 网关观测台',
+    title: 'LLMs统一网关',
+    subtitle: '实时监控模型使用情况，追踪 Token 消耗，获取最新 AI 动态资讯。',
+    totalTokens: '总 Tokens',
+    activeUsers: '活跃用户',
+    availableModels: '可用模型',
+    modelRankings: '模型 Token 统计',
+    realtime: '实时',
+    userLeaderboard: 'Token 排行榜',
+    year: '年',
+    month: '月',
+    day: '日',
+    week: '周',
+    aiNews: '热门 AI 资讯',
+    viewAll: '查看全部',
+    privacyNote: '为保护隐私，用户名已脱敏显示',
   },
 };

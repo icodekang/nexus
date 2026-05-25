@@ -98,6 +98,7 @@ export const en = {
     changePhone: 'Use a different phone number',
   },
   layout: {
+    home: 'Home',
     chat: 'Chat',
     models: 'Models',
     apiKeys: 'API Keys',
@@ -253,5 +254,23 @@ export const en = {
   },
   lang: {
     label: 'EN',
+  },
+  home: {
+    eyebrow: 'AI Gateway Observatory',
+    title: 'Your Gateway to the\nWorld of AI',
+    subtitle: 'Monitor real-time model usage, track token consumption, and stay informed with the latest AI developments.',
+    totalTokens: 'Total Tokens',
+    activeUsers: 'Active Users',
+    availableModels: 'Models',
+    modelRankings: 'Model Token Rankings',
+    realtime: 'Live',
+    userLeaderboard: 'Token Leaderboard',
+    year: 'Year',
+    month: 'Month',
+    day: 'Day',
+    week: 'Week',
+    aiNews: 'Hot AI News',
+    viewAll: 'View all',
+    privacyNote: 'Usernames are masked for privacy',
   },
 };

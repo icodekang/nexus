@@ -46,7 +46,7 @@ export default function Layout() {
       {/* Top Navigation Bar */}
       <header className="topbar">
         <div className="topbar-inner">
-          <NavLink to="/chat" className="topbar-brand">
+          <NavLink to="/" className="topbar-brand">
             <div className="topbar-logo">
               <Zap size={15} strokeWidth={2.5} />
             </div>
@@ -78,6 +78,11 @@ export default function Layout() {
               {locale === 'en' ? '中文' : 'EN'}
             </button>
 
+            {/* Mobile hamburger */}
+            <button className="topbar-mobile-menu-btn" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+
             {/* User menu / Sign in */}
             <div className="topbar-user-menu" ref={userMenuRef}>
               {isAuthenticated ? (
@@ -99,7 +104,7 @@ export default function Layout() {
                       </div>
                       <button
                         className="topbar-user-dropdown-item"
-                        onClick={() => { logout(); navigate('/chat'); setUserMenuOpen(false); }}
+                        onClick={() => { logout(); navigate('/'); setUserMenuOpen(false); }}
                       >
                         <LogOut size={14} />
                         {t('common.signOut')}
@@ -117,11 +122,6 @@ export default function Layout() {
                 </button>
               )}
             </div>
-
-            {/* Mobile hamburger */}
-            <button className="topbar-mobile-menu-btn" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
-            </button>
           </div>
         </div>
       </header>
@@ -147,7 +147,7 @@ export default function Layout() {
             {isAuthenticated ? (
               <button
                 className="mobile-nav-logout"
-                onClick={() => { logout(); navigate('/chat'); setMobileMenuOpen(false); }}
+                onClick={() => { logout(); navigate('/'); setMobileMenuOpen(false); }}
               >
                 <LogOut size={16} />
                 <span>{t('common.signOut')}</span>

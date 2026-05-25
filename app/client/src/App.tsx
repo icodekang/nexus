@@ -8,6 +8,7 @@ import { useAuthStore } from './stores/authStore';
 import { I18nProvider } from './i18n';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
+import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import ModelsPage from './pages/ModelsPage';
 import KeysPage from './pages/KeysPage';
@@ -17,7 +18,7 @@ import GuidePage from './pages/GuidePage';
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
   if (isAuthenticated) {
-    return <Navigate to="/chat" replace />;
+    return <Navigate to="/" replace />;
   }
   return <>{children}</>;
 }
@@ -34,14 +35,15 @@ function AppContent() {
       <Routes>
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/chat" replace />} />
+          <Route index element={<HomePage />} />
+          <Route path="home" element={<HomePage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="models" element={<ModelsPage />} />
           <Route path="keys" element={<KeysPage />} />
           <Route path="subscription" element={<SubscriptionPage />} />
           <Route path="guide" element={<GuidePage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/chat" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

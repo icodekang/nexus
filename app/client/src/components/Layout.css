@@ -9,7 +9,7 @@
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  background: #FAFAF8;
+  background: #FFFFFF;
 }
 
 /* ===== Top Navigation Bar ===== */
@@ -582,5 +582,13 @@
 
   .topbar-lang-btn {
     display: none;
+  }
+
+  .topbar-user-menu {
+    display: none;
+  }
+
+  .topbar-right {
+    margin-left: auto;
   }
 }

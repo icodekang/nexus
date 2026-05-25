@@ -46,6 +46,16 @@ export default function ChatPage() {
   }, [loaded, loadModels]);
 
   useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      setSidebarOpen(!e.matches);
+    };
+    handler(mq);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  useEffect(() => {
     if (!modelMenuOpen) return;
     const handler = (e: MouseEvent) => {
       if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
@@ -94,6 +104,7 @@ export default function ChatPage() {
   const handleNewChat = useCallback(() => {
     const modelId = selectedModelId || 'gpt-4o-mini';
     createConversation(modelId);
+    if (window.innerWidth <= 768) setSidebarOpen(false);
   }, [createConversation, selectedModelId]);
 
   const handleSend = useCallback(() => {
@@ -160,6 +171,7 @@ export default function ChatPage() {
 
   const handleSelectConv = useCallback((id: string) => {
     setActiveConversation(id);
+    if (window.innerWidth <= 768) setSidebarOpen(false);
   }, [setActiveConversation]);
 
   const handleDeleteConv = useCallback((e: React.MouseEvent, id: string) => {
@@ -225,15 +237,14 @@ export default function ChatPage() {
       {/* Sidebar */}
       <aside className={`chat-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="chat-sidebar-inner">
-          <div className="chat-sidebar-header">
-            <button className="chat-sidebar-new-btn" onClick={handleNewChat}>
-              <Plus size={15} />
-              <span>{t('chat.newChat')}</span>
+          <div className="chat-sidebar-top">
+            <span className="chat-sidebar-label">{t('chat.conversations')}</span>
+            <button className="chat-sidebar-collapse-btn" onClick={() => setSidebarOpen(false)} title="Collapse">
+              <PanelLeftClose size={15} />
             </button>
           </div>
 
           <div className="chat-sidebar-convs">
-            <div className="chat-sidebar-convs-label">{t('chat.conversations')}</div>
             <div className="chat-sidebar-convs-list">
               {recentConversations.length === 0 ? (
                 <div className="chat-sidebar-convs-empty">{t('chat.noConversations')}</div>
@@ -261,17 +272,35 @@ export default function ChatPage() {
         </div>
       </aside>
 
-      {/* Sidebar toggle (desktop edge) */}
-      <button
-        className="chat-sidebar-toggle"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-      >
-        {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
+      {/* Open sidebar button (visible when collapsed) */}
+      {!sidebarOpen && (
+        <button className="chat-sidebar-open-btn" onClick={() => setSidebarOpen(true)} title="Show conversations">
+          <PanelLeft size={18} />
+        </button>
+      )}
+
+      {/* Desktop new chat button */}
+      <button className="chat-new-chat-btn" onClick={handleNewChat} title={t('chat.newChat')}>
+        <Plus size={18} />
       </button>
 
       {/* Main area */}
       <div className="chat-main">
+        {/* Mobile header bar */}
+        <div className="chat-mobile-header">
+          <button
+            className="chat-mobile-header-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            <PanelLeft size={18} />
+          </button>
+          <button className="chat-mobile-header-btn" onClick={handleNewChat} title={t('chat.newChat')}>
+            <Plus size={18} />
+          </button>
+        </div>
+
+        {/* Sidebar backdrop (mobile only) */}
+        {sidebarOpen && <div className="chat-sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
         {!activeConv ? (
           <div className="chat-empty">
             <div className="chat-empty-logo">
