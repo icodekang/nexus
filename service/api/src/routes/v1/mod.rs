@@ -37,7 +37,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/chat/batch/judge", post(chat::chat_batch_judge))
         .route("/completions", post(chat::completions))
         .route("/embeddings", post(chat::embeddings))
-        .route("/models", axum::routing::get(models::list_models))
         .route(
             "/openai/chat/completions",
             post(openai::openai_chat_completions),

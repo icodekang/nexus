@@ -6,7 +6,7 @@
 /* ---- CSS Custom Properties ---- */
 .models-page {
   --m-bg-root: #FFFFFF;
-  --m-bg-sidebar: #FAFAFA;
+  --m-bg-sidebar: #FFFFFF;
   --m-bg-surface: #F5F5F4;
   --m-bg-hover: #F0EFEE;
   --m-bg-active: #FEFAF3;
@@ -56,8 +56,7 @@
   width: 200px;
   min-width: 200px;
   padding: 24px 16px;
-  background:
-    linear-gradient(180deg, var(--m-bg-sidebar) 0%, rgba(250,250,250,0.98) 100%);
+  background: var(--m-bg-sidebar);
   border-right: 1px solid var(--m-border);
   display: flex;
   flex-direction: column;
@@ -263,13 +262,36 @@
   min-width: 0;
 }
 
-/* Provider dot in sidebar */
+/* Provider logo in sidebar */
+.provider-logo-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.provider-logo-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
 .models-provider-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
   flex-shrink: 0;
-  transition: box-shadow 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.models-sidebar-checkbox:hover .models-provider-dot {
+  opacity: 1;
+  transform: scale(1.1);
 }
 
 /* =============================================
@@ -550,17 +572,21 @@
   min-width: 0;
 }
 
-.models-row-provider-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+.models-row-provider-logo {
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
-  margin-top: 4px;
-  transition: box-shadow 0.2s ease;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.models-row:hover .models-row-provider-dot {
-  filter: brightness(1.3);
+.models-row:hover .models-row-provider-logo {
+  opacity: 1;
+  transform: scale(1.08);
 }
 
 .models-row-info {
