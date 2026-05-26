@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
     // ── 公开路由（无需认证）────────────────────────────────────────────
     let public = Router::new()
         .route("/health", axum::routing::get(routes::health))
+        .route("/v1/models", axum::routing::get(routes::v1::models::list_models))
         .nest("/v1/auth", routes::auth::routes());
 
     // ── 需要认证的 /v1/* 端点 ────────────────────────────────────────────

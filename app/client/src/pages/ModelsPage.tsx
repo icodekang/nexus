@@ -1,158 +1,359 @@
-/**
- * @file ModelsPage - AI 模型浏览和选择页面
- * 展示所有可用模型，支持按提供商筛选和搜索
- * 选择模型后自动跳转到聊天页面
- */
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Layers, ChevronRight, Check, Sparkles } from 'lucide-react';
+import { Search, ChevronRight, Check, Filter, X, ArrowUpDown, Layers, ChevronDown, SlidersHorizontal, Server } from 'lucide-react';
 import { useModelState } from '../stores/modelStore';
 import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
+import type { Model } from '../api/client';
 import './ModelsPage.css';
 
-// 提供商元信息
-const PROVIDER_META: Record<string, { color: string; label: string }> = {
-  openai: { color: '#10B981', label: 'OpenAI' },
-  anthropic: { color: '#D97706', label: 'Anthropic' },
-  google: { color: '#3B82F6', label: 'Google' },
-  deepseek: { color: '#8B5CF6', label: 'DeepSeek' },
+const PROVIDER_META: Record<string, { color: string; label: string; glow: string }> = {
+  openai: { color: '#34D399', label: 'OpenAI', glow: 'rgba(52,211,153,0.25)' },
+  anthropic: { color: '#F59E0B', label: 'Anthropic', glow: 'rgba(245,158,11,0.25)' },
+  google: { color: '#60A5FA', label: 'Google', glow: 'rgba(96,165,250,0.25)' },
+  deepseek: { color: '#A78BFA', label: 'DeepSeek', glow: 'rgba(167,139,250,0.25)' },
 };
+const FALLBACK_PROVIDER = { color: '#78716C', label: '', glow: 'rgba(120,113,108,0.2)' };
 
-/**
- * ModelsPage - 模型浏览主组件
- * @description 展示可用模型，支持搜索和提供商筛选
- */
+const INPUT_MODALITY_OPTIONS = [
+  { key: 'text', labelKey: 'models.modalities.text' },
+  { key: 'image', labelKey: 'models.modalities.image' },
+  { key: 'audio', labelKey: 'models.modalities.audio' },
+  { key: 'tool_use', labelKey: 'models.modalities.tool_use' },
+];
+
+function getModalities(capabilities: string[]): string[] {
+  const mods: string[] = ['text'];
+  if (!capabilities || capabilities.length === 0) return mods;
+  const capSet = new Set(capabilities.map((c) => c.toLowerCase()));
+  if (capSet.has('vision')) mods.push('image');
+  if (capSet.has('function_call')) mods.push('tool_use');
+  return mods;
+}
+
+type SortField = 'name' | 'context_window';
+type SortDir = 'asc' | 'desc';
+
 export default function ModelsPage() {
   const navigate = useNavigate();
   const { models, loaded, loadModels } = useModelState();
   const { selectedModelId, setSelectedModelId } = useChatStore();
   const { t } = useI18n();
+
   const [search, setSearch] = useState('');
-  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [activeProviders, setActiveProviders] = useState<Set<string>>(new Set());
+  const [activeModalities, setActiveModalities] = useState<Set<string>>(new Set());
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [modalitiesOpen, setModalitiesOpen] = useState(false);
+  const [providersOpen, setProvidersOpen] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   useEffect(() => {
     if (!loaded) loadModels();
   }, [loaded, loadModels]);
 
-  // 从模型列表中提取所有提供商
   const providers = useMemo(() => {
     const set = new Set(models.map((m) => m.provider));
     return Array.from(set);
   }, [models]);
 
-  // 根据搜索关键词和选中的提供商过滤模型
   const filtered = useMemo(() => {
-    return models.filter((m) => {
-      const matchesSearch = !search ||
+    let result = models.filter((m) => {
+      const matchesSearch =
+        !search ||
         m.name.toLowerCase().includes(search.toLowerCase()) ||
-        m.id.toLowerCase().includes(search.toLowerCase());
-      const matchesProvider = !activeProvider || m.provider === activeProvider;
-      return matchesSearch && matchesProvider;
+        m.id.toLowerCase().includes(search.toLowerCase()) ||
+        (m.provider_name || '').toLowerCase().includes(search.toLowerCase());
+      const matchesProvider = activeProviders.size === 0 || activeProviders.has(m.provider);
+      const matchesModality =
+        activeModalities.size === 0 ||
+        getModalities(m.capabilities).some((mod) => activeModalities.has(mod));
+      return matchesSearch && matchesProvider && matchesModality;
     });
-  }, [models, search, activeProvider]);
 
-  // 选择模型：更新全局选中状态并跳转到聊天页面
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortField === 'context_window') {
+        cmp = a.context_window - b.context_window;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return result;
+  }, [models, search, activeProviders, activeModalities, sortField, sortDir]);
+
+  const toggleProvider = (slug: string) => {
+    setActiveProviders((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  };
+
+  const toggleModality = (key: string) => {
+    setActiveModalities((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const clearFilters = () => {
+    setSearch('');
+    setActiveProviders(new Set());
+    setActiveModalities(new Set());
+  };
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
   const handleSelect = (modelId: string) => {
     setSelectedModelId(modelId);
     navigate('/chat');
   };
 
+  const hasFilters = search || activeProviders.size > 0 || activeModalities.size > 0;
+
+  const fmtContext = (ctx: number): { value: string; pct: string } => {
+    if (ctx >= 1000000) return { value: `${(ctx / 1000000).toFixed(1)}M`, pct: '100' };
+    if (ctx >= 200000) return { value: `${(ctx / 1000).toFixed(0)}K`, pct: '90' };
+    if (ctx >= 128000) return { value: `${(ctx / 1000).toFixed(0)}K`, pct: '72' };
+    if (ctx >= 64000) return { value: `${(ctx / 1000).toFixed(0)}K`, pct: '50' };
+    if (ctx >= 32000) return { value: `${(ctx / 1000).toFixed(0)}K`, pct: '35' };
+    return { value: `${(ctx / 1000).toFixed(0)}K`, pct: '20' };
+  };
+
   return (
     <div className="models-page">
-      {/* 页面头部 */}
-      <header className="models-header">
-        <div className="models-header-text">
-          <h1 className="models-title">{t('models.title')}</h1>
-          <p className="models-subtitle">{t('models.subtitle', { count: models.length })}</p>
-        </div>
-      </header>
+      {/* Mobile filter toggle */}
+      <button className="models-mobile-filter" onClick={() => setSidebarOpen(!sidebarOpen)}>
+        <Filter size={14} /> {t('models.filter')}
+      </button>
 
-      {/* 工具栏：搜索框 + 提供商筛选 */}
-      <div className="models-toolbar">
-        <div className="models-search-wrapper">
-          <Search size={16} className="models-search-icon" />
-          <input
-            className="models-search"
-            placeholder={t('models.searchPlaceholder')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        {/* 提供商筛选标签 */}
-        <div className="models-filters">
-          <button
-            className={`models-filter-pill ${!activeProvider ? 'active' : ''}`}
-            onClick={() => setActiveProvider(null)}
-          >
-            {t('common.all')}
+      {sidebarOpen && <div className="models-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+
+      {/* ---- SIDEBAR ---- */}
+      <aside className={`models-sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="models-sidebar-header">
+          <button className="models-sidebar-close" onClick={() => setSidebarOpen(false)}>
+            <X size={16} />
           </button>
-          {providers.map((p) => (
-            <button
-              key={p}
-              className={`models-filter-pill ${activeProvider === p ? 'active' : ''}`}
-              onClick={() => setActiveProvider(activeProvider === p ? null : p)}
-              style={activeProvider === p ? { background: PROVIDER_META[p]?.color || '#6366F1', borderColor: PROVIDER_META[p]?.color || '#6366F1', color: '#fff' } : {}}
-            >
-              <span
-                className="models-filter-dot"
-                style={{ background: PROVIDER_META[p]?.color || '#A8A29E' }}
-              />
-              {PROVIDER_META[p]?.label || p}
-            </button>
-          ))}
         </div>
-      </div>
 
-      {/* 模型卡片网格 */}
-      <div className="models-grid">
-        {filtered.map((model) => {
-          const isSelected = model.id === selectedModelId;
-          const meta = PROVIDER_META[model.provider] || { color: '#A8A29E', label: model.provider };
-          return (
-            <button
-              key={model.id}
-              className={`models-card ${isSelected ? 'selected' : ''}`}
-              onClick={() => handleSelect(model.id)}
-            >
-              <div className="models-card-header">
-                <div className="models-card-provider" style={{ background: meta.color + '18', color: meta.color }}>
-                  <span className="models-card-provider-dot" style={{ background: meta.color }} />
-                  {meta.label}
-                </div>
-                {isSelected && (
-                  <div className="models-card-selected">
-                    <Check size={12} />
-                    {t('models.active')}
-                  </div>
-                )}
-              </div>
-              <h3 className="models-card-name">{model.name}</h3>
-              <p className="models-card-id">{model.id}</p>
-              <div className="models-card-meta">
-                <span className="models-card-context">
-                  <Layers size={12} />
-                  {t('models.contextWindow', { size: (model.context_window / 1000).toFixed(0) })}
-                </span>
-                {model.capabilities?.length > 0 && (
-                  <div className="models-card-capabilities">
-                    {model.capabilities.map((cap) => (
-                      <span key={cap} className="models-card-cap-tag">{cap}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <ChevronRight size={14} className="models-card-arrow" />
+        {/* Input Modalities — collapsible dropdown */}
+        <div className="models-sidebar-section">
+          <button
+            className={`models-sidebar-dropdown ${modalitiesOpen ? 'open' : ''}`}
+            onClick={() => setModalitiesOpen(!modalitiesOpen)}
+          >
+            <span className="models-sidebar-dropdown-label">
+              <SlidersHorizontal size={14} className="models-sidebar-dropdown-icon" />
+              {t('models.inputModalities')}
+              {activeModalities.size > 0 && (
+                <span className="models-sidebar-dropdown-count">{activeModalities.size}</span>
+              )}
+            </span>
+            <ChevronDown size={14} className="models-sidebar-dropdown-arrow" />
+          </button>
+          {modalitiesOpen && (
+            <div className="models-sidebar-dropdown-panel">
+              {INPUT_MODALITY_OPTIONS.map((opt) => (
+                <label key={opt.key} className="models-sidebar-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={activeModalities.has(opt.key)}
+                    onChange={() => toggleModality(opt.key)}
+                  />
+                  <span className="models-sidebar-check-label">{t(opt.labelKey)}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Providers — collapsible dropdown */}
+        <div className="models-sidebar-section">
+          <button
+            className={`models-sidebar-dropdown ${providersOpen ? 'open' : ''}`}
+            onClick={() => setProvidersOpen(!providersOpen)}
+          >
+            <span className="models-sidebar-dropdown-label">
+              <Server size={14} className="models-sidebar-dropdown-icon" />
+              {t('models.providers')}
+              {activeProviders.size > 0 && (
+                <span className="models-sidebar-dropdown-count">{activeProviders.size}</span>
+              )}
+            </span>
+            <ChevronDown size={14} className="models-sidebar-dropdown-arrow" />
+          </button>
+          {providersOpen && (
+            <div className="models-sidebar-dropdown-panel">
+              {providers.map((slug) => {
+                const meta = PROVIDER_META[slug] || FALLBACK_PROVIDER;
+                return (
+                  <label key={slug} className="models-sidebar-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={activeProviders.has(slug)}
+                      onChange={() => toggleProvider(slug)}
+                    />
+                    <span
+                      className="models-provider-dot"
+                      style={{ background: meta.color, boxShadow: `0 0 6px ${meta.glow}` }}
+                    />
+                    <span className="models-sidebar-check-label">{meta.label || slug}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* ---- MAIN ---- */}
+      <main className="models-content">
+        {/* Header */}
+        <div className="models-content-header">
+          <div className="models-content-header-left">
+            <h1 className="models-content-title">{t('models.title')}</h1>
+            <span className="models-count">{t('models.subtitle', { count: models.length })}</span>
+          </div>
+          <div className="models-content-search">
+            <Search size={14} className="models-search-icon" />
+            <input
+              placeholder={t('models.searchPlaceholder')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className="models-search-clear" onClick={() => setSearch('')}>
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Active filter chips */}
+        {hasFilters && (
+          <div className="models-active-filters">
+            {search && (
+              <span className="models-filter-chip">
+                &ldquo;{search}&rdquo;
+                <button onClick={() => setSearch('')}><X size={10} /></button>
+              </span>
+            )}
+            {Array.from(activeModalities).map((mod) => (
+              <span key={mod} className="models-filter-chip">
+                {t(INPUT_MODALITY_OPTIONS.find((o) => o.key === mod)?.labelKey || '')}
+                <button onClick={() => toggleModality(mod)}><X size={10} /></button>
+              </span>
+            ))}
+            {Array.from(activeProviders).map((slug) => (
+              <span key={slug} className="models-filter-chip">
+                {PROVIDER_META[slug]?.label || slug}
+                <button onClick={() => toggleProvider(slug)}><X size={10} /></button>
+              </span>
+            ))}
+            <button className="models-filter-clear-all" onClick={clearFilters}>
+              {t('models.clearFilters')}
             </button>
-          );
-        })}
-        {filtered.length === 0 && (
-          <div className="models-empty">
-            <Sparkles size={28} strokeWidth={1.5} />
-            <p>{t('models.noModelsFound')}</p>
           </div>
         )}
-      </div>
+
+        {/* Model rows */}
+        <div className="models-list">
+          {filtered.map((model, idx) => {
+            const isSelected = model.id === selectedModelId;
+            const meta = PROVIDER_META[model.provider] || FALLBACK_PROVIDER;
+            const label = meta.label || model.provider || model.provider_name;
+            const mods = getModalities(model.capabilities);
+            const ctx = fmtContext(model.context_window);
+            return (
+              <div
+                key={model.id}
+                className={`models-row ${isSelected ? 'selected' : ''}`}
+                onClick={() => handleSelect(model.id)}
+                style={{ animationDelay: `${idx * 35}ms` }}
+              >
+                <div className="models-row-left">
+                  <div
+                    className="models-row-provider-dot"
+                    style={{ background: meta.color, boxShadow: `0 0 8px ${meta.glow}` }}
+                  />
+                  <div className="models-row-info">
+                    <div className="models-row-name-row">
+                      <span className="models-row-name">{model.name}</span>
+                      {isSelected && (
+                        <span className="models-row-active-badge">
+                          <Check size={10} /> {t('models.active')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="models-row-meta">
+                      <span className="models-row-provider-tag" style={{ color: meta.color }}>
+                        {label}
+                      </span>
+                      <span className="models-row-sep">/</span>
+                      <span className="models-row-slug">{model.id}</span>
+                    </div>
+                    {model.description && (
+                      <p className="models-row-desc">{model.description}</p>
+                    )}
+                    <div className="models-row-modalities">
+                      {mods.map((modKey) => (
+                        <span key={modKey} className="models-row-mod-tag">
+                          {t(INPUT_MODALITY_OPTIONS.find((o) => o.key === modKey)?.labelKey || '')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="models-row-right">
+                  <div className="models-row-context" title={t('models.contextWindowRaw', { size: model.context_window })}>
+                    <div className="models-row-context-bar">
+                      <div
+                        className="models-row-context-fill"
+                        style={{ width: `${ctx.pct}%` }}
+                      />
+                    </div>
+                    <span className="models-row-context-value">{ctx.value}</span>
+                  </div>
+                  <ChevronRight size={16} className="models-row-arrow" />
+                </div>
+              </div>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div className="models-empty">
+              <div className="models-empty-ring" />
+              <p>{t('models.noModelsFound')}</p>
+              {hasFilters && (
+                <button className="models-empty-clear" onClick={clearFilters}>
+                  {t('models.clearFilters')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Mobile FAB */}
+      <button className="models-mobile-fab" onClick={() => setSidebarOpen(true)}>
+        <Filter size={16} />
+        <span>{t('models.filter')}</span>
+      </button>
     </div>
   );
 }

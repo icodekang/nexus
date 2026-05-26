@@ -288,8 +288,8 @@ impl PostgresPool {
         sqlx::query(
             r#"
             INSERT INTO models (id, provider_id, name, slug, model_id, mode, context_window, 
-                              capabilities, is_active, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                              capabilities, description, is_active, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(model.id)
@@ -300,6 +300,7 @@ impl PostgresPool {
         .bind(model.mode.as_str())
         .bind(model.context_window)
         .bind(serde_json::to_value(&model.capabilities)?)
+        .bind(&model.description)
         .bind(model.is_active)
         .bind(model.created_at)
         .execute(self.inner())
@@ -368,6 +369,7 @@ impl PostgresPool {
             },
             context_window: row.get("context_window"),
             capabilities,
+            description: row.try_get("description").ok(),
             is_active: row.get("is_active"),
             created_at: row.get("created_at"),
         }
@@ -901,6 +903,7 @@ impl PostgresPool {
         provider_id: Option<&str>,
         context_window: Option<i32>,
         capabilities: Option<serde_json::Value>,
+        description: Option<&str>,
         is_active: Option<bool>,
     ) -> Result<(), DbError> {
         sqlx::query(
@@ -912,6 +915,7 @@ impl PostgresPool {
                 provider_id = COALESCE($5, provider_id),
                 context_window = COALESCE($6, context_window),
                 capabilities = COALESCE($7, capabilities),
+                description = COALESCE($9, description),
                 is_active = COALESCE($8, is_active)
             WHERE id = $1
             "#,
@@ -924,6 +928,7 @@ impl PostgresPool {
         .bind(context_window)
         .bind(capabilities)
         .bind(is_active)
+        .bind(description)
         .execute(self.inner())
         .await?;
 

@@ -403,6 +403,8 @@ struct CreateModelRequest {
     context_window: Option<i32>,
     /// 支持的能力列表
     capabilities: Option<Vec<String>>,
+    /// 模型描述
+    description: Option<String>,
 }
 
 /// GET /admin/models
@@ -430,6 +432,7 @@ async fn list_models(
                 "mode": m.mode.as_str(),
                 "context_window": m.context_window,
                 "capabilities": m.capabilities,
+                "description": m.description,
                 "is_active": m.is_active,
                 "created_at": m.created_at.to_rfc3339(),
             })
@@ -477,6 +480,12 @@ async fn create_model(
     )
     .with_capabilities(body.capabilities.unwrap_or_default());
 
+    let model = if let Some(ref desc) = body.description {
+        model.with_description(desc)
+    } else {
+        model
+    };
+
     state
         .db
         .create_model(&model)
@@ -492,6 +501,7 @@ async fn create_model(
         "mode": model.mode.as_str(),
         "context_window": model.context_window,
         "capabilities": model.capabilities,
+        "description": model.description,
         "is_active": model.is_active,
         "created_at": model.created_at.to_rfc3339(),
     })))
@@ -506,6 +516,7 @@ struct UpdateModelRequest {
     provider_id: Option<String>,
     context_window: Option<i32>,
     capabilities: Option<Vec<String>>,
+    description: Option<String>,
     is_active: Option<bool>,
 }
 
@@ -533,6 +544,7 @@ async fn update_model(
             body.provider_id.as_deref(),
             body.context_window,
             caps_json,
+            body.description.as_deref(),
             body.is_active,
         )
         .await

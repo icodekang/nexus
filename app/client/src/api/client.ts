@@ -64,6 +64,7 @@ export interface Model {
   provider_name: string;
   context_window: number;
   capabilities: string[];
+  description: string | null;
 }
 
 /**
