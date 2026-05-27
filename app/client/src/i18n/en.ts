@@ -150,7 +150,8 @@ export const en = {
       text: 'Text',
       image: 'Image',
       audio: 'Audio',
-      tool_use: 'Tool Use',
+      video: 'Video',
+      file: 'File',
     },
   },
   keys: {

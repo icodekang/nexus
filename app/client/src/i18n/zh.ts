@@ -150,7 +150,8 @@ export const zh = {
       text: '文本',
       image: '图像',
       audio: '音频',
-      tool_use: '工具调用',
+      video: '视频',
+      file: '文件',
     },
   },
   keys: {

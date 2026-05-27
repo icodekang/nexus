@@ -1,8 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, ChevronRight, Check, Filter, X, ArrowUpDown, Layers, ChevronDown, SlidersHorizontal, Server } from 'lucide-react';
+import { Search, Filter, X, ArrowUpDown, Layers, ChevronDown, SlidersHorizontal, Server, Type, Image, Volume2, File, Film } from 'lucide-react';
 import { useModelState } from '../stores/modelStore';
-import { useChatStore } from '../stores/chatStore';
 import { useI18n } from '../i18n';
 import type { Model } from '../api/client';
 import './ModelsPage.css';
@@ -16,56 +14,28 @@ const PROVIDER_META: Record<string, { color: string; label: string; glow: string
     color: '#34D399',
     label: 'OpenAI',
     glow: 'rgba(52,211,153,0.25)',
-    logo: (
-      <svg viewBox="0 0 24 24" fill="none" className="provider-logo-svg">
-        <path d="M19.5 5.25C18.12 3.87 16.31 3 14.25 3C10.59 3 7.69 5.44 6.75 8.7C4.44 9.3 2.7 11.13 2.7 13.5C2.7 16.27 5.05 18.6 7.8 18.6H19.2C20.87 18.6 22.2 17.3 22.2 15.6C22.2 14.07 21.12 12.99 19.65 12.75V12.45C19.65 10.5 18.42 8.79 16.65 8.13C17.13 6.33 18.48 5.25 19.5 5.25Z" fill="currentColor"/>
-      </svg>
-    ),
+    logo: <img src={openaiIcon} className="provider-logo-img" alt="OpenAI" />,
   },
   anthropic: {
     color: '#F59E0B',
     label: 'Anthropic',
     glow: 'rgba(245,158,11,0.25)',
-    logo: (
-      <svg viewBox="0 0 24 24" fill="none" className="provider-logo-svg">
-        <path d="M17.5 3L12 21L6.5 3H17.5Z" fill="currentColor"/>
-      </svg>
-    ),
+    logo: <img src={anthropicIcon} className="provider-logo-img" alt="Anthropic" />,
   },
   google: {
     color: '#60A5FA',
     label: 'Google',
     glow: 'rgba(96,165,250,0.25)',
-    logo: (
-      <svg viewBox="0 0 24 24" fill="none" className="provider-logo-svg">
-        <path d="M22 12C22 10.7375 21.8906 9.53125 21.6875 8.375H12.25V15.25H17.7188C17.475 16.5312 16.7719 17.6156 15.7406 18.3438V20.9062H19.0094C20.9062 19.175 22 16.625 22 12Z" fill="#4285F4"/>
-        <path d="M12.25 22C14.9375 22 17.1875 21.1094 19.0094 20.9062L15.7406 18.3438C14.8125 18.9688 13.6125 19.3438 12.25 19.3438C9.6875 19.3438 7.51562 17.6156 6.74062 15.2812H3.35938V17.9281C5.17188 21.5 8.45312 22 12.25 22Z" fill="#34A853"/>
-        <path d="M6.74062 15.2812C6.42812 14.3125 6.26875 13.2812 6.26875 12.2188C6.26875 11.1562 6.42812 10.125 6.74062 9.15625V6.50937H3.35938C2.4 8.40625 1.84375 10.5781 1.84375 12.2188C1.84375 13.8594 2.4 16.0312 3.35938 17.9281L6.74062 15.2812Z" fill="#FBBC05"/>
-        <path d="M12.25 5.09375C13.7438 5.09375 15.0812 5.60625 16.1375 6.625L19.1688 3.59375C17.1938 1.75625 14.6406 1 12.25 1C8.45312 1 5.17188 2.5 3.35938 6.07188L6.74062 8.71875C7.51562 6.38438 9.6875 5.09375 12.25 5.09375Z" fill="#EA4335"/>
-      </svg>
-    ),
+    logo: <img src={geminiIcon} className="provider-logo-img" alt="Google" />,
   },
   deepseek: {
     color: '#A78BFA',
     label: 'DeepSeek',
     glow: 'rgba(167,139,250,0.25)',
-    logo: (
-      <svg viewBox="0 0 24 24" fill="none" className="provider-logo-svg">
-        <path d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12Z" fill="currentColor" opacity="0.15"/>
-        <path d="M8 14L10.5 9.5L13.5 14.5L16 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    ),
+    logo: <img src={deepseekIcon} className="provider-logo-img" alt="DeepSeek" />,
   },
 };
 const FALLBACK_PROVIDER = { color: '#78716C', label: '', glow: 'rgba(120,113,108,0.2)', logo: null as React.ReactNode };
-
-const modelLogo = (color: string, d: React.ReactNode) => (
-  <svg viewBox="0 0 24 24" fill="none" className="provider-logo-svg" style={{ color }}>
-    {d}
-  </svg>
-);
-
-const G = ({ children }: { children: React.ReactNode }) => <g>{children}</g>;
 
 const MODEL_LOGOS: Record<string, React.ReactNode> = {
   /* ── OpenAI / ChatGPT ── */
@@ -114,10 +84,11 @@ const MODEL_LOGOS: Record<string, React.ReactNode> = {
 };
 
 const INPUT_MODALITY_OPTIONS = [
-  { key: 'text', labelKey: 'models.modalities.text' },
-  { key: 'image', labelKey: 'models.modalities.image' },
-  { key: 'audio', labelKey: 'models.modalities.audio' },
-  { key: 'tool_use', labelKey: 'models.modalities.tool_use' },
+  { key: 'text', labelKey: 'models.modalities.text', icon: Type },
+  { key: 'image', labelKey: 'models.modalities.image', icon: Image },
+  { key: 'audio', labelKey: 'models.modalities.audio', icon: Volume2 },
+  { key: 'video', labelKey: 'models.modalities.video', icon: Film },
+  { key: 'file', labelKey: 'models.modalities.file', icon: File },
 ];
 
 function getModalities(capabilities: string[]): string[] {
@@ -125,7 +96,7 @@ function getModalities(capabilities: string[]): string[] {
   if (!capabilities || capabilities.length === 0) return mods;
   const capSet = new Set(capabilities.map((c) => c.toLowerCase()));
   if (capSet.has('vision')) mods.push('image');
-  if (capSet.has('function_call')) mods.push('tool_use');
+  if (capSet.has('function_call')) mods.push('file');
   return mods;
 }
 
@@ -133,9 +104,7 @@ type SortField = 'name' | 'context_window';
 type SortDir = 'asc' | 'desc';
 
 export default function ModelsPage() {
-  const navigate = useNavigate();
   const { models, loaded, loadModels } = useModelState();
-  const { selectedModelId, setSelectedModelId } = useChatStore();
   const { t } = useI18n();
 
   const [search, setSearch] = useState('');
@@ -216,11 +185,6 @@ export default function ModelsPage() {
     }
   };
 
-  const handleSelect = (modelId: string) => {
-    setSelectedModelId(modelId);
-    navigate('/chat');
-  };
-
   const hasFilters = search || activeProviders.size > 0 || activeModalities.size > 0;
 
   const fmtContext = (ctx: number): { value: string; pct: string } => {
@@ -266,16 +230,20 @@ export default function ModelsPage() {
           </button>
           {modalitiesOpen && (
             <div className="models-sidebar-dropdown-panel">
-              {INPUT_MODALITY_OPTIONS.map((opt) => (
+              {INPUT_MODALITY_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                return (
                 <label key={opt.key} className="models-sidebar-checkbox">
                   <input
                     type="checkbox"
                     checked={activeModalities.has(opt.key)}
                     onChange={() => toggleModality(opt.key)}
                   />
+                  <Icon size={14} className="models-modality-icon" />
                   <span className="models-sidebar-check-label">{t(opt.labelKey)}</span>
                 </label>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -306,7 +274,7 @@ export default function ModelsPage() {
                       checked={activeProviders.has(slug)}
                       onChange={() => toggleProvider(slug)}
                     />
-                    <span className="models-provider-dot" style={{ color: meta.color }}>
+                    <span className="models-provider-dot">
                       {meta.logo}
                     </span>
                     <span className="models-sidebar-check-label">{meta.label || slug}</span>
@@ -371,7 +339,6 @@ export default function ModelsPage() {
         {/* Model rows */}
         <div className="models-list">
           {filtered.map((model, idx) => {
-            const isSelected = model.id === selectedModelId;
             const meta = PROVIDER_META[model.provider] || FALLBACK_PROVIDER;
             const label = meta.label || model.provider || model.provider_name;
             const mods = getModalities(model.capabilities);
@@ -380,8 +347,7 @@ export default function ModelsPage() {
             return (
               <div
                 key={model.id}
-                className={`models-row ${isSelected ? 'selected' : ''}`}
-                onClick={() => handleSelect(model.id)}
+                className="models-row"
                 style={{ animationDelay: `${idx * 35}ms` }}
               >
                 <div className="models-row-left">
@@ -391,11 +357,6 @@ export default function ModelsPage() {
                   <div className="models-row-info">
                     <div className="models-row-name-row">
                       <span className="models-row-name">{model.name}</span>
-                      {isSelected && (
-                        <span className="models-row-active-badge">
-                          <Check size={10} /> {t('models.active')}
-                        </span>
-                      )}
                     </div>
                     <div className="models-row-meta">
                       <span className="models-row-provider-tag" style={{ color: meta.color }}>
@@ -426,7 +387,6 @@ export default function ModelsPage() {
                     </div>
                     <span className="models-row-context-value">{ctx.value}</span>
                   </div>
-                  <ChevronRight size={16} className="models-row-arrow" />
                 </div>
               </div>
             );
