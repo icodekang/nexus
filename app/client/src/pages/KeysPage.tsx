@@ -1,10 +1,10 @@
 /**
  * @file KeysPage - API 密钥管理页面
- * 展示用户创建的 API 密钥列表，支持创建、删除、显示/隐藏密钥
- * 新密钥只在创建后显示一次，无法再次查看
+ * 展示用户创建的 API 密钥列表，支持创建、删除
+ * 新密钥的完整值只在创建后显示一次，后续仅显示前缀
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Key, Plus, Trash2, Copy, Check, AlertCircle } from 'lucide-react';
 import { fetchApiKeys, createApiKey, deleteApiKey, type ApiKey } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../i18n';
@@ -23,8 +23,7 @@ export default function KeysPage() {
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  // 密钥前缀显示/完整显示的状态集合
-  const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  const [keyToDelete, setKeyToDelete] = useState<ApiKey | null>(null);
   const [error, setError] = useState('');
 
   // 加载密钥列表
@@ -57,7 +56,6 @@ export default function KeysPage() {
       setNewKey(res.key);
       setNewKeyName('');
       setShowCreate(false);
-      loadKeys();
     } catch (err: unknown) {
       setError(getErrorMessage(err, t));
     } finally {
@@ -65,13 +63,20 @@ export default function KeysPage() {
     }
   };
 
-  // 删除 API 密钥
-  const handleDelete = async (keyId: string) => {
+  const handleDismissNewKey = () => {
+    setNewKey(null);
+    loadKeys();
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!keyToDelete) return;
     try {
-      await deleteApiKey(keyId);
-      setKeys((prev) => prev.filter((k) => k.id !== keyId));
+      await deleteApiKey(keyToDelete.id);
+      setKeys((prev) => prev.filter((k) => k.id !== keyToDelete.id));
     } catch (err: unknown) {
       setError(getErrorMessage(err, t));
+    } finally {
+      setKeyToDelete(null);
     }
   };
 
@@ -90,15 +95,6 @@ export default function KeysPage() {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const toggleVisibility = (keyId: string) => {
-    setVisibleKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(keyId)) next.delete(keyId);
-      else next.add(keyId);
-      return next;
-    });
   };
 
   const formatDate = (dateStr: string) => {
@@ -141,14 +137,11 @@ export default function KeysPage() {
             <button className={`keys-copy-btn ${copied ? 'copied' : ''}`} onClick={() => handleCopy(newKey)}>
               {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
-            {copied && (
-              <span className="keys-copied-inline">
-                <Check size={12} />
-                {t('keys.copiedSuccess')}
-              </span>
-            )}
+            <span className={`keys-copied-inline ${copied ? 'visible' : ''}`}>
+              {t('keys.copiedSuccess')}
+            </span>
           </div>
-          <button className="keys-new-reveal-dismiss" onClick={() => setNewKey(null)}>
+          <button className="keys-new-reveal-dismiss" onClick={handleDismissNewKey}>
             {t('common.dismiss')}
           </button>
         </div>
@@ -195,9 +188,7 @@ export default function KeysPage() {
               <div className="keys-item-info">
                 <div className="keys-item-name">{key.name || t('keys.unnamedKey')}</div>
                 <div className="keys-item-meta">
-                  <code className="keys-item-prefix">
-                    {visibleKeys.has(key.id) ? key.key_prefix : key.key_prefix.slice(0, 8) + '••••••'}
-                  </code>
+                  <code className="keys-item-prefix">{key.key_prefix.replace(/^(sk-nexus-)(.*)/, (_, p, s) => p + '*'.repeat(s.length))}</code>
                   <span className="keys-item-date">{t('keys.createdDate', { date: formatDate(key.created_at) })}</span>
                   {key.last_used_at && (
                     <span className="keys-item-date">{t('keys.lastUsed', { date: formatDate(key.last_used_at) })}</span>
@@ -208,10 +199,7 @@ export default function KeysPage() {
                 <span className={`keys-item-status ${key.is_active ? 'active' : 'inactive'}`}>
                   {key.is_active ? t('common.active') : t('common.inactive')}
                 </span>
-                <button className="keys-action-btn" onClick={() => toggleVisibility(key.id)} title={t('keys.toggleVisibility')}>
-                  {visibleKeys.has(key.id) ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-                <button className="keys-action-btn keys-delete-btn" onClick={() => handleDelete(key.id)} title={t('keys.deleteKey')}>
+                <button className="keys-action-btn keys-delete-btn" onClick={() => setKeyToDelete(key)} title={t('keys.deleteKey')}>
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -219,6 +207,25 @@ export default function KeysPage() {
           ))
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      {keyToDelete && (
+        <div className="keys-overlay" onClick={() => setKeyToDelete(null)}>
+          <div className="keys-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="keys-confirm-title">{t('keys.deleteConfirmTitle')}</h3>
+            <p className="keys-confirm-desc">{t('keys.deleteConfirmDesc')}</p>
+            <div className="keys-confirm-name">{keyToDelete.name || t('keys.unnamedKey')}</div>
+            <div className="keys-confirm-actions">
+              <button className="keys-confirm-cancel" onClick={() => setKeyToDelete(null)}>
+                {t('common.cancel')}
+              </button>
+              <button className="keys-confirm-delete" onClick={handleDeleteConfirm}>
+                {t('keys.confirmDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -395,27 +395,17 @@
 .keys-copied-inline {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
   font-size: 12px;
   font-weight: 500;
   color: #10B981;
   font-family: 'DM Sans', sans-serif;
-  animation: fadeSlideIn 0.25s ease-out;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
-.keys-copied-inline svg {
-  flex-shrink: 0;
-}
-
-@keyframes fadeSlideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.keys-copied-inline.visible {
+  opacity: 1;
 }
 
 /* ===== Responsive ===== */
@@ -460,4 +450,102 @@
     align-items: flex-start;
     gap: 4px;
   }
+}
+
+/* ---- Delete confirmation overlay & dialog ---- */
+.keys-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.15s ease;
+}
+
+.keys-confirm-dialog {
+  background: #fff;
+  border-radius: 16px;
+  padding: 28px 28px 22px;
+  max-width: 400px;
+  width: calc(100% - 40px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  animation: scaleUp 0.2s ease;
+}
+
+.keys-confirm-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #1C1917;
+  margin: 0 0 8px;
+}
+
+.keys-confirm-desc {
+  font-size: 14px;
+  color: #78716C;
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.keys-confirm-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #DC2626;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  word-break: break-all;
+}
+
+.keys-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.keys-confirm-cancel {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid #E7E5E4;
+  background: #fff;
+  color: #57534E;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.keys-confirm-cancel:hover {
+  background: #FAFAF9;
+}
+
+.keys-confirm-delete {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: none;
+  background: #DC2626;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.keys-confirm-delete:hover {
+  background: #B91C1C;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
 }

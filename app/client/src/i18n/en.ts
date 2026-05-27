@@ -169,6 +169,9 @@ export const en = {
     lastUsed: 'Last used {{date}}',
     toggleVisibility: 'Toggle visibility',
     deleteKey: 'Delete key',
+    deleteConfirmTitle: 'Confirm deletion',
+    deleteConfirmDesc: 'This action cannot be undone. Are you sure you want to delete this key?',
+    confirmDelete: 'Delete',
     copiedSuccess: 'Copied!',
   },
   subscription: {

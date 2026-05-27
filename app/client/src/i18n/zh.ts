@@ -169,6 +169,9 @@ export const zh = {
     lastUsed: '最后使用 {{date}}',
     toggleVisibility: '切换可见性',
     deleteKey: '删除密钥',
+    deleteConfirmTitle: '确认删除',
+    deleteConfirmDesc: '删除后无法恢复，确定要删除该密钥吗？',
+    confirmDelete: '确认删除',
     copiedSuccess: '复制成功',
   },
   subscription: {
