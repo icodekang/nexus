@@ -23,6 +23,10 @@ pub enum DbError {
     #[error("无效数据: {0}")]
     InvalidData(String),
 
+    /// 余额不足
+    #[error("余额不足")]
+    InsufficientBalance,
+
     /// 序列化错误
     #[error("序列化错误: {0}")]
     Serialization(#[from] serde_json::Error),

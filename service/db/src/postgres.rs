@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use crate::DbError;
 use models::{
-    ApiKey, ApiLog, LlmModel, Provider, ProviderKey, Subscription, SubscriptionPlan, Transaction,
-    User,
+    ApiKey, ApiLog, LlmModel, ModelPricing, PriorityLevel, PricingMode, Provider,
+    ProviderKey, TokenCharge, TokenPackage, Transaction, User, UserBalance, UserProviderKey,
 };
 
 /// PostgreSQL 连接池
@@ -40,18 +40,14 @@ impl PostgresPool {
     pub async fn create_user(&self, user: &User) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO users (id, email, phone, password_hash, subscription_plan, 
-                              subscription_start, subscription_end, is_admin, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO users (id, email, phone, password_hash, is_admin, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(user.id)
         .bind(&user.email)
         .bind(&user.phone)
         .bind(&user.password_hash)
-        .bind(user.subscription_plan.as_str())
-        .bind(user.subscription_start)
-        .bind(user.subscription_end)
         .bind(user.is_admin)
         .bind(user.created_at)
         .bind(user.updated_at)
@@ -88,41 +84,12 @@ impl PostgresPool {
         Ok(row.map(|r| self.row_to_user(&r)))
     }
 
-    pub async fn update_user_subscription(
-        &self,
-        user_id: Uuid,
-        plan: SubscriptionPlan,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Result<(), DbError> {
-        sqlx::query(
-            r#"
-            UPDATE users SET subscription_plan = $2, subscription_start = $3, 
-                           subscription_end = $4, updated_at = NOW()
-            WHERE id = $1
-            "#,
-        )
-        .bind(user_id)
-        .bind(plan.as_str())
-        .bind(start)
-        .bind(end)
-        .execute(self.inner())
-        .await?;
-
-        Ok(())
-    }
-
     fn row_to_user(&self, row: &PgRow) -> User {
         User {
             id: row.get("id"),
             email: row.get("email"),
             phone: row.get("phone"),
             password_hash: row.get("password_hash"),
-            subscription_plan: SubscriptionPlan::from_str(
-                &row.get::<String, _>("subscription_plan"),
-            ),
-            subscription_start: row.get("subscription_start"),
-            subscription_end: row.get("subscription_end"),
             is_admin: row.get("is_admin"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
@@ -375,62 +342,136 @@ impl PostgresPool {
         }
     }
 
-    // ============ Subscription operations ============
+    // ============ User Provider Key operations (BYOK) ============
 
-    pub async fn create_subscription(&self, sub: &Subscription) -> Result<(), DbError> {
+    pub async fn create_user_provider_key(&self, key: &UserProviderKey) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO subscriptions (id, user_id, plan, status, start_at, end_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO user_provider_keys (id, user_id, provider_slug, name, api_key_encrypted,
+                api_key_prefix, base_url, is_active, priority_level, sort_order, always_use,
+                model_filter, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             "#,
         )
-        .bind(sub.id)
-        .bind(sub.user_id)
-        .bind(sub.plan.as_str())
-        .bind(sub.status.as_str())
-        .bind(sub.start_at)
-        .bind(sub.end_at)
-        .bind(sub.created_at)
+        .bind(key.id)
+        .bind(key.user_id)
+        .bind(&key.provider_slug)
+        .bind(&key.name)
+        .bind(&key.api_key_encrypted)
+        .bind(&key.api_key_prefix)
+        .bind(&key.base_url)
+        .bind(key.is_active)
+        .bind(key.priority_level.as_str())
+        .bind(key.sort_order)
+        .bind(key.always_use)
+        .bind(&key.model_filter)
+        .bind(key.created_at)
+        .bind(key.updated_at)
         .execute(self.inner())
         .await?;
 
         Ok(())
     }
 
-    pub async fn get_active_subscription(
+    pub async fn list_user_provider_keys(
         &self,
         user_id: Uuid,
-    ) -> Result<Option<Subscription>, DbError> {
-        let row: Option<PgRow> = sqlx::query(
-            r#"
-            SELECT * FROM subscriptions 
-            WHERE user_id = $1 AND status = 'active' AND end_at > NOW()
-            ORDER BY created_at DESC LIMIT 1
-            "#,
+    ) -> Result<Vec<UserProviderKey>, DbError> {
+        let rows = sqlx::query(
+            "SELECT * FROM user_provider_keys WHERE user_id = $1 ORDER BY provider_slug, sort_order",
         )
         .bind(user_id)
-        .fetch_optional(self.inner())
+        .fetch_all(self.inner())
         .await?;
 
-        Ok(row.map(|r| self.row_to_subscription(&r)))
+        Ok(rows.iter().map(|r| self.row_to_user_provider_key(r)).collect())
     }
 
-    fn row_to_subscription(&self, row: &PgRow) -> Subscription {
-        use models::subscription::SubscriptionStatus;
-        use models::SubscriptionPlan;
+    pub async fn list_user_provider_keys_by_provider(
+        &self,
+        user_id: Uuid,
+        provider_slug: &str,
+    ) -> Result<Vec<UserProviderKey>, DbError> {
+        let rows = sqlx::query(
+            "SELECT * FROM user_provider_keys WHERE user_id = $1 AND provider_slug = $2 AND is_active = TRUE ORDER BY priority_level, sort_order",
+        )
+        .bind(user_id)
+        .bind(provider_slug)
+        .fetch_all(self.inner())
+        .await?;
 
-        Subscription {
+        Ok(rows.iter().map(|r| self.row_to_user_provider_key(r)).collect())
+    }
+
+    pub async fn update_user_provider_key(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        name: Option<&str>,
+        is_active: Option<bool>,
+        priority_level: Option<&str>,
+        sort_order: Option<i32>,
+        always_use: Option<bool>,
+        model_filter: Option<&str>,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            UPDATE user_provider_keys SET
+                name = COALESCE($3, name),
+                is_active = COALESCE($4, is_active),
+                priority_level = COALESCE($5, priority_level),
+                sort_order = COALESCE($6, sort_order),
+                always_use = COALESCE($7, always_use),
+                model_filter = COALESCE($8, model_filter),
+                updated_at = NOW()
+            WHERE id = $1 AND user_id = $2
+            "#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(name)
+        .bind(is_active)
+        .bind(priority_level)
+        .bind(sort_order)
+        .bind(always_use)
+        .bind(model_filter)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_user_provider_key(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM user_provider_keys WHERE id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
+    fn row_to_user_provider_key(&self, row: &PgRow) -> UserProviderKey {
+        UserProviderKey {
             id: row.get("id"),
             user_id: row.get("user_id"),
-            plan: SubscriptionPlan::from_str(&row.get::<String, _>("plan")),
-            status: match row.get::<String, _>("status").as_str() {
-                "expired" => SubscriptionStatus::Expired,
-                "cancelled" => SubscriptionStatus::Cancelled,
-                _ => SubscriptionStatus::Active,
-            },
-            start_at: row.get("start_at"),
-            end_at: row.get("end_at"),
+            provider_slug: row.get("provider_slug"),
+            name: row.get("name"),
+            api_key_encrypted: row.get("api_key_encrypted"),
+            api_key_prefix: row.get("api_key_prefix"),
+            base_url: row.get("base_url"),
+            is_active: row.get("is_active"),
+            priority_level: PriorityLevel::from_str(
+                &row.get::<String, _>("priority_level"),
+            ),
+            sort_order: row.get("sort_order"),
+            always_use: row.get("always_use"),
+            model_filter: row.get("model_filter"),
             created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
         }
     }
 
@@ -447,7 +488,7 @@ impl PostgresPool {
         .bind(tx.user_id)
         .bind(tx.transaction_type.as_str())
         .bind(Decimal::from_f64_retain(tx.amount).unwrap_or_default())
-        .bind(tx.plan.as_ref().map(|p: &SubscriptionPlan| p.as_str()))
+        .bind(&tx.plan)
         .bind(tx.status.as_str())
         .bind(&tx.description)
         .bind(tx.created_at)
@@ -475,28 +516,19 @@ impl PostgresPool {
 
     fn row_to_transaction(&self, row: &PgRow) -> Transaction {
         use models::subscription::{TransactionStatus, TransactionType};
-        use models::SubscriptionPlan;
 
         Transaction {
             id: row.get("id"),
             user_id: row.get("user_id"),
-            transaction_type: match row.get::<String, _>("transaction_type").as_str() {
-                "subscription_purchase" => TransactionType::SubscriptionPurchase,
-                "subscription_renewal" => TransactionType::SubscriptionRenewal,
-                "subscription_cancellation" => TransactionType::SubscriptionCancellation,
-                _ => TransactionType::Refund,
-            },
+            transaction_type: TransactionType::from_str(
+                &row.get::<String, _>("transaction_type"),
+            ),
             amount: rust_decimal::prelude::ToPrimitive::to_f64(&row.get::<Decimal, _>("amount"))
                 .unwrap_or(0.0),
-            plan: row
-                .get::<Option<String>, _>("plan")
-                .map(|p| SubscriptionPlan::from_str(&p)),
-            status: match row.get::<String, _>("status").as_str() {
-                "pending" => TransactionStatus::Pending,
-                "failed" => TransactionStatus::Failed,
-                "refunded" => TransactionStatus::Refunded,
-                _ => TransactionStatus::Completed,
-            },
+            plan: row.get("plan"),
+            status: TransactionStatus::from_str(
+                &row.get::<String, _>("status"),
+            ),
             description: row.get("description"),
             created_at: row.get("created_at"),
         }
@@ -530,8 +562,7 @@ impl PostgresPool {
         Ok(())
     }
 
-    /// Get total tokens used by a user in the current billing cycle
-    /// Billing cycle starts at subscription_start
+    /// Get total tokens used by a user in a given period
     pub async fn get_user_token_usage_in_period(
         &self,
         user_id: Uuid,
@@ -703,7 +734,6 @@ impl PostgresPool {
         &self,
         user_id: Uuid,
         phone: Option<&str>,
-        subscription_plan: Option<&str>,
     ) -> Result<(), DbError> {
         if let Some(phone) = phone {
             sqlx::query("UPDATE users SET phone = $2, updated_at = NOW() WHERE id = $1")
@@ -711,15 +741,6 @@ impl PostgresPool {
                 .bind(phone)
                 .execute(self.inner())
                 .await?;
-        }
-        if let Some(plan) = subscription_plan {
-            sqlx::query(
-                "UPDATE users SET subscription_plan = $2, updated_at = NOW() WHERE id = $1",
-            )
-            .bind(user_id)
-            .bind(plan)
-            .execute(self.inner())
-            .await?;
         }
         Ok(())
     }
@@ -1004,13 +1025,6 @@ impl PostgresPool {
             .await?
             .get("count");
 
-        let active_subs: i64 = sqlx::query(
-            "SELECT COUNT(*) as count FROM users WHERE subscription_plan != 'none' AND subscription_end > NOW()"
-        )
-        .fetch_one(self.inner())
-        .await?
-        .get("count");
-
         let total_revenue: f64 = sqlx::query(
             r#"SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE status = 'completed' AND amount > 0"#
         )
@@ -1029,7 +1043,6 @@ impl PostgresPool {
 
         Ok(DashboardStats {
             total_users: user_count,
-            active_subscriptions: active_subs,
             total_revenue,
             api_calls_today,
         })
@@ -1040,7 +1053,6 @@ impl PostgresPool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardStats {
     pub total_users: i64,
-    pub active_subscriptions: i64,
     pub total_revenue: f64,
     pub api_calls_today: i64,
 }
@@ -1105,8 +1117,7 @@ impl PostgresPool {
                     u.email AS user_email,
                     t.transaction_type AS action_type,
                     CASE
-                        WHEN t.transaction_type = 'purchase' THEN 'Purchased ' || COALESCE(t.plan, 'plan')
-                        WHEN t.transaction_type = 'renewal' THEN 'Renewed ' || COALESCE(t.plan, 'plan')
+                        WHEN t.transaction_type = 'token_purchase' THEN 'Purchased credits'
                         WHEN t.transaction_type = 'refund' THEN 'Refund processed'
                         ELSE t.transaction_type
                     END AS description,
@@ -1153,5 +1164,327 @@ impl PostgresPool {
                 }
             })
             .collect())
+    }
+
+    // ============ Model Pricing operations ============
+
+    pub async fn list_model_pricing(&self) -> Result<Vec<ModelPricing>, DbError> {
+        let rows = sqlx::query(
+            "SELECT * FROM model_pricing WHERE is_active = TRUE ORDER BY provider_slug, model_slug",
+        )
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_model_pricing(r)).collect())
+    }
+
+    pub async fn get_model_pricing(&self, model_slug: &str) -> Result<Option<ModelPricing>, DbError> {
+        let row: Option<PgRow> = sqlx::query(
+            "SELECT * FROM model_pricing WHERE model_slug = $1 AND is_active = TRUE AND effective_from <= NOW() AND (effective_until IS NULL OR effective_until > NOW())",
+        )
+        .bind(model_slug)
+        .fetch_optional(self.inner())
+        .await?;
+
+        Ok(row.map(|r| self.row_to_model_pricing(&r)))
+    }
+
+    pub async fn upsert_model_pricing(&self, p: &ModelPricing) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO model_pricing (id, model_slug, provider_slug, prompt_price, completion_price,
+                image_price, reasoning_price, cache_read_price, request_price, pricing_mode,
+                avg_tokens_per_request, effective_from, effective_until, is_active, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            ON CONFLICT (model_slug) DO UPDATE SET
+                provider_slug = $3, prompt_price = $4, completion_price = $5, image_price = $6,
+                reasoning_price = $7, cache_read_price = $8, request_price = $9, pricing_mode = $10,
+                avg_tokens_per_request = $11, effective_from = $12, effective_until = $13,
+                is_active = $14, updated_at = $16
+            "#,
+        )
+        .bind(p.id)
+        .bind(&p.model_slug)
+        .bind(&p.provider_slug)
+        .bind(p.prompt_price)
+        .bind(p.completion_price)
+        .bind(p.image_price)
+        .bind(p.reasoning_price)
+        .bind(p.cache_read_price)
+        .bind(p.request_price)
+        .bind(p.pricing_mode.as_str())
+        .bind(p.avg_tokens_per_request)
+        .bind(p.effective_from)
+        .bind(p.effective_until)
+        .bind(p.is_active)
+        .bind(p.created_at)
+        .bind(p.updated_at)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_model_pricing(&self, model_slug: &str) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM model_pricing WHERE model_slug = $1")
+            .bind(model_slug)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
+    fn row_to_model_pricing(&self, row: &PgRow) -> ModelPricing {
+        ModelPricing {
+            id: row.get("id"),
+            model_slug: row.get("model_slug"),
+            provider_slug: row.get("provider_slug"),
+            prompt_price: row.get("prompt_price"),
+            completion_price: row.get("completion_price"),
+            image_price: row.get("image_price"),
+            reasoning_price: row.get("reasoning_price"),
+            cache_read_price: row.get("cache_read_price"),
+            request_price: row.get("request_price"),
+            pricing_mode: PricingMode::from_str(
+                &row.get::<String, _>("pricing_mode"),
+            ),
+            avg_tokens_per_request: row.get("avg_tokens_per_request"),
+            effective_from: row.get("effective_from"),
+            effective_until: row.get("effective_until"),
+            is_active: row.get("is_active"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        }
+    }
+
+    // ============ User Balance operations ============
+
+    pub async fn get_user_balance(&self, user_id: Uuid) -> Result<UserBalance, DbError> {
+        let row: Option<PgRow> = sqlx::query("SELECT * FROM user_balances WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(self.inner())
+            .await?;
+
+        match row {
+            Some(r) => Ok(self.row_to_user_balance(&r)),
+            None => Ok(UserBalance::new(user_id)),
+        }
+    }
+
+    pub async fn ensure_user_balance(&self, user_id: Uuid) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO user_balances (user_id, balance, total_purchased, total_consumed, updated_at)
+            VALUES ($1, 0, 0, 0, NOW())
+            ON CONFLICT (user_id) DO NOTHING
+            "#,
+        )
+        .bind(user_id)
+        .execute(self.inner())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn deduct_balance(
+        &self,
+        user_id: Uuid,
+        amount: Decimal,
+    ) -> Result<(), DbError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE user_balances SET
+                balance = balance - $2,
+                total_consumed = total_consumed + $2,
+                updated_at = NOW()
+            WHERE user_id = $1 AND balance >= $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(amount)
+        .execute(self.inner())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(DbError::InsufficientBalance);
+        }
+        Ok(())
+    }
+
+    pub async fn add_balance(
+        &self,
+        user_id: Uuid,
+        amount: Decimal,
+    ) -> Result<(), DbError> {
+        self.ensure_user_balance(user_id).await?;
+        sqlx::query(
+            r#"
+            UPDATE user_balances SET
+                balance = balance + $2,
+                total_purchased = total_purchased + $2,
+                updated_at = NOW()
+            WHERE user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .bind(amount)
+        .execute(self.inner())
+        .await?;
+        Ok(())
+    }
+
+    fn row_to_user_balance(&self, row: &PgRow) -> UserBalance {
+        UserBalance {
+            user_id: row.get("user_id"),
+            balance: row.get("balance"),
+            total_purchased: row.get("total_purchased"),
+            total_consumed: row.get("total_consumed"),
+            auto_topup_threshold: row.get("auto_topup_threshold"),
+            auto_topup_amount: row.get("auto_topup_amount"),
+            updated_at: row.get("updated_at"),
+        }
+    }
+
+    // ============ Token Charge operations ============
+
+    pub async fn create_token_charge(&self, charge: &TokenCharge) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO token_charges (id, user_id, api_log_id, generation_id, key_source,
+                user_provider_key_id, provider_key_id, model_slug, provider_slug,
+                input_tokens, output_tokens, reasoning_tokens, image_count, cache_read_tokens,
+                prompt_cost, completion_cost, image_cost, reasoning_cost, cache_read_cost,
+                request_cost, total_cost, is_free, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                    $15, $16, $17, $18, $19, $20, $21, $22, $23)
+            "#,
+        )
+        .bind(charge.id)
+        .bind(charge.user_id)
+        .bind(charge.api_log_id)
+        .bind(charge.generation_id)
+        .bind(&charge.key_source)
+        .bind(charge.user_provider_key_id)
+        .bind(charge.provider_key_id)
+        .bind(&charge.model_slug)
+        .bind(&charge.provider_slug)
+        .bind(charge.input_tokens)
+        .bind(charge.output_tokens)
+        .bind(charge.reasoning_tokens)
+        .bind(charge.image_count)
+        .bind(charge.cache_read_tokens)
+        .bind(charge.prompt_cost)
+        .bind(charge.completion_cost)
+        .bind(charge.image_cost)
+        .bind(charge.reasoning_cost)
+        .bind(charge.cache_read_cost)
+        .bind(charge.request_cost)
+        .bind(charge.total_cost)
+        .bind(charge.is_free)
+        .bind(charge.created_at)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn list_token_charges(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TokenCharge>, DbError> {
+        let rows = sqlx::query(
+            "SELECT * FROM token_charges WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+        )
+        .bind(user_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.iter().map(|r| self.row_to_token_charge(r)).collect())
+    }
+
+    fn row_to_token_charge(&self, row: &PgRow) -> TokenCharge {
+        TokenCharge {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            api_log_id: row.get("api_log_id"),
+            generation_id: row.get("generation_id"),
+            key_source: row.get("key_source"),
+            user_provider_key_id: row.get("user_provider_key_id"),
+            provider_key_id: row.get("provider_key_id"),
+            model_slug: row.get("model_slug"),
+            provider_slug: row.get("provider_slug"),
+            input_tokens: row.get("input_tokens"),
+            output_tokens: row.get("output_tokens"),
+            reasoning_tokens: row.get("reasoning_tokens"),
+            image_count: row.get("image_count"),
+            cache_read_tokens: row.get("cache_read_tokens"),
+            prompt_cost: row.get("prompt_cost"),
+            completion_cost: row.get("completion_cost"),
+            image_cost: row.get("image_cost"),
+            reasoning_cost: row.get("reasoning_cost"),
+            cache_read_cost: row.get("cache_read_cost"),
+            request_cost: row.get("request_cost"),
+            total_cost: row.get("total_cost"),
+            is_free: row.get("is_free"),
+            created_at: row.get("created_at"),
+        }
+    }
+
+    // ============ Token Package operations ============
+
+    pub async fn list_token_packages(&self) -> Result<Vec<TokenPackage>, DbError> {
+        let rows = sqlx::query(
+            "SELECT * FROM token_packages WHERE is_active = TRUE ORDER BY sort_order",
+        )
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows.iter().map(|r| TokenPackage {
+            id: r.get("id"),
+            name: r.get("name"),
+            credits: r.get("credits"),
+            price: r.get("price"),
+            currency: r.get("currency"),
+            bonus_credits: r.get("bonus_credits"),
+            is_active: r.get("is_active"),
+            sort_order: r.get("sort_order"),
+            created_at: r.get("created_at"),
+        }).collect())
+    }
+
+    pub async fn upsert_token_package(&self, pkg: &TokenPackage) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO token_packages (id, name, credits, price, currency, bonus_credits,
+                is_active, sort_order, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO UPDATE SET
+                name = $2, credits = $3, price = $4, currency = $5, bonus_credits = $6,
+                is_active = $7, sort_order = $8
+            "#,
+        )
+        .bind(pkg.id)
+        .bind(&pkg.name)
+        .bind(pkg.credits)
+        .bind(pkg.price)
+        .bind(&pkg.currency)
+        .bind(pkg.bonus_credits)
+        .bind(pkg.is_active)
+        .bind(pkg.sort_order)
+        .bind(pkg.created_at)
+        .execute(self.inner())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_token_package(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM token_packages WHERE id = $1")
+            .bind(id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
     }
 }

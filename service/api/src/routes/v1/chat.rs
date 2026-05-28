@@ -28,7 +28,7 @@ use crate::state::AppState;
 use db;
 use models::{
     BatchChatRequest, BatchChatResponse, BatchJudgeRequest, BatchJudgeResponse, ChatRequest,
-    ChatResponse, JudgeScoreInfo, Message, ModelResult, SubscriptionPlan, Usage, User,
+    ChatResponse, JudgeScoreInfo, Message, ModelResult, Usage,
 };
 use provider_client::{
     ChatRequest as ProviderChatRequest, HttpProviderClient,
@@ -38,24 +38,6 @@ use router::key_scheduler::SelectedKey;
 
 /// 会话亲和性 Header
 const SESSION_HEADER: &str = "x-session-id";
-
-// 速率限制常量（请求/分钟）
-const FREE_RPM: i64 = 10;
-const MONTHLY_RPM: i64 = 60;
-const YEARLY_RPM: i64 = 120;
-const TEAM_RPM: i64 = 300;
-const ENTERPRISE_RPM: i64 = 1000;
-
-/// 根据套餐获取速率限制
-fn rate_limit_for_plan(plan: &SubscriptionPlan) -> i64 {
-    match plan {
-        SubscriptionPlan::None => FREE_RPM,
-        SubscriptionPlan::Monthly => MONTHLY_RPM,
-        SubscriptionPlan::Yearly => YEARLY_RPM,
-        SubscriptionPlan::Team => TEAM_RPM,
-        SubscriptionPlan::Enterprise => ENTERPRISE_RPM,
-    }
-}
 
 /// 选择 Provider 的 API Key（支持会话亲和性）
 ///
@@ -172,7 +154,7 @@ pub async fn chat_completions(
 
     // 1. Rate limiting
     let user_id = auth.user.id.to_string();
-    let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
+    let rpm = super::rate_limit_for_user();
     let (allowed, remaining, reset_time) = state
         .redis
         .check_rate_limit(&user_id, rpm, 60)
@@ -184,8 +166,6 @@ pub async fn chat_completions(
     }
 
     // Extract session ID for key affinity.
-    // Priority: x-session-id header > user_id (for API-key callers without browser session).
-    // This ensures every authenticated user gets stable key binding even without frontend session tracking.
     let session_id = extract_session_id(&headers).or_else(|| Some(auth.user.id.to_string()));
 
     // 2. Parse model string to get provider and model
@@ -199,11 +179,8 @@ pub async fn chat_completions(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?
         .ok_or_else(|| ApiError::ModelNotFound(request.model.clone()))?;
 
-    // 4. Check subscription status
-    check_subscription(&auth.user)?;
-
-    // 5. Check token quota for this billing period
-    check_token_quota(&state, &auth.user).await?;
+    // 4. Check balance (instead of subscription)
+    super::check_balance(&state, auth.user.id).await?;
 
     // 6. Validate request parameters
     validate_chat_request(&request, model.context_window)?;
@@ -520,61 +497,6 @@ fn add_rate_limit_headers(response: &mut Response, limit: i64, remaining: i64, r
     headers.insert("X-RateLimit-Reset", reset.to_string().parse().unwrap());
 }
 
-/// 检查用户订阅是否有效
-fn check_subscription(user: &User) -> Result<(), ApiError> {
-    match user.subscription_plan {
-        SubscriptionPlan::None => {
-            // Free tier is always "active" but has limited quota
-        }
-        SubscriptionPlan::Monthly
-        | SubscriptionPlan::Yearly
-        | SubscriptionPlan::Team
-        | SubscriptionPlan::Enterprise => {
-            if let (Some(start), Some(end)) = (user.subscription_start, user.subscription_end) {
-                let now = chrono::Utc::now();
-                if now < start || now > end {
-                    return Err(ApiError::SubscriptionExpired);
-                }
-            } else {
-                return Err(ApiError::SubscriptionExpired);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// 检查用户在当前计费周期的 Token 配额
-async fn check_token_quota(state: &AppState, user: &User) -> Result<(), ApiError> {
-    let quota = user.subscription_plan.monthly_token_quota();
-    if quota == i64::MAX {
-        return Ok(()); // Enterprise: unlimited
-    }
-
-    let now = chrono::Utc::now();
-    let period_start = user.subscription_start.unwrap_or(now);
-    let period_end = user
-        .subscription_end
-        .unwrap_or(now + chrono::Duration::days(user.subscription_plan.billing_cycle_days()));
-
-    if now > period_end {
-        return Err(ApiError::SubscriptionExpired);
-    }
-
-    let used = state
-        .db
-        .get_user_token_usage_in_period(user.id, period_start, period_end)
-        .await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to check token usage: {}", e)))?;
-
-    if used >= quota {
-        return Err(ApiError::InvalidRequest(
-            format!("Token quota exceeded. Used {} / {} tokens this period. Upgrade your plan for more tokens.", used, quota)
-        ));
-    }
-
-    Ok(())
-}
-
 /// 记录 API 调用到数据库
 async fn log_api_call(
     state: &AppState,
@@ -634,10 +556,10 @@ pub async fn embeddings(
     Extension(auth): Extension<AuthContext>,
     Json(request): Json<models::EmbeddingsRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    check_subscription(&auth.user)?;
+    super::check_balance(&state, auth.user.id).await?;
 
     let user_id = auth.user.id.to_string();
-    let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
+    let rpm = super::rate_limit_for_user();
     let (allowed, remaining, reset_time) = state
         .redis
         .check_rate_limit(&user_id, rpm, 60)
@@ -777,7 +699,7 @@ pub async fn chat_batch(
 
     // 1. Rate limiting
     let user_id = auth.user.id.to_string();
-    let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
+    let rpm = super::rate_limit_for_user();
     let (allowed, _, _) = state
         .redis
         .check_rate_limit(&user_id, rpm, 60)
@@ -795,8 +717,7 @@ pub async fn chat_batch(
     }
 
     // 3. Check subscription
-    check_subscription(&auth.user)?;
-    check_token_quota(&state, &auth.user).await?;
+    super::check_balance(&state, auth.user.id).await?;
 
     // 3. Get the user's last question
     let user_query = request
@@ -1036,8 +957,7 @@ pub async fn chat_batch_judge(
         return Err(ApiError::RateLimitExceeded);
     }
 
-    check_subscription(&auth.user)?;
-    check_token_quota(&state, &auth.user).await?;
+    super::check_balance(&state, auth.user.id).await?;
 
     let successful: Vec<&ModelResult> = request.results.iter().filter(|r| r.success).collect();
 

@@ -52,9 +52,7 @@ impl<'a> ApiKeyValidator<'a> {
             .ok_or(AuthError::UserNotFound)?;
 
         // 检查订阅状态
-        if !user.is_subscription_active() {
-            return Err(AuthError::SubscriptionExpired);
-        }
+        // Subscription checks removed — now using pay-per-token balance system
 
         // 更新最后使用时间戳
         let _ = self.db.update_api_key_last_used(api_key.id).await;
@@ -123,10 +121,7 @@ impl<'a> BearerValidator<'a> {
             .map_err(|_| AuthError::ApiKeyInvalid)?
             .ok_or(AuthError::UserNotFound)?;
 
-        // 检查订阅状态
-        if !user.is_subscription_active() {
-            return Err(AuthError::SubscriptionExpired);
-        }
+        // Subscription checks removed — now using pay-per-token balance system
 
         Ok(user)
     }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, CreditCard, ChevronDown, User } from 'lucide-react';
+import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, Wallet, ChevronDown, User } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../i18n';
 import LoginModal from './LoginModal';
@@ -20,7 +20,7 @@ export default function Layout() {
     { to: '/chat', label: t('layout.chat'), icon: MessageSquare },
     { to: '/models', label: t('layout.models'), icon: Layers },
     { to: '/keys', label: t('layout.apiKeys'), icon: Key },
-    { to: '/subscription', label: t('layout.subscription'), icon: CreditCard },
+    { to: '/balance', label: t('layout.balance'), icon: Wallet },
     { to: '/guide', label: t('layout.guide'), icon: BookOpen },
   ];
 
@@ -75,7 +75,7 @@ export default function Layout() {
               onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
               title={t('common.switchLang')}
             >
-              {locale === 'en' ? '中文' : 'EN'}
+              {locale === 'en' ? t('lang.toggleZh') : t('lang.toggleEn')}
             </button>
 
             {/* Mobile hamburger */}
@@ -100,7 +100,6 @@ export default function Layout() {
                     <div className="topbar-user-dropdown">
                       <div className="topbar-user-dropdown-info">
                         <span className="topbar-user-dropdown-email">{user?.email || t('common.user')}</span>
-                        <span className="topbar-user-dropdown-plan">{user?.subscription_plan || t('common.free')}</span>
                       </div>
                       <button
                         className="topbar-user-dropdown-item"

@@ -59,8 +59,6 @@ pub struct UserResponse {
     pub email: String,
     /// 手机号
     pub phone: Option<String>,
-    /// 订阅套餐
-    pub subscription_plan: String,
     /// 是否为管理员
     pub is_admin: bool,
 }
@@ -115,7 +113,7 @@ pub async fn register(
             id: user.id.to_string(),
             email: user.email,
             phone: user.phone,
-            subscription_plan: user.subscription_plan.as_str().to_string(),
+
             is_admin: user.is_admin,
         },
         token,
@@ -179,7 +177,7 @@ pub async fn login(
             id: user.id.to_string(),
             email: user.email,
             phone: user.phone,
-            subscription_plan: user.subscription_plan.as_str().to_string(),
+
             is_admin: user.is_admin,
         },
         token,
@@ -255,7 +253,7 @@ pub async fn admin_login(
             id: user.id.to_string(),
             email: user.email,
             phone: user.phone,
-            subscription_plan: user.subscription_plan.as_str().to_string(),
+
             is_admin: user.is_admin,
         },
         token,
@@ -476,7 +474,7 @@ pub async fn verify_sms(
             id: user.id.to_string(),
             email: user.email.clone(),
             phone: user.phone,
-            subscription_plan: user.subscription_plan.as_str().to_string(),
+
             is_admin: user.is_admin,
         },
         token,

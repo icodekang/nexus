@@ -19,9 +19,10 @@ pub mod shared;
 
 /// 重新导出共享工具函数
 pub use shared::{
-    add_rate_limit_headers, check_subscription, check_token_quota, create_client,
-    default_session_id, extract_session_id, log_api_call, rate_limit_for_plan, record_result,
-    select_key, validate_temperature,
+    add_rate_limit_headers, charge_tokens, check_balance, create_client,
+    create_client_from_source, default_session_id, extract_session_id, log_api_call,
+    rate_limit_for_user, record_result, select_key_with_priority, validate_temperature,
+    SelectedKeySource,
 };
 
 use axum::{routing::post, Router};

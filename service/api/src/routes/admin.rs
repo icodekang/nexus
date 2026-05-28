@@ -31,7 +31,8 @@ use axum::{
 };
 use db::postgres::{DashboardStats, RecentActivity, RevenueTrend};
 use db::{decrypt_api_key, encrypt_api_key};
-use models::{LlmModel, ModelMode, Provider, ProviderKey};
+use models::{LlmModel, ModelMode, ModelPricing, PricingMode, Provider, ProviderKey, TokenPackage};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -63,6 +64,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/models", get(list_models).post(create_model))
         .route("/models/:id", put(update_model).delete(delete_model))
         .route("/transactions", get(list_transactions))
+        .route("/model-pricing", get(list_model_pricings).post(upsert_model_pricing))
+        .route("/model-pricing/:model_slug", delete(delete_model_pricing))
+        .route("/token-packages", get(list_token_pkgs).post(upsert_token_package))
+        .route("/token-packages/:id", delete(delete_token_package))
 }
 
 // ============ 仪表盘 ============
@@ -135,9 +140,7 @@ struct UserListItem {
     id: String,
     email: String,
     phone: Option<String>,
-    subscription_plan: String,
     is_admin: bool,
-    is_active: bool,
     created_at: String,
     updated_at: String,
 }
@@ -167,14 +170,11 @@ async fn list_users(
     let data: Vec<UserListItem> = users
         .into_iter()
         .map(|u| {
-            let is_active = u.is_subscription_active();
             UserListItem {
                 id: u.id.to_string(),
                 email: u.email,
                 phone: u.phone,
-                subscription_plan: u.subscription_plan.as_str().to_string(),
                 is_admin: u.is_admin,
-                is_active,
                 created_at: u.created_at.to_rfc3339(),
                 updated_at: u.updated_at.to_rfc3339(),
             }
@@ -194,8 +194,6 @@ async fn list_users(
 struct UpdateUserRequest {
     /// 新手机号（可选）
     phone: Option<String>,
-    /// 新订阅套餐（可选）
-    subscription_plan: Option<String>,
 }
 
 /// PUT /admin/users/:id
@@ -215,7 +213,6 @@ async fn update_user(
         .update_user_admin(
             user_id,
             body.phone.as_deref(),
-            body.subscription_plan.as_deref(),
         )
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update user: {}", e)))?;
@@ -232,9 +229,7 @@ async fn update_user(
         "id": user.id.to_string(),
         "email": user.email,
         "phone": user.phone,
-        "subscription_plan": user.subscription_plan.as_str(),
         "is_admin": user.is_admin,
-        "is_active": user.is_subscription_active(),
         "created_at": user.created_at.to_rfc3339(),
         "updated_at": user.updated_at.to_rfc3339(),
     })))
@@ -886,9 +881,9 @@ async fn list_transactions(
                 "id": tx.id.to_string(),
                 "user_id": tx.user_id.to_string(),
                 "user_email": email,
-                "transaction_type": format!("{:?}", tx.transaction_type).to_lowercase(),
+                "transaction_type": tx.transaction_type.as_str(),
                 "amount": tx.amount,
-                "plan": tx.plan.as_ref().map(|p| p.as_str()),
+                "plan": tx.plan,
                 "status": format!("{:?}", tx.status).to_lowercase(),
                 "description": tx.description,
                 "created_at": tx.created_at.to_rfc3339(),
@@ -902,4 +897,143 @@ async fn list_transactions(
         "page": page,
         "per_page": per_page,
     })))
+}
+
+// ============ Model Pricing 管理 ============
+
+async fn list_model_pricings(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pricings = state.db.list_model_pricing().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "data": pricings.iter().map(|p| serde_json::json!({
+            "id": p.id,
+            "model_slug": p.model_slug,
+            "provider_slug": p.provider_slug,
+            "prompt_price": p.prompt_price,
+            "completion_price": p.completion_price,
+            "image_price": p.image_price,
+            "reasoning_price": p.reasoning_price,
+            "cache_read_price": p.cache_read_price,
+            "request_price": p.request_price,
+            "pricing_mode": p.pricing_mode.as_str(),
+            "avg_tokens_per_request": p.avg_tokens_per_request,
+            "is_active": p.is_active,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertModelPricingRequest {
+    model_slug: String,
+    provider_slug: String,
+    prompt_price: Decimal,
+    completion_price: Decimal,
+    image_price: Option<Decimal>,
+    reasoning_price: Option<Decimal>,
+    cache_read_price: Option<Decimal>,
+    request_price: Option<Decimal>,
+    pricing_mode: Option<String>,
+    avg_tokens_per_request: Option<i32>,
+}
+
+async fn upsert_model_pricing(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Json(req): Json<UpsertModelPricingRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let now = chrono::Utc::now();
+    let pricing = ModelPricing {
+        id: uuid::Uuid::new_v4(),
+        model_slug: req.model_slug,
+        provider_slug: req.provider_slug,
+        prompt_price: req.prompt_price,
+        completion_price: req.completion_price,
+        image_price: req.image_price,
+        reasoning_price: req.reasoning_price,
+        cache_read_price: req.cache_read_price,
+        request_price: req.request_price,
+        pricing_mode: req.pricing_mode
+            .map(|m| PricingMode::from_str(&m))
+            .unwrap_or_default(),
+        avg_tokens_per_request: req.avg_tokens_per_request.unwrap_or(5000),
+        effective_from: now,
+        effective_until: None,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+    };
+
+    state.db.upsert_model_pricing(&pricing).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn delete_model_pricing(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(model_slug): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.db.delete_model_pricing(&model_slug).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+// ============ Token Packages 管理 ============
+
+#[derive(Debug, Deserialize)]
+struct UpsertTokenPackageRequest {
+    name: String,
+    credits: Decimal,
+    price: Decimal,
+    bonus_credits: Option<Decimal>,
+    sort_order: Option<i32>,
+}
+
+async fn list_token_pkgs(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let packages = state.db.list_token_packages().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({ "data": packages })))
+}
+
+async fn upsert_token_package(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Json(req): Json<UpsertTokenPackageRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pkg = TokenPackage {
+        id: uuid::Uuid::new_v4(),
+        name: req.name,
+        credits: req.credits,
+        price: req.price,
+        currency: "USD".to_string(),
+        bonus_credits: req.bonus_credits.unwrap_or_default(),
+        is_active: true,
+        sort_order: req.sort_order.unwrap_or(0),
+        created_at: chrono::Utc::now(),
+    };
+
+    state.db.upsert_token_package(&pkg).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn delete_token_package(
+    State(state): State<Arc<AppState>>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pkg_id = uuid::Uuid::parse_str(&id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid package ID".to_string()))?;
+    state.db.delete_token_package(pkg_id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }

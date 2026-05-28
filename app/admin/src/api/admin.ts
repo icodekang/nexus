@@ -60,7 +60,6 @@ export interface AuthResponse {
     id: string;
     email: string;
     phone: string | null;
-    subscription_plan: string;
     is_admin: boolean;
   };
 }
@@ -86,7 +85,6 @@ export async function login(email: string, password: string): Promise<AuthRespon
  */
 export interface DashboardStats {
   total_users: number;
-  active_subscriptions: number;
   total_revenue: number;
   api_calls_today: number;
 }
@@ -145,17 +143,11 @@ export interface AdminUser {
   id: string;
   email: string;
   phone: string | null;
-  subscription_plan: string;
   is_admin: boolean;
-  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-/**
- * UsersResponse - 用户列表响应
- * @description 包含用户数据数组和分页信息
- */
 export interface UsersResponse {
   data: AdminUser[];
   total: number;
@@ -163,26 +155,13 @@ export interface UsersResponse {
   per_page: number;
 }
 
-/**
- * fetchUsers - 获取用户列表
- * @param page - 页码，默认 1
- * @param perPage - 每页数量，默认 20
- * @param search - 搜索关键词
- * @returns 用户列表和分页信息
- */
 export async function fetchUsers(page = 1, perPage = 20, search = ''): Promise<UsersResponse> {
   const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
   if (search) params.set('search', search);
   return request<UsersResponse>(`/admin/users?${params}`);
 }
 
-/**
- * updateUser - 更新用户信息
- * @param id - 用户 ID
- * @param data - 要更新的字段（手机号、订阅套餐）
- * @returns 更新后的用户信息
- */
-export async function updateUser(id: string, data: { phone?: string; subscription_plan?: string }): Promise<AdminUser> {
+export async function updateUser(id: string, data: { phone?: string }): Promise<AdminUser> {
   return request<AdminUser>(`/admin/users/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),

@@ -1,0 +1,71 @@
+/* BalancePage.css — Credits & Usage */
+
+.balance-page { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+
+.balance-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+.balance-header-left { flex: 1; }
+.balance-title { font-size: 26px; font-weight: 700; color: #18181B; margin: 0 0 4px; font-family: 'Instrument Sans', sans-serif; letter-spacing: -0.03em; }
+.balance-subtitle { font-size: 14px; color: #71717A; margin: 0; font-family: 'DM Sans', sans-serif; }
+
+/* Hero Card */
+.balance-hero { position: relative; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); border-radius: 20px; padding: 36px 32px; margin-bottom: 36px; overflow: hidden; box-shadow: 0 4px 32px rgba(15, 52, 96, 0.2); }
+.balance-hero-glow { position: absolute; top: -80px; right: -80px; width: 280px; height: 280px; background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, transparent 70%); pointer-events: none; }
+.balance-hero-content { position: relative; z-index: 1; }
+.balance-hero-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 100px; font-size: 12px; color: rgba(255,255,255,0.7); font-family: 'DM Sans', sans-serif; margin-bottom: 16px; }
+.balance-hero-amount { margin-bottom: 24px; }
+.balance-hero-currency { font-size: 18px; color: rgba(255,255,255,0.5); font-family: 'DM Sans', sans-serif; vertical-align: top; margin-right: 2px; }
+.balance-hero-value { font-size: 52px; font-weight: 700; color: #fff; font-family: 'Instrument Sans', sans-serif; letter-spacing: -0.04em; }
+.balance-hero-meta { display: flex; align-items: center; gap: 0; }
+.balance-hero-stat { display: flex; flex-direction: column; gap: 2px; }
+.bh-stat-value { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.9); font-family: 'DM Sans', sans-serif; }
+.bh-stat-label { font-size: 11px; color: rgba(255,255,255,0.45); font-family: 'DM Sans', sans-serif; text-transform: uppercase; letter-spacing: 0.04em; }
+.balance-hero-divider { width: 1px; height: 32px; background: rgba(255,255,255,0.1); margin: 0 24px; }
+
+/* Sections */
+.balance-section { margin-bottom: 36px; }
+.balance-section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.balance-section-header h2 { font-size: 17px; font-weight: 600; color: #18181B; margin: 0; font-family: 'Instrument Sans', sans-serif; }
+.balance-section-header svg { color: #6366F1; }
+
+/* Package Cards */
+.packages-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.package-card { background: #fff; border: 1px solid #F0F0F0; border-radius: 16px; padding: 22px 20px; transition: all 0.2s ease; cursor: default; }
+.package-card:hover { border-color: #E0E0E0; box-shadow: 0 2px 16px rgba(0,0,0,0.04); transform: translateY(-1px); }
+.package-card-bonus { border-color: #C7D2FE; background: linear-gradient(180deg, #fff 0%, #F8F7FF 100%); }
+.package-card-top { margin-bottom: 16px; }
+.package-card-name { font-size: 14px; font-weight: 600; color: #18181B; margin-bottom: 6px; font-family: 'DM Sans', sans-serif; }
+.package-card-price { }
+.pc-price-dollar { font-size: 14px; color: #6366F1; font-weight: 600; font-family: 'DM Sans', sans-serif; vertical-align: top; }
+.pc-price-value { font-size: 32px; font-weight: 700; color: #18181B; font-family: 'Instrument Sans', sans-serif; letter-spacing: -0.03em; }
+.package-card-body { margin-bottom: 16px; }
+.package-card-credits { display: flex; align-items: center; gap: 6px; color: #71717A; }
+.pc-credits-value { font-size: 18px; font-weight: 600; color: #18181B; font-family: 'DM Sans', sans-serif; }
+.pc-credits-label { font-size: 13px; color: #A1A1AA; }
+.package-card-bonus-tag { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; padding: 3px 10px; background: #EEF2FF; border-radius: 100px; font-size: 11px; color: #6366F1; font-weight: 500; font-family: 'DM Sans', sans-serif; }
+.package-card-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 0; background: #18181B; color: #fff; border: none; border-radius: 12px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s ease; }
+.package-card-btn:hover { background: #27272A; }
+.package-card-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Charges List */
+.charges-list { background: #fff; border: 1px solid #F0F0F0; border-radius: 16px; overflow: hidden; }
+.charge-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #F5F5F4; transition: background 0.15s; }
+.charge-row:last-child { border-bottom: none; }
+.charge-row:hover { background: #FAFAF9; }
+.charge-row-left { display: flex; align-items: center; gap: 12px; }
+.charge-row-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #F5F5F4; color: #71717A; }
+.charge-row-icon.icon-free { background: #ECFDF5; color: #10B981; }
+.charge-row-info { display: flex; flex-direction: column; gap: 2px; }
+.charge-row-model { font-size: 13px; font-weight: 500; color: #18181B; font-family: 'DM Sans', sans-serif; }
+.charge-row-meta { font-size: 11px; color: #A1A1AA; font-family: 'DM Sans', sans-serif; }
+.charge-row-cost { font-size: 13px; font-weight: 500; color: #EF4444; font-family: 'DM Sans', monospace; }
+.charge-row-cost.cost-free { color: #10B981; }
+.charges-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 20px; color: #A1A1AA; font-size: 13px; font-family: 'DM Sans', sans-serif; }
+
+.balance-error { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px; color: #DC2626; font-size: 13px; margin-bottom: 16px; font-family: 'DM Sans', sans-serif; }
+
+.balance-skeleton { display: flex; gap: 20px; padding: 16px 0; }
+.sk-card { flex: 1; height: 120px; background: #F5F5F4; border-radius: 16px; }
+.pulse { animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

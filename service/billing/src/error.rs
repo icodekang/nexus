@@ -2,28 +2,23 @@
 
 use thiserror::Error;
 
-/// 计费错误枚举
-///
-/// 包含计费过程中可能出现的各种错误情况
 #[derive(Error, Debug)]
 pub enum BillingError {
-    /// 无效的订阅计划
-    #[error("无效的订阅计划: {0}")]
-    InvalidPlan(String),
+    #[error("余额不足")]
+    InsufficientBalance,
 
-    /// 订阅不存在
-    #[error("订阅不存在")]
-    SubscriptionNotFound,
+    #[error("无效的定价模式: {0}")]
+    InvalidPricingMode(String),
 
-    /// 订阅已过期
-    #[error("订阅已过期")]
-    SubscriptionExpired,
+    #[error("未找到模型定价: {0}")]
+    PricingNotFound(String),
 
-    /// 支付失败
+    #[error("计费失败: {0}")]
+    ChargeFailed(String),
+
     #[error("支付失败: {0}")]
     PaymentFailed(String),
 
-    /// 退款失败
     #[error("退款失败: {0}")]
     RefundFailed(String),
 }

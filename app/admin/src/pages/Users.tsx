@@ -7,19 +7,6 @@ import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchUsers, updateUser, type AdminUser } from '../api/admin';
 
-// 订阅套餐颜色映射
-const planColors: Record<string, string> = {
-  yearly: '#6366F1',
-  monthly: '#3B82F6',
-  team: '#F59E0B',
-  enterprise: '#EC4899',
-  none: '#A1A1AA',
-};
-
-/**
- * Users - 用户管理主组件
- * @description 获取用户列表，支持搜索（带防抖），编辑用户手机号和套餐
- */
 export default function Users() {
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,17 +18,14 @@ export default function Users() {
   const [loading, setLoading] = useState(true);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
   const [formPhone, setFormPhone] = useState('');
-  const [formPlan, setFormPlan] = useState('monthly');
 
   const totalPages = Math.ceil(total / perPage);
 
-  // 防抖搜索：300ms 延迟更新搜索关键词，避免频繁请求
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // 搜索关键词变化时重置页码
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
@@ -57,30 +41,20 @@ export default function Users() {
       .finally(() => setLoading(false));
   }, [page, perPage, debouncedSearch]);
 
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+  useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  // 打开编辑弹窗，填充用户现有数据
   const openEditModal = (user: AdminUser) => {
     setFormPhone(user.phone || '');
-    setFormPlan(user.subscription_plan);
     setEditUser(user);
   };
 
-  // 提交编辑用户表单
   const handleEditUser = async () => {
     if (!editUser) return;
     try {
-      await updateUser(editUser.id, {
-        phone: formPhone,
-        subscription_plan: formPlan,
-      });
+      await updateUser(editUser.id, { phone: formPhone });
       setEditUser(null);
       loadUsers();
-    } catch {
-      // Error handling
-    }
+    } catch { }
   };
 
   return (
@@ -118,8 +92,7 @@ export default function Users() {
             <tr>
               <th style={{ ...styles.th, paddingLeft: '20px' }}>{t('users.thUser')}</th>
               <th style={styles.th}>{t('users.thPhone')}</th>
-              <th style={styles.th}>{t('users.thPlan')}</th>
-              <th style={styles.th}>{t('users.thStatus')}</th>
+              <th style={styles.th}>{t('users.thRole')}</th>
               <th style={styles.th}>{t('users.thCreated')}</th>
               <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}></th>
             </tr>
@@ -127,7 +100,6 @@ export default function Users() {
           <tbody>
             {users.map((user) => (
               <tr key={user.id} style={styles.tr}>
-                {/* 用户邮箱列 */}
                 <td style={{ ...styles.td, paddingLeft: '20px' }}>
                   <div style={styles.userCell}>
                     <div style={styles.userAvatar}>{user.email.charAt(0).toUpperCase()}</div>
@@ -139,23 +111,11 @@ export default function Users() {
                 </td>
                 <td style={styles.td}>
                   <span style={{
-                    ...styles.planBadge,
-                    color: planColors[user.subscription_plan] || '#A1A1AA',
-                    backgroundColor: `${planColors[user.subscription_plan] || '#A1A1AA'}12`,
+                    ...styles.roleBadge,
+                    color: user.is_admin ? '#7C3AED' : '#71717A',
+                    backgroundColor: user.is_admin ? '#F5F3FF' : '#F5F5F4',
                   }}>
-                    {user.subscription_plan}
-                  </span>
-                </td>
-                <td style={styles.td}>
-                  <span style={{
-                    ...styles.status,
-                    color: user.is_active ? '#22C55E' : '#EF4444',
-                  }}>
-                    <span style={{
-                      ...styles.statusDot,
-                      backgroundColor: user.is_active ? '#22C55E' : '#EF4444',
-                    }} />
-                    {user.is_active ? t('common.active') : t('common.inactive')}
+                    {user.is_admin ? t('users.admin') : t('users.user')}
                   </span>
                 </td>
                 <td style={styles.td}>
@@ -215,16 +175,6 @@ export default function Users() {
               placeholder={t('users.phonePlaceholder')}
               style={formStyles.input}
             />
-          </div>
-          <div style={formStyles.field}>
-            <label style={formStyles.label}>{t('users.planLabel')}</label>
-            <select value={formPlan} onChange={(e) => setFormPlan(e.target.value)} style={formStyles.input}>
-              <option value="none">None</option>
-              <option value="monthly">Monthly</option>
-              <option value="yearly">Yearly</option>
-              <option value="team">Team</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
           </div>
           <div style={formStyles.actions}>
             <button style={formStyles.cancelBtn} onClick={() => setEditUser(null)}>{t('common.cancel')}</button>

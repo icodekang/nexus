@@ -28,6 +28,7 @@ rand = { workspace = true }
 base64 = "0.22"
 aes-gcm = "0.10"
 hex = "0.4"
+rust_decimal = { workspace = true }
 
 models = { path = "../models" }
 db = { path = "../db" }

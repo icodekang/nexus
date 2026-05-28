@@ -1,122 +1,70 @@
 //! 计费模块
 //!
-//! 提供订阅管理和交易处理功能
+//! 按 Token 计费引擎，支持多维度定价
 
 pub mod error;
-pub mod subscription;
 
 pub use error::*;
-pub use subscription::*;
 
-use chrono::Utc;
-use models::subscription::{SubscriptionStatus, TransactionType};
-use models::{Subscription, SubscriptionPlan, Transaction};
+use models::{CostBreakdown, ModelPricing, PricingMode};
+use rust_decimal::Decimal;
 
-/// 计费服务
-///
-/// 提供订阅创建、交易处理和到期检查等功能
-pub struct BillingService;
+pub struct BillingEngine;
 
-impl BillingService {
-    /// 创建新的计费服务实例
+impl BillingEngine {
     pub fn new() -> Self {
         Self
     }
 
-    /// 创建新的订阅
-    ///
-    /// # 参数
-    /// * `user_id` - 用户 ID
-    /// * `plan` - 订阅计划
-    /// * `duration_days` - 订阅时长（天数）
-    ///
-    /// # 返回
-    /// 新创建的订阅记录
-    pub fn create_subscription(
-        &self,
-        user_id: uuid::Uuid,
-        plan: SubscriptionPlan,
-        duration_days: i64,
-    ) -> Subscription {
-        let now = Utc::now();
-        let end = now + chrono::Duration::days(duration_days);
+    /// 计算单次调用的费用 = Σ(维度价格 × 维度用量)
+    pub fn calculate(
+        pricing: &ModelPricing,
+        input_tokens: i32,
+        output_tokens: i32,
+        reasoning_tokens: i32,
+        image_count: i32,
+        cache_read_tokens: i32,
+    ) -> CostBreakdown {
+        let mut b = CostBreakdown::default();
 
-        Subscription {
-            id: uuid::Uuid::new_v4(),
-            user_id,
-            plan,
-            status: SubscriptionStatus::Active,
-            start_at: now,
-            end_at: end,
-            created_at: now,
+        match pricing.pricing_mode {
+            PricingMode::PerToken => {
+                b.prompt_cost =
+                    pricing.prompt_price * Decimal::from(input_tokens);
+                b.completion_cost =
+                    pricing.completion_price * Decimal::from(output_tokens);
+                if let Some(ip) = pricing.image_price {
+                    b.image_cost = ip * Decimal::from(image_count);
+                }
+                if let Some(rp) = pricing.reasoning_price {
+                    b.reasoning_cost = rp * Decimal::from(reasoning_tokens);
+                }
+                if let Some(cp) = pricing.cache_read_price {
+                    b.cache_read_cost = cp * Decimal::from(cache_read_tokens);
+                }
+                b.request_cost = pricing.request_price.unwrap_or_default();
+            }
+            PricingMode::PerRequest => {
+                let total_tokens = input_tokens + output_tokens;
+                let avg = Decimal::from(pricing.avg_tokens_per_request);
+                if !avg.is_zero() {
+                    let ratio = Decimal::from(total_tokens) / avg;
+                    let request = pricing.request_price.unwrap_or_default();
+                    let equivalent = request * ratio;
+                    let capped = equivalent.min(request);
+                    let total = Decimal::from(total_tokens.max(1));
+                    let input_ratio = Decimal::from(input_tokens) / total;
+                    b.prompt_cost = capped * input_ratio;
+                    b.completion_cost = capped - b.prompt_cost;
+                }
+            }
         }
-    }
-
-    /// 创建购买交易
-    ///
-    /// # 参数
-    /// * `user_id` - 用户 ID
-    /// * `plan` - 订阅计划
-    /// * `amount` - 金额
-    pub fn create_purchase_transaction(
-        &self,
-        user_id: uuid::Uuid,
-        plan: SubscriptionPlan,
-        amount: f64,
-    ) -> Transaction {
-        Transaction::new(user_id, TransactionType::SubscriptionPurchase, amount)
-            .with_plan(plan)
-            .with_description(format!("Purchase of {:?} plan", plan))
-    }
-
-    /// 创建续订交易
-    ///
-    /// # 参数
-    /// * `user_id` - 用户 ID
-    /// * `plan` - 订阅计划
-    /// * `amount` - 金额
-    pub fn create_renewal_transaction(
-        &self,
-        user_id: uuid::Uuid,
-        plan: SubscriptionPlan,
-        amount: f64,
-    ) -> Transaction {
-        Transaction::new(user_id, TransactionType::SubscriptionRenewal, amount)
-            .with_plan(plan)
-            .with_description(format!("Renewal of {:?} plan", plan))
-    }
-
-    /// 检查订阅是否即将到期
-    ///
-    /// # 参数
-    /// * `subscription` - 订阅记录
-    /// * `days` - 到期前天数阈值
-    ///
-    /// # 返回
-    /// 如果订阅在指定天数内即将到期返回 true
-    pub fn is_expiring_soon(&self, subscription: &Subscription, days: i64) -> bool {
-        let threshold = Utc::now() + chrono::Duration::days(days);
-        subscription.end_at <= threshold && subscription.end_at > Utc::now()
-    }
-
-    /// 计算距离到期的天数
-    ///
-    /// # 参数
-    /// * `subscription` - 订阅记录
-    ///
-    /// # 返回
-    /// 距离到期的天数（已到期返回 0）
-    pub fn days_until_expiry(&self, subscription: &Subscription) -> i64 {
-        let now = Utc::now();
-        if subscription.end_at > now {
-            (subscription.end_at - now).num_days()
-        } else {
-            0
-        }
+        b.total = b.sum();
+        b
     }
 }
 
-impl Default for BillingService {
+impl Default for BillingEngine {
     fn default() -> Self {
         Self::new()
     }
@@ -125,62 +73,43 @@ impl Default for BillingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
 
-    #[test]
-    fn test_create_subscription() {
-        let billing = BillingService::new();
-        let user_id = Uuid::new_v4();
-        let sub = billing.create_subscription(user_id, SubscriptionPlan::Monthly, 30);
-
-        assert_eq!(sub.user_id, user_id);
-        assert_eq!(sub.plan, SubscriptionPlan::Monthly);
-        assert_eq!(sub.status, SubscriptionStatus::Active);
-        assert!(sub.end_at > sub.start_at);
-        assert!(sub.end_at > Utc::now());
-        assert!(sub.is_active());
+    fn test_pricing() -> ModelPricing {
+        ModelPricing {
+            id: uuid::Uuid::new_v4(),
+            model_slug: "gpt-4o".into(),
+            provider_slug: "openai".into(),
+            prompt_price: Decimal::from_str("0.0000025").unwrap(),
+            completion_price: Decimal::from_str("0.000010").unwrap(),
+            image_price: None,
+            reasoning_price: None,
+            cache_read_price: None,
+            request_price: None,
+            pricing_mode: PricingMode::PerToken,
+            avg_tokens_per_request: 5000,
+            effective_from: chrono::Utc::now(),
+            effective_until: None,
+            is_active: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
     }
 
     #[test]
-    fn test_subscription_expiry() {
-        let billing = BillingService::new();
-        let user_id = Uuid::new_v4();
-        // Create a subscription that expires in 1 day
-        let sub = billing.create_subscription(user_id, SubscriptionPlan::Monthly, 1);
-
-        assert!(billing.is_expiring_soon(&sub, 2)); // expiring within 2 days
-        assert!(billing.is_expiring_soon(&sub, 7)); // expiring within 7 days
-        assert!(!sub.is_active()); // but note: is_active checks end_at > now, which may fail in edge cases
+    fn test_per_token_calculation() {
+        let pricing = test_pricing();
+        let cost = BillingEngine::calculate(&pricing, 1000, 500, 0, 0, 0);
+        assert_eq!(cost.prompt_cost, Decimal::from_str("0.0025").unwrap());
+        assert_eq!(cost.completion_cost, Decimal::from_str("0.005").unwrap());
+        assert_eq!(cost.total, Decimal::from_str("0.0075").unwrap());
     }
 
     #[test]
-    fn test_days_until_expiry() {
-        let billing = BillingService::new();
-        let user_id = Uuid::new_v4();
-        let sub = billing.create_subscription(user_id, SubscriptionPlan::Yearly, 30);
-        let days = billing.days_until_expiry(&sub);
-        assert!(days >= 29 && days <= 30);
-    }
-
-    #[test]
-    fn test_create_purchase_transaction() {
-        let billing = BillingService::new();
-        let user_id = Uuid::new_v4();
-        let tx = billing.create_purchase_transaction(user_id, SubscriptionPlan::Monthly, 19.90);
-
-        assert_eq!(tx.user_id, user_id);
-        assert_eq!(tx.amount, 19.90);
-        assert!(tx.plan == Some(SubscriptionPlan::Monthly));
-        assert!(tx.description.unwrap().contains("Monthly"));
-    }
-
-    #[test]
-    fn test_token_quota_values() {
-        assert_eq!(SubscriptionPlan::None.monthly_token_quota(), 10_000);
-        assert_eq!(SubscriptionPlan::ZeroToken.monthly_token_quota(), 100_000);
-        assert_eq!(SubscriptionPlan::Monthly.monthly_token_quota(), 2_000_000);
-        assert_eq!(SubscriptionPlan::Yearly.monthly_token_quota(), 2_000_000);
-        assert_eq!(SubscriptionPlan::Team.monthly_token_quota(), 10_000_000);
-        assert_eq!(SubscriptionPlan::Enterprise.monthly_token_quota(), i64::MAX);
+    fn test_free_with_zero_usage() {
+        let pricing = test_pricing();
+        let cost = BillingEngine::calculate(&pricing, 0, 0, 0, 0, 0);
+        assert!(cost.total.is_zero());
     }
 }

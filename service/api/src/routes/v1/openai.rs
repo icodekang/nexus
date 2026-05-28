@@ -23,9 +23,9 @@ use provider_client::{
 };
 
 use super::shared::{
-    add_rate_limit_headers, check_subscription, check_token_quota, create_client,
-    default_session_id, extract_session_id, log_api_call, rate_limit_for_plan, record_result,
-    select_key, validate_temperature,
+    add_rate_limit_headers, check_balance, create_client,
+    default_session_id, extract_session_id, log_api_call,
+    rate_limit_for_user, record_result, select_key, validate_temperature,
 };
 
 // ─── 请求类型 ───────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ async fn unified_chat(
     _session_id: Option<String>,
 ) -> Result<Response, ApiError> {
     let user_id = auth.user.id.to_string();
-    let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
+    let rpm = rate_limit_for_user();
 
     // Rate limit
     let (allowed, remaining, reset_time) = state
@@ -164,8 +164,7 @@ async fn unified_chat(
         return Err(ApiError::RateLimitExceeded);
     }
 
-    check_subscription(&auth.user)?;
-    check_token_quota(&state, &auth.user).await?;
+    check_balance(&state, auth.user.id).await?;
 
     // Look up model
     let db_model = state

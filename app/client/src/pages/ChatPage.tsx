@@ -239,7 +239,7 @@ export default function ChatPage() {
         <div className="chat-sidebar-inner">
           <div className="chat-sidebar-top">
             <span className="chat-sidebar-label">{t('chat.conversations')}</span>
-            <button className="chat-sidebar-collapse-btn" onClick={() => setSidebarOpen(false)} title="Collapse">
+            <button className="chat-sidebar-collapse-btn" onClick={() => setSidebarOpen(false)} title={t('chat.collapseSidebar')}>
               <PanelLeftClose size={15} />
             </button>
           </div>
@@ -274,7 +274,7 @@ export default function ChatPage() {
 
       {/* Open sidebar button (visible when collapsed) */}
       {!sidebarOpen && (
-        <button className="chat-sidebar-open-btn" onClick={() => setSidebarOpen(true)} title="Show conversations">
+        <button className="chat-sidebar-open-btn" onClick={() => setSidebarOpen(true)} title={t('chat.showSidebar')}>
           <PanelLeft size={18} />
         </button>
       )}

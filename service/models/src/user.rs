@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 /// 用户账户
 ///
-/// 包含用户的基本信息和订阅状态
+/// 包含用户的基本信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     /// 用户 ID
@@ -17,12 +17,6 @@ pub struct User {
     pub phone: Option<String>,
     /// 密码哈希（可选，用于邮箱密码登录）
     pub password_hash: Option<String>,
-    /// 订阅计划
-    pub subscription_plan: SubscriptionPlan,
-    /// 订阅开始时间
-    pub subscription_start: Option<DateTime<Utc>>,
-    /// 订阅结束时间
-    pub subscription_end: Option<DateTime<Utc>>,
     /// 是否为管理员
     pub is_admin: bool,
     /// 创建时间
@@ -42,9 +36,6 @@ impl User {
             email,
             phone: None,
             password_hash: None,
-            subscription_plan: SubscriptionPlan::None,
-            subscription_start: None,
-            subscription_end: None,
             is_admin: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -61,115 +52,6 @@ impl User {
     pub fn with_phone(mut self, phone: String) -> Self {
         self.phone = Some(phone);
         self
-    }
-
-    /// 检查订阅是否活跃
-    ///
-    /// # 返回
-    /// 如果订阅处于有效期内返回 true
-    pub fn is_subscription_active(&self) -> bool {
-        if let (Some(_start), Some(_end), SubscriptionPlan::None) = (
-            self.subscription_start,
-            self.subscription_end,
-            &self.subscription_plan,
-        ) {
-            return false;
-        }
-
-        match (
-            &self.subscription_start,
-            &self.subscription_end,
-            &self.subscription_plan,
-        ) {
-            (Some(start), Some(end), plan) if *plan != SubscriptionPlan::None => {
-                let now = Utc::now();
-                now >= *start && now <= *end
-            }
-            _ => false,
-        }
-    }
-}
-
-/// 订阅计划枚举
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum SubscriptionPlan {
-    /// 无订阅
-    None,
-    /// 月付
-    Monthly,
-    /// 年付
-    Yearly,
-    /// 团队版
-    Team,
-    /// 企业版
-    Enterprise,
-}
-
-impl SubscriptionPlan {
-    /// 转换为字符串
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SubscriptionPlan::None => "none",
-            SubscriptionPlan::Monthly => "monthly",
-            SubscriptionPlan::Yearly => "yearly",
-            SubscriptionPlan::Team => "team",
-            SubscriptionPlan::Enterprise => "enterprise",
-        }
-    }
-
-    /// 从字符串解析
-    ///
-    /// # 参数
-    /// * `s` - 字符串表示
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "monthly" => SubscriptionPlan::Monthly,
-            "yearly" => SubscriptionPlan::Yearly,
-            "team" => SubscriptionPlan::Team,
-            "enterprise" => SubscriptionPlan::Enterprise,
-            _ => SubscriptionPlan::None,
-        }
-    }
-
-    /// 月度 Token 配额（输入 + 输出 Token 合计）
-    ///
-    /// # 返回
-    /// 每月可用 Token 数量
-    pub fn monthly_token_quota(&self) -> i64 {
-        match self {
-            SubscriptionPlan::None => 10_000,         // 免费: 10K tokens/月
-            SubscriptionPlan::Monthly => 2_000_000,   // 19.9美元/月: 2M tokens/月
-            SubscriptionPlan::Yearly => 2_000_000,    // 199美元/年: 2M tokens/月
-            SubscriptionPlan::Team => 10_000_000,     // 99美元/月: 10M tokens/月
-            SubscriptionPlan::Enterprise => i64::MAX, // 企业版: 无限
-        }
-    }
-
-    /// 是否支持自动续订
-    pub fn supports_recurring(&self) -> bool {
-        matches!(
-            self,
-            SubscriptionPlan::Monthly | SubscriptionPlan::Team
-        )
-    }
-
-    pub fn billing_cycle_days(&self) -> i64 {
-        match self {
-            SubscriptionPlan::None => 30,
-            SubscriptionPlan::Monthly => 30,
-            SubscriptionPlan::Yearly => 365,
-            SubscriptionPlan::Team => 30,
-            SubscriptionPlan::Enterprise => 365,
-        }
-    }
-
-    pub fn is_zero_token(&self) -> bool {
-        false
-    }
-
-    pub fn can_fallback_to_zero_token(&self) -> bool {
-        false
     }
 }
 

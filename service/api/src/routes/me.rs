@@ -1,6 +1,6 @@
 use axum::{
-    extract::State,
-    routing::{delete, get},
+    extract::{Path, State},
+    routing::{delete, get, post, put},
     Extension, Json, Router,
 };
 use serde::Deserialize;
@@ -10,169 +10,73 @@ use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::state::AppState;
 use auth::ApiKeyGenerator;
-use models::{subscription::SubscriptionPlanInfo, ApiKey, SubscriptionPlan};
+use db;
+use models::{ApiKey, PriorityLevel, UserProviderKey};
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/subscription", get(subscription).post(subscribe))
-        .route("/subscription/plans", get(subscription_plans))
+        .route("/balance", get(get_balance))
         .route("/usage", get(usage))
+        .route("/charges", get(list_charges))
+        .route("/packages", get(list_packages))
+        .route("/purchase", post(purchase_package))
         .route("/keys", get(list_keys).post(create_key))
         .route("/keys/:key_id", delete(delete_key))
+        .route("/provider-keys", get(list_provider_keys).post(create_provider_key))
+        .route("/provider-keys/:key_id", put(update_provider_key).delete(delete_provider_key))
 }
 
-/// GET /v1/me/subscription
-///
-/// 获取当前用户的订阅信息
-///
-/// # 返回
-/// - user_id: 用户ID
-/// - email: 邮箱
-/// - phone: 手机号
-/// - subscription_plan: 订阅套餐名称
-/// - subscription_start: 订阅开始时间
-/// - subscription_end: 订阅结束时间
-/// - is_active: 订阅是否有效
-pub async fn subscription(
-    Extension(auth): Extension<AuthContext>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let user = &auth.user;
+// ─── 余额 ───────────────────────────────────────────────────────────
 
-    Ok(Json(serde_json::json!({
-        "user_id": user.id.to_string(),
-        "email": user.email,
-        "phone": user.phone,
-        "subscription_plan": user.subscription_plan.as_str(),
-        "subscription_start": user.subscription_start,
-        "subscription_end": user.subscription_end,
-        "is_active": user.is_subscription_active(),
-    })))
-}
-
-/// GET /v1/me/subscription/plans
-///
-/// 获取所有可用的订阅套餐列表
-pub async fn subscription_plans() -> Result<Json<serde_json::Value>, ApiError> {
-    let plans = SubscriptionPlanInfo::all();
-
-    Ok(Json(serde_json::json!({
-        "plans": plans
-    })))
-}
-
-/// 订阅请求体
-#[derive(Debug, Deserialize)]
-pub struct SubscribeRequest {
-    /// 订阅套餐名称 (monthly, yearly, team, enterprise, zero_token)
-    pub plan: String,
-}
-
-/// POST /v1/me/subscription
-///
-/// 订阅或更新用户的套餐
-///
-/// # 参数
-/// * `Extension(auth)` - 认证上下文
-/// * `Json(request)` - 订阅请求，包含要订阅的套餐名称
-///
-/// # 套餐持续时间
-/// - monthly: 30天
-/// - yearly: 365天
-/// - team: 30天
-/// - enterprise: 365天
-/// - zero_token: 30天
-pub async fn subscribe(
+/// GET /v1/me/balance
+async fn get_balance(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
-    Json(request): Json<SubscribeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let plan = SubscriptionPlan::from_str(&request.plan);
-    if plan == SubscriptionPlan::None {
-        return Err(ApiError::InvalidRequest(
-            "Invalid subscription plan".to_string(),
-        ));
-    }
+    state.db.ensure_user_balance(auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    // Calculate subscription duration
-    let duration_days = match plan {
-        SubscriptionPlan::Monthly => 30,
-        SubscriptionPlan::Yearly => 365,
-        SubscriptionPlan::Team => 30,
-        SubscriptionPlan::Enterprise => 365,
-        SubscriptionPlan::None => return Err(ApiError::InvalidRequest("Invalid plan".to_string())),
-    };
-
-    let now = chrono::Utc::now();
-    let end = now + chrono::Duration::days(duration_days);
-
-    // Update user subscription
-    state
-        .db
-        .update_user_subscription(auth.user.id, plan, now, end)
-        .await
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to update subscription")))?;
+    let balance = state.db.get_user_balance(auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
 
     Ok(Json(serde_json::json!({
-        "message": "Subscription updated successfully",
-        "plan": plan.as_str(),
-        "subscription_start": now,
-        "subscription_end": end,
+        "balance": balance.balance,
+        "total_purchased": balance.total_purchased,
+        "total_consumed": balance.total_consumed,
     })))
 }
+
+// ─── 使用统计 ───────────────────────────────────────────────────────
 
 /// GET /v1/me/usage
-///
-/// 获取用户在当前计费周期的使用统计
-///
-/// # 返回
-/// - period_start: 计费周期开始时间
-/// - period_end: 计费周期结束时间
-/// - total_requests: 总请求数
-/// - total_input_tokens: 输入 Token 总数
-/// - total_output_tokens: 输出 Token 总数
-/// - total_tokens: Token 总数
-/// - token_quota: Token 配额上限
-/// - quota_used_percent: 配额使用百分比
-/// - avg_latency_ms: 平均延迟（毫秒）
-/// - usage_by_provider: 按 Provider 分类的使用统计
-/// - usage_by_model: 按 Model 分类的使用统计
-pub async fn usage(
+async fn usage(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let user = &auth.user;
-
-    // Determine billing period
     let now = chrono::Utc::now();
-    let period_start = user.subscription_start.unwrap_or(now);
-    let period_end = user
-        .subscription_end
-        .unwrap_or(now + chrono::Duration::days(user.subscription_plan.billing_cycle_days()));
+    let period_start = now - chrono::Duration::days(30);
 
     let stats = state
         .db
-        .get_user_usage_stats(user.id, period_start, period_end)
+        .get_user_usage_stats(auth.user.id, period_start, now)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get usage stats: {}", e)))?;
 
-    let quota = user.subscription_plan.monthly_token_quota();
+    let balance = state.db.get_user_balance(auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
 
     Ok(Json(serde_json::json!({
         "period_start": period_start,
-        "period_end": period_end,
+        "period_end": now,
         "total_requests": stats.total_requests,
         "total_input_tokens": stats.total_input_tokens,
         "total_output_tokens": stats.total_output_tokens,
         "total_tokens": stats.total_input_tokens + stats.total_output_tokens,
-        "token_quota": if quota == i64::MAX { serde_json::Value::Null } else { serde_json::json!(quota) },
-        "quota_used_percent": if quota == i64::MAX { 0.0 } else {
-            ((stats.total_input_tokens + stats.total_output_tokens) as f64 / quota as f64 * 100.0).min(100.0)
-        },
+        "balance": balance.balance,
+        "total_consumed": balance.total_consumed,
         "avg_latency_ms": if stats.total_requests > 0 {
             stats.total_latency_ms / stats.total_requests
-        } else {
-            0
-        },
+        } else { 0 },
         "usage_by_provider": stats.usage_by_provider.iter().map(|u| serde_json::json!({
             "provider": u.provider,
             "requests": u.requests,
@@ -189,66 +93,136 @@ pub async fn usage(
     })))
 }
 
-/// GET /v1/me/keys
-///
-/// 列出当前用户的所有 API Keys
-///
-/// # 返回
-/// - id: Key ID
-/// - name: Key 名称
-/// - key_prefix: Key 前缀（用于显示）
-/// - is_active: 是否激活
-/// - last_used_at: 最后使用时间
-/// - created_at: 创建时间
-pub async fn list_keys(
+// ─── 消费明细 ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct ChargesQuery {
+    page: Option<i64>,
+    per_page: Option<i64>,
+}
+
+/// GET /v1/me/charges
+async fn list_charges(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
+    axum::extract::Query(query): axum::extract::Query<ChargesQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let keys = state
-        .db
-        .list_api_keys_by_user(auth.user.id)
-        .await
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to list API keys")))?;
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
+    let offset = (page - 1) * per_page;
 
-    let keys_data: Vec<serde_json::Value> = keys
-        .iter()
-        .map(|k| {
-            serde_json::json!({
-                "id": k.id.to_string(),
-                "name": k.name,
-                "key_prefix": k.key_prefix,
-                "is_active": k.is_active,
-                "last_used_at": k.last_used_at,
-                "created_at": k.created_at,
-            })
-        })
-        .collect();
+    let charges = state.db.list_token_charges(auth.user.id, per_page, offset).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
 
     Ok(Json(serde_json::json!({
-        "data": keys_data
+        "data": charges.iter().map(|c| serde_json::json!({
+            "id": c.id,
+            "model": c.model_slug,
+            "provider": c.provider_slug,
+            "input_tokens": c.input_tokens,
+            "output_tokens": c.output_tokens,
+            "total_cost": c.total_cost,
+            "is_free": c.is_free,
+            "key_source": c.key_source,
+            "created_at": c.created_at,
+        })).collect::<Vec<_>>(),
+        "page": page,
+        "per_page": per_page,
     })))
 }
 
-/// 创建 Key 请求体
+// ─── 套餐 ───────────────────────────────────────────────────────────
+
+/// GET /v1/me/packages
+async fn list_packages(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let packages = state.db.list_token_packages().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "packages": packages.iter().map(|p| serde_json::json!({
+            "id": p.id,
+            "name": p.name,
+            "credits": p.credits,
+            "price": p.price,
+            "bonus_credits": p.bonus_credits,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
 #[derive(Debug, Deserialize)]
-pub struct CreateKeyRequest {
-    /// Key 名称（可选）
+struct PurchaseRequest {
+    package_id: String,
+}
+
+/// POST /v1/me/purchase
+async fn purchase_package(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Json(req): Json<PurchaseRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let pkg_id = uuid::Uuid::parse_str(&req.package_id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid package ID".to_string()))?;
+
+    let packages = state.db.list_token_packages().await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    let pkg = packages.iter().find(|p| p.id == pkg_id)
+        .ok_or(ApiError::InvalidRequest("Package not found".to_string()))?;
+
+    let total = pkg.credits + pkg.bonus_credits;
+    state.db.add_balance(auth.user.id, total).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    let tx = models::Transaction::new(
+        auth.user.id,
+        models::TransactionType::TokenPurchase,
+        pkg.price.to_string().parse().unwrap_or(0.0),
+    )
+    .with_plan(pkg.name.clone())
+    .with_description(format!("Purchased {} credits ({} bonus)", pkg.credits, pkg.bonus_credits));
+    let _ = state.db.create_transaction(&tx).await;
+
+    let balance = state.db.get_user_balance(auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Purchase successful",
+        "credits_added": total,
+        "balance": balance.balance,
+    })))
+}
+
+// ─── Nexus API Keys ────────────────────────────────────────────────
+
+/// GET /v1/me/keys
+async fn list_keys(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let keys = state.db.list_api_keys_by_user(auth.user.id).await
+        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to list API keys")))?;
+
+    Ok(Json(serde_json::json!({
+        "data": keys.iter().map(|k| serde_json::json!({
+            "id": k.id,
+            "name": k.name,
+            "key_prefix": k.key_prefix,
+            "is_active": k.is_active,
+            "last_used_at": k.last_used_at,
+            "created_at": k.created_at,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateKeyRequest {
     pub name: Option<String>,
 }
 
 /// POST /v1/me/keys
-///
-/// 创建新的 API Key
-///
-/// # 注意
-/// 返回的 plain_key 只显示一次，之后无法找回
-///
-/// # 返回
-/// - id: Key ID
-/// - key: 完整的 API Key（只显示一次）
-/// - name: Key 名称
-/// - created_at: 创建时间
-pub async fn create_key(
+async fn create_key(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
     Json(request): Json<CreateKeyRequest>,
@@ -261,20 +235,15 @@ pub async fn create_key(
         hashed_key,
         format!("sk-nexus-{}", &plain_key[9..20]),
     );
-
     if let Some(name) = request.name {
         api_key = api_key.with_name(name);
     }
 
-    state
-        .db
-        .create_api_key(&api_key)
-        .await
+    state.db.create_api_key(&api_key).await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to create API key")))?;
 
-    // Return the plain key only once - this is the only time it's shown
     Ok(Json(serde_json::json!({
-        "id": api_key.id.to_string(),
+        "id": api_key.id,
         "key": plain_key,
         "name": api_key.name,
         "created_at": api_key.created_at,
@@ -282,36 +251,150 @@ pub async fn create_key(
 }
 
 /// DELETE /v1/me/keys/:key_id
-///
-/// 删除指定的 API Key
-///
-/// # 参数
-/// * `Path(key_id)` - 要删除的 Key ID
-pub async fn delete_key(
+async fn delete_key(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthContext>,
-    axum::extract::Path(key_id): axum::extract::Path<String>,
+    Path(key_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let key_uuid = uuid::Uuid::parse_str(&key_id)
         .map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
 
-    let keys = state
-        .db
-        .list_api_keys_by_user(auth.user.id)
-        .await
+    let keys = state.db.list_api_keys_by_user(auth.user.id).await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to list API keys")))?;
 
     if !keys.iter().any(|k| k.id == key_uuid) {
         return Err(ApiError::Forbidden);
     }
 
-    state
-        .db
-        .delete_api_key(key_uuid)
-        .await
+    state.db.delete_api_key(key_uuid).await
         .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete API key")))?;
 
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+// ─── BYOK Provider Keys ──────────────────────────────────────────
+
+/// GET /v1/me/provider-keys
+async fn list_provider_keys(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let keys = state.db.list_user_provider_keys(auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
     Ok(Json(serde_json::json!({
-        "deleted": true
+        "data": keys.iter().map(|k| serde_json::json!({
+            "id": k.id,
+            "provider_slug": k.provider_slug,
+            "name": k.name,
+            "api_key_prefix": k.mask_key(),
+            "is_active": k.is_active,
+            "priority_level": k.priority_level.as_str(),
+            "sort_order": k.sort_order,
+            "always_use": k.always_use,
+            "created_at": k.created_at,
+        })).collect::<Vec<_>>(),
     })))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateProviderKeyRequest {
+    provider_slug: String,
+    api_key: String,
+    name: Option<String>,
+    base_url: Option<String>,
+    priority_level: Option<String>,
+    always_use: Option<bool>,
+}
+
+/// POST /v1/me/provider-keys
+async fn create_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Json(req): Json<CreateProviderKeyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let encrypted = db::encrypt_api_key(&req.api_key);
+
+    let prefix = if req.api_key.len() > 12 {
+        format!("{}...{}", &req.api_key[..6], &req.api_key[req.api_key.len()-6..])
+    } else {
+        req.api_key.clone()
+    };
+
+    let mut key = UserProviderKey::new(
+        auth.user.id,
+        req.provider_slug.clone(),
+        encrypted,
+        prefix,
+        req.base_url.unwrap_or_default(),
+    );
+
+    if let Some(n) = req.name {
+        key = key.with_name(n);
+    }
+
+    if let Some(pl) = req.priority_level {
+        key.priority_level = PriorityLevel::from_str(&pl);
+    }
+    if let Some(au) = req.always_use {
+        key.always_use = au;
+    }
+
+    state.db.create_user_provider_key(&key).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "id": key.id,
+        "provider_slug": key.provider_slug,
+        "name": key.name,
+        "created_at": key.created_at,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateProviderKeyRequest {
+    name: Option<String>,
+    is_active: Option<bool>,
+    priority_level: Option<String>,
+    sort_order: Option<i32>,
+    always_use: Option<bool>,
+}
+
+/// PUT /v1/me/provider-keys/:key_id
+async fn update_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Path(key_id): Path<String>,
+    Json(req): Json<UpdateProviderKeyRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let key_uuid = uuid::Uuid::parse_str(&key_id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
+
+    state.db.update_user_provider_key(
+        key_uuid,
+        auth.user.id,
+        req.name.as_deref(),
+        req.is_active,
+        req.priority_level.as_deref(),
+        req.sort_order,
+        req.always_use,
+        None, // model_filter
+    ).await.map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({ "updated": true })))
+}
+
+/// DELETE /v1/me/provider-keys/:key_id
+async fn delete_provider_key(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Path(key_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let key_uuid = uuid::Uuid::parse_str(&key_id)
+        .map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
+
+    state.db.delete_user_provider_key(key_uuid, auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }

@@ -1,24 +1,12 @@
 /**
  * @file Transactions - 交易记录管理页面
- * 展示用户订阅和支付交易记录，支持按类型和状态筛选
+ * 展示用户Token购买和退款交易记录，支持按类型和状态筛选
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchTransactions, type AdminTransaction } from '../api/admin';
 
-// 订阅套餐颜色映射
-const planColors: Record<string, string> = {
-  yearly: '#6366F1',
-  monthly: '#3B82F6',
-  team: '#F59E0B',
-  enterprise: '#EC4899',
-};
-
-/**
- * Transactions - 交易记录主组件
- * @description 获取交易列表，支持类型/状态筛选，展示统计摘要
- */
 export default function Transactions() {
   const { t } = useI18n();
   const [transactions, setTransactions] = useState<AdminTransaction[]>([]);
@@ -55,10 +43,9 @@ export default function Transactions() {
   }, [typeFilter, statusFilter]);
 
   // 交易类型和状态选项
-  const txTypes = ['purchase', 'refund', 'renewal'];
+  const txTypes = ['token_purchase', 'refund'];
   const txStatuses = ['completed', 'refunded', 'pending'];
 
-  // 获取状态对应的本地化标签
   const statusLabel = (s: string) => {
     if (s === 'completed') return t('transactions.completed');
     if (s === 'refunded') return t('transactions.refunded');
@@ -66,11 +53,9 @@ export default function Transactions() {
     return s;
   };
 
-  // 获取交易类型对应的本地化标签
   const typeLabel = (s: string) => {
-    if (s === 'purchase') return t('transactions.purchase');
+    if (s === 'token_purchase') return t('transactions.tokenPurchase');
     if (s === 'refund') return t('transactions.refund');
-    if (s === 'renewal') return t('transactions.renewal');
     return s;
   };
 
@@ -173,11 +158,7 @@ export default function Transactions() {
                 </td>
                 <td style={styles.td}>
                   {tx.plan ? (
-                    <span style={{
-                      ...styles.planBadge,
-                      color: planColors[tx.plan] || '#A1A1AA',
-                      backgroundColor: `${planColors[tx.plan] || '#A1A1AA'}12`,
-                    }}>
+                    <span style={styles.planBadge}>
                       {tx.plan}
                     </span>
                   ) : (

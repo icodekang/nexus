@@ -200,7 +200,7 @@ impl SessionBinding {
 // ---------------------------------------------------------------------------
 
 /// Result of a key selection.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SelectedKey {
     pub key: ProviderKey,
     pub load: KeyLoad,

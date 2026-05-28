@@ -49,8 +49,7 @@ export default function Dashboard() {
 
   const statMetas = [
     { title: t('dashboard.totalUsers'), color: '#6366F1', value: stats ? String(stats.total_users) : '-', change: '' },
-    { title: t('dashboard.activeSubscriptions'), color: '#22C55E', value: stats ? String(stats.active_subscriptions) : '-', change: '' },
-    { title: t('dashboard.monthlyRevenue'), color: '#F59E0B', value: stats ? `$${stats.total_revenue.toLocaleString()}` : '-', change: '' },
+    { title: t('dashboard.totalRevenue'), color: '#F59E0B', value: stats ? `$${stats.total_revenue.toLocaleString()}` : '-', change: '' },
     { title: t('dashboard.apiCallsToday'), color: '#EC4899', value: stats ? String(stats.api_calls_today) : '-', change: '' },
   ];
 

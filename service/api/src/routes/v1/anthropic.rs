@@ -28,8 +28,8 @@ use models::Message as InternalMessage;
 use provider_client::{ChatRequest as ProviderChatRequest, Message as ProviderMessage};
 
 use super::shared::{
-    add_rate_limit_headers, check_subscription, check_token_quota, create_client,
-    default_session_id, extract_session_id, log_api_call, rate_limit_for_plan, select_key,
+    add_rate_limit_headers, check_balance, create_client,
+    default_session_id, extract_session_id, log_api_call, rate_limit_for_user, select_key,
 };
 
 // ─── 请求/响应类型 ───────────────────────────────────────────────
@@ -195,7 +195,7 @@ async fn anthropic_blocking_handler(
     session_id: Option<String>,
 ) -> Result<Response, ApiError> {
     let user_id = auth.user.id.to_string();
-    let rpm = rate_limit_for_plan(&auth.user.subscription_plan);
+    let rpm = rate_limit_for_user();
 
     let (allowed, remaining, reset_time) = state
         .redis
@@ -206,8 +206,7 @@ async fn anthropic_blocking_handler(
     if !allowed {
         return Err(ApiError::RateLimitExceeded);
     }
-    check_subscription(&auth.user)?;
-    check_token_quota(&state, &auth.user).await?;
+    check_balance(&state, auth.user.id).await?;
 
     let provider_slug = "anthropic".to_string();
 

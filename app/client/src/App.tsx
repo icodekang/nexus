@@ -12,7 +12,7 @@ import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import ModelsPage from './pages/ModelsPage';
 import KeysPage from './pages/KeysPage';
-import SubscriptionPage from './pages/SubscriptionPage';
+import BalancePage from './pages/BalancePage';
 import GuidePage from './pages/GuidePage';
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
@@ -40,7 +40,7 @@ function AppContent() {
           <Route path="chat" element={<ChatPage />} />
           <Route path="models" element={<ModelsPage />} />
           <Route path="keys" element={<KeysPage />} />
-          <Route path="subscription" element={<SubscriptionPage />} />
+          <Route path="balance" element={<BalancePage />} />
           <Route path="guide" element={<GuidePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
