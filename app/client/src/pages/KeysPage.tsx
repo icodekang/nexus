@@ -1,6 +1,6 @@
 /**
- * @file KeysPage — Unified API Key Management
- * Two sections: Nexus API Keys (gateway access) + Provider Keys (BYOK)
+ * @file KeysPage — Credentials Vault
+ * Refined minimal key management. Teal accent. Silky transitions.
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -42,7 +42,6 @@ export default function KeysPage() {
 
   const [tab, setTab] = useState<Tab>('nexus');
 
-  // Nexus API keys
   const [nexKeys, setNexKeys] = useState<ApiKey[]>([]);
   const [nexLoading, setNexLoading] = useState(true);
   const [nexCreating, setNexCreating] = useState(false);
@@ -52,7 +51,6 @@ export default function KeysPage() {
   const [copied, setCopied] = useState(false);
   const [nexToDelete, setNexToDelete] = useState<ApiKey | null>(null);
 
-  // Provider keys
   const [provKeys, setProvKeys] = useState<ProviderKeyItem[]>([]);
   const [provLoading, setProvLoading] = useState(true);
   const [provShowForm, setProvShowForm] = useState(false);
@@ -66,7 +64,6 @@ export default function KeysPage() {
 
   const [error, setError] = useState('');
 
-  // ─── Load Nexus API keys ──────────────────────────────────────────
   const loadNexKeys = useCallback(async () => {
     if (!isAuthenticated) { setNexLoading(false); return; }
     try {
@@ -79,7 +76,6 @@ export default function KeysPage() {
 
   useEffect(() => { loadNexKeys(); }, [loadNexKeys]);
 
-  // ─── Load provider keys ──────────────────────────────────────────
   const loadProvKeys = useCallback(async () => {
     if (!isAuthenticated) { setProvLoading(false); return; }
     try {
@@ -92,7 +88,6 @@ export default function KeysPage() {
 
   useEffect(() => { loadProvKeys(); }, [loadProvKeys]);
 
-  // ─── Nexus API key handlers ───────────────────────────────────────
   const handleNexCreate = async () => {
     if (!nexName.trim()) return;
     if (!requireAuth()) return;
@@ -114,7 +109,6 @@ export default function KeysPage() {
     finally { setNexToDelete(null); }
   };
 
-  // ─── Provider key handlers ───────────────────────────────────────
   const handleProvCreate = async () => {
     if (!provKey.trim()) return;
     if (!requireAuth()) return;
@@ -156,7 +150,6 @@ export default function KeysPage() {
     finally { setProvDeleting(null); }
   };
 
-  // ─── Copy helper ──────────────────────────────────────────────────
   const handleCopy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); } catch {
       const ta = document.createElement('textarea');
@@ -172,109 +165,120 @@ export default function KeysPage() {
       month: 'short', day: 'numeric', year: 'numeric',
     });
 
+  const switchTab = (t: Tab) => { setTab(t); setError(''); };
+
   return (
-    <div className="uk-page">
+    <div className="keys-page">
       {/* ── Header ── */}
-      <header className="uk-header">
+      <header className="keys-header">
         <div>
-          <h1 className="uk-title">{t('keys.title')}</h1>
-          <p className="uk-subtitle">{t('keys.subtitle')}</p>
+          <h1 className="keys-title">{t('keys.title')}</h1>
+          <p className="keys-subtitle">{t('keys.subtitle')}</p>
         </div>
       </header>
 
+      <div className="keys-banner">
+        <Zap size={13} strokeWidth={2} />
+        <span>{t('providerKeys.infoBanner')}</span>
+      </div>
+
       {error && (
-        <div className="uk-error"><AlertCircle size={14} /><span>{error}</span></div>
+        <div className="keys-error"><AlertCircle size={14} /><span>{error}</span></div>
       )}
 
-      {/* ── Tab bar ── */}
-      <div className="uk-tab-bar">
-        <button className={`uk-tab ${tab === 'nexus' ? 'active' : ''}`} onClick={() => { setTab('nexus'); setError(''); }}>
-          <Server size={15} strokeWidth={1.75} />
+      {/* ── Segment control ── */}
+      <div className={`keys-segment ${tab === 'byok' ? 'provider' : ''}`}>
+        <button className={`keys-segment-btn ${tab === 'nexus' ? 'active' : ''}`} onClick={() => switchTab('nexus')}>
+          <Server size={14} strokeWidth={1.75} />
           <span>{t('keys.tabNexusKeys')}</span>
         </button>
-        <button className={`uk-tab ${tab === 'byok' ? 'active' : ''}`} onClick={() => { setTab('byok'); setError(''); }}>
-          <Globe size={15} strokeWidth={1.75} />
+        <button className={`keys-segment-btn ${tab === 'byok' ? 'active' : ''}`} onClick={() => switchTab('byok')}>
+          <Globe size={14} strokeWidth={1.75} />
           <span>{t('keys.tabProviderKeys')}</span>
         </button>
       </div>
 
       {/* ═════════════════════ TAB PANELS ═════════════════════ */}
-      <div className="uk-tab-content">
-        {/* NEXUS API KEYS panel */}
-        <div className={`uk-tab-panel ${tab !== 'nexus' ? 'uk-hidden' : ''}`}>
-          {/* New key reveal */}
+
+      {/* NEXUS API KEYS */}
+      {tab === 'nexus' && (
+        <div className="keys-panel" key="nexus">
           {newKey && (
-            <div className="uk-reveal">
-              <div className="uk-reveal-top">
-                <span className="uk-reveal-label">{t('keys.newKeyReveal')}</span>
-                <span className="uk-reveal-warn">{t('keys.copyWarning')}</span>
+            <div className="keys-reveal">
+              <div className="keys-reveal-top">
+                <span className="keys-reveal-label">{t('keys.newKeyReveal')}</span>
+                <span className="keys-reveal-warn">{t('keys.copyWarning')}</span>
               </div>
-              <div className="uk-reveal-row">
+              <div className="keys-reveal-row">
                 <code>{newKey}</code>
-                <button className={`uk-copy-btn ${copied ? 'done' : ''}`} onClick={() => handleCopy(newKey)}>
+                <button className={`keys-copy-btn ${copied ? 'done' : ''}`} onClick={() => handleCopy(newKey)}>
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                 </button>
-                <span className={`uk-copy-feedback ${copied ? 'on' : ''}`}>{t('keys.copiedSuccess')}</span>
+                <span className={`keys-copy-feedback ${copied ? 'on' : ''}`}>{t('keys.copiedSuccess')}</span>
               </div>
-              <button className="uk-reveal-dismiss" onClick={() => { setNewKey(null); loadNexKeys(); }}>
+              <button className="keys-reveal-dismiss" onClick={() => { setNewKey(null); loadNexKeys(); }}>
                 {t('common.dismiss')}
               </button>
             </div>
           )}
 
-          {/* Create form */}
-          <div className="uk-section-bar">
-            <button className="uk-add-btn" onClick={() => { if (requireAuth()) setNexShowForm(!nexShowForm); }}>
-              <Plus size={15} strokeWidth={2} />
+          <div className="keys-bar">
+            <button className="keys-btn keys-btn-primary" onClick={() => { if (requireAuth()) setNexShowForm(!nexShowForm); }}>
+              <Plus size={14} strokeWidth={2} />
               {t('keys.newKey')}
             </button>
           </div>
-          {nexShowForm && (
-            <div className="uk-form-inline">
-              <input
-                className="uk-input"
-                placeholder={t('keys.keyNamePlaceholder')}
-                value={nexName}
-                onChange={e => setNexName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleNexCreate()}
-                autoFocus
-              />
-              <button className="uk-btn uk-btn-primary" onClick={handleNexCreate} disabled={nexCreating || !nexName.trim()}>
-                {nexCreating ? t('common.creating') : t('common.create')}
-              </button>
-              <button className="uk-btn uk-btn-ghost" onClick={() => setNexShowForm(false)}>{t('common.cancel')}</button>
-            </div>
-          )}
 
-          {/* Nexus API keys list */}
+          <div className={`keys-form-panel ${nexShowForm ? 'open' : ''}`}>
+            <div className="keys-form-panel-inner">
+              <div className="keys-form-wrap">
+                <div className="keys-form-row">
+                  <input
+                    className="keys-input"
+                    placeholder={t('keys.keyNamePlaceholder')}
+                    value={nexName}
+                    onChange={e => setNexName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleNexCreate()}
+                    autoFocus
+                  />
+                  <button className="keys-btn keys-btn-primary" onClick={handleNexCreate} disabled={nexCreating || !nexName.trim()}>
+                    {nexCreating ? t('common.creating') : t('common.create')}
+                  </button>
+                  <button className="keys-btn keys-btn-outline" onClick={() => setNexShowForm(false)}>{t('common.cancel')}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {nexLoading ? (
-            <div className="uk-skeleton"><div /></div>
+            <div className="keys-skeleton">
+              <div className="keys-skeleton-line" />
+              <div className="keys-skeleton-line" />
+              <div className="keys-skeleton-line" />
+            </div>
           ) : nexKeys.length === 0 ? (
-            <div className="uk-empty">
-              <Key size={36} strokeWidth={1} />
+            <div className="keys-empty">
+              <div className="keys-empty-icon"><Key size={22} strokeWidth={1.5} /></div>
               <h3>{t('keys.noKeys')}</h3>
               <p>{t('keys.noKeysDesc')}</p>
             </div>
           ) : (
-            <div className="uk-list">
-              {nexKeys.map(key => (
-                <div key={key.id} className="uk-card">
-                  <div className="uk-card-icon"><Key size={15} /></div>
-                  <div className="uk-card-body">
-                    <div className="uk-card-name">{key.name || t('keys.unnamedKey')}</div>
-                    <div className="uk-card-meta">
-                      <span className="uk-card-prefix">{maskNexKey(key.key_prefix)}</span>
-                      <span className="uk-card-date">{t('keys.createdDate', { date: fmt(key.created_at) })}</span>
-                      <span className="uk-card-date">
-                        {key.last_used_at
-                          ? t('keys.lastUsed', { date: fmt(key.last_used_at) })
-                          : t('keys.neverUsed')
-                        }
+            <div className="keys-list">
+              {nexKeys.map((key, i) => (
+                <div key={key.id} className="keys-card" style={{ animationDelay: `${i * 0.04}s` }}>
+                  <div className="keys-card-icon"><Key size={14} strokeWidth={1.75} /></div>
+                  <div className="keys-card-body">
+                    <div className="keys-card-name">{key.name || t('keys.unnamedKey')}</div>
+                    <div className="keys-card-meta">
+                      <span className="keys-card-prefix">{maskNexKey(key.key_prefix)}</span>
+                      <span className="keys-card-date">{t('keys.createdDate', { date: fmt(key.created_at) })}</span>
+                      <span className={`keys-status ${key.last_used_at ? 'used' : ''}`} title={key.last_used_at ? t('keys.used') : t('keys.neverUsed')}>
+                        <span className="keys-status-dot" />
                       </span>
                     </div>
                   </div>
-                  <div className="uk-card-tail">
-                    <button className="uk-icon-btn uk-icon-btn-danger" onClick={() => setNexToDelete(key)} title={t('keys.deleteKey')}>
+                  <div className="keys-card-actions">
+                    <button className="keys-icon-btn danger" onClick={() => setNexToDelete(key)} title={t('keys.deleteKey')}>
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -283,65 +287,68 @@ export default function KeysPage() {
             </div>
           )}
         </div>
+      )}
 
-        {/* PROVIDER KEYS panel */}
-        <div className={`uk-tab-panel ${tab !== 'byok' ? 'uk-hidden' : ''}`}>
-          <div className="uk-section-bar">
-            <button className="uk-add-btn" onClick={() => { if (requireAuth()) { setProvShowForm(!provShowForm); setError(''); } }}>
-              <Plus size={15} strokeWidth={2} />
+      {/* PROVIDER KEYS */}
+      {tab === 'byok' && (
+        <div className="keys-panel" key="byok">
+          <div className="keys-bar">
+            <button className="keys-btn keys-btn-primary" onClick={() => { if (requireAuth()) { setProvShowForm(!provShowForm); setError(''); } }}>
+              <Plus size={14} strokeWidth={2} />
               {t('providerKeys.addKey')}
             </button>
-            <span className="uk-section-hint">
-              <Zap size={12} strokeWidth={2} /> {t('providerKeys.infoBanner')}
-            </span>
           </div>
 
-          {/* Provider create form */}
-          {provShowForm && (
-            <div className="uk-prov-form">
-              <div className="uk-prov-form-row">
-                <div className="uk-field">
-                  <label>{t('providerKeys.provider')}</label>
-                  <select value={provProvider} onChange={e => setProvProvider(e.target.value)}>
-                    {PROVIDERS.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}
-                  </select>
+          <div className={`keys-form-panel ${provShowForm ? 'open' : ''}`}>
+            <div className="keys-form-panel-inner">
+              <div className="keys-form-wrap">
+                <div className="keys-prov-form-grid">
+                  <div className="keys-field">
+                    <label>{t('providerKeys.provider')}</label>
+                    <select value={provProvider} onChange={e => setProvProvider(e.target.value)}>
+                      {PROVIDERS.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="keys-field">
+                    <label>{t('providerKeys.apiKey')}</label>
+                    <input type="password" value={provKey} onChange={e => setProvKey(e.target.value)}
+                      placeholder={t('keys.providerKeyPlaceholder')} autoComplete="off" />
+                  </div>
+                  <div className="keys-field">
+                    <label>{t('providerKeys.name')} <span className="keys-field-opt">({t('common.optional')})</span></label>
+                    <input value={provName} onChange={e => setProvName(e.target.value)} placeholder={t('providerKeys.namePlaceholder')} />
+                  </div>
+                  <div className="keys-field">
+                    <label>{t('providerKeys.priority')}</label>
+                    <select value={provPriority} onChange={e => setProvPriority(e.target.value)}>
+                      <option value="prioritized">{t('providerKeys.prioritized')}</option>
+                      <option value="fallback">{t('providerKeys.fallback')}</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="uk-field uk-field-wide">
-                  <label>{t('providerKeys.apiKey')}</label>
-                  <input type="password" value={provKey} onChange={e => setProvKey(e.target.value)}
-                    placeholder={t('keys.providerKeyPlaceholder')} autoComplete="off" />
+                <label className="keys-prov-checkbox">
+                  <input type="checkbox" checked={provAlwaysUse} onChange={e => setProvAlwaysUse(e.target.checked)} />
+                  <span>{t('providerKeys.alwaysUse')}</span>
+                </label>
+                <div className="keys-form-actions">
+                  <button className="keys-btn keys-btn-outline" onClick={() => setProvShowForm(false)}>{t('common.cancel')}</button>
+                  <button className="keys-btn keys-btn-primary" onClick={handleProvCreate} disabled={provSubmitting}>
+                    {provSubmitting ? <span className="keys-spinner" /> : t('providerKeys.save')}
+                  </button>
                 </div>
-                <div className="uk-field">
-                  <label>{t('providerKeys.name')} <span className="uk-field-opt">({t('common.optional')})</span></label>
-                  <input value={provName} onChange={e => setProvName(e.target.value)} placeholder={t('providerKeys.namePlaceholder')} />
-                </div>
-                <div className="uk-field uk-field-sm">
-                  <label>{t('providerKeys.priority')}</label>
-                  <select value={provPriority} onChange={e => setProvPriority(e.target.value)}>
-                    <option value="prioritized">{t('providerKeys.prioritized')}</option>
-                    <option value="fallback">{t('providerKeys.fallback')}</option>
-                  </select>
-                </div>
-              </div>
-              <label className="uk-checkbox">
-                <input type="checkbox" checked={provAlwaysUse} onChange={e => setProvAlwaysUse(e.target.checked)} />
-                <span>{t('providerKeys.alwaysUse')}</span>
-              </label>
-              <div className="uk-form-actions">
-                <button className="uk-btn uk-btn-ghost" onClick={() => setProvShowForm(false)}>{t('common.cancel')}</button>
-                <button className="uk-btn uk-btn-primary" onClick={handleProvCreate} disabled={provSubmitting}>
-                  {provSubmitting ? <span className="spinner" /> : t('providerKeys.save')}
-                </button>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Provider keys list grouped by provider */}
           {provLoading ? (
-            <div className="uk-skeleton"><div /></div>
+            <div className="keys-skeleton">
+              <div className="keys-skeleton-line" />
+              <div className="keys-skeleton-line" />
+              <div className="keys-skeleton-line" />
+            </div>
           ) : provKeys.length === 0 ? (
-            <div className="uk-empty">
-              <Globe size={36} strokeWidth={1} />
+            <div className="keys-empty">
+              <div className="keys-empty-icon"><Globe size={22} strokeWidth={1.5} /></div>
               <h3>{t('providerKeys.noKeys')}</h3>
               <p>{t('providerKeys.noKeysDesc')}</p>
             </div>
@@ -350,42 +357,42 @@ export default function KeysPage() {
               const group = provKeys.filter(k => k.provider_slug === prov.slug);
               if (group.length === 0) return null;
               return (
-                <div key={prov.slug} className="uk-group">
-                  <div className="uk-group-head">
-                    <span className="uk-group-dot" style={{ background: prov.color }} />
-                    <span className="uk-group-name">{prov.name}</span>
-                    <span className="uk-group-count">{group.length}</span>
+                <div key={prov.slug} className="keys-group">
+                  <div className="keys-group-head">
+                    <span className="keys-group-dot" style={{ background: prov.color }} />
+                    <span className="keys-group-name">{prov.name}</span>
+                    <span className="keys-group-count">{group.length}</span>
                   </div>
-                  <div className="uk-list">
-                    {group.sort((a, b) => a.sort_order - b.sort_order).map(k => (
-                      <div key={k.id} className="uk-card uk-card-prov">
-                        <div className="uk-card-icon uk-card-icon-logo" style={{ background: 'transparent' }}>
-                          <img src={PROVIDER_LOGOS[prov.slug]} className="uk-provider-logo-img" alt={prov.name} />
+                  <div className="keys-list">
+                    {group.sort((a, b) => a.sort_order - b.sort_order).map((k, i) => (
+                      <div key={k.id} className="keys-card" style={{ animationDelay: `${i * 0.04}s` }}>
+                        <div className="keys-card-icon keys-card-icon-logo">
+                          <img src={PROVIDER_LOGOS[prov.slug]} alt={prov.name} />
                         </div>
-                        <div className="uk-card-body">
-                          <div className="uk-card-name">
+                        <div className="keys-card-body">
+                          <div className="keys-card-name">
                             {k.name || t('providerKeys.unnamed')}
-                            <span className={`uk-tag ${k.priority_level}`}>
+                            <span className={`keys-tag ${k.priority_level}`}>
                               {k.priority_level === 'prioritized' ? t('providerKeys.prioritized') : t('providerKeys.fallback')}
                             </span>
-                            {k.always_use && <span className="uk-tag uk-tag-lock">{t('providerKeys.alwaysUse')}</span>}
+                            {k.always_use && <span className="keys-tag lock">{t('providerKeys.alwaysUse')}</span>}
                           </div>
-                          <div className="uk-card-meta">
-                            <span className="uk-card-prefix">{k.api_key_prefix}</span>
-                            <span className="uk-card-date">{fmt(k.created_at)}</span>
+                          <div className="keys-card-meta">
+                            <span className="keys-card-prefix">{maskProvKey(k.api_key_prefix)}</span>
+                            <span className="keys-card-date">{fmt(k.created_at)}</span>
                           </div>
                         </div>
-                        <div className="uk-card-tail">
-                          <button className={`uk-icon-btn ${k.priority_level === 'prioritized' ? 'on' : ''}`}
+                        <div className="keys-card-actions">
+                          <button className={`keys-icon-btn ${k.priority_level === 'prioritized' ? 'on' : ''}`}
                             onClick={() => handleProvTogglePriority(k)}
                             title={k.priority_level === 'prioritized' ? t('providerKeys.setFallback') : t('providerKeys.setPrioritized')}>
                             {k.priority_level === 'prioritized' ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
                           </button>
-                          <button className={`uk-icon-btn ${k.always_use ? 'on' : ''}`}
+                          <button className={`keys-icon-btn ${k.always_use ? 'on' : ''}`}
                             onClick={() => handleProvToggleAlways(k)} title={t('providerKeys.alwaysUse')}>
                             <Settings2 size={14} />
                           </button>
-                          <button className="uk-icon-btn uk-icon-btn-danger"
+                          <button className="keys-icon-btn danger"
                             onClick={() => handleProvDelete(k.id)} disabled={provDeleting === k.id}>
                             <Trash2 size={14} />
                           </button>
@@ -398,18 +405,18 @@ export default function KeysPage() {
             })
           )}
         </div>
-      </div>
+      )}
 
-      {/* ── Delete confirm modal ── */}
+      {/* ── Delete confirm dialog ── */}
       {nexToDelete && (
-        <div className="uk-overlay" onClick={() => setNexToDelete(null)}>
-          <div className="uk-modal" onClick={e => e.stopPropagation()}>
+        <div className="keys-overlay" onClick={() => setNexToDelete(null)}>
+          <div className="keys-dialog" onClick={e => e.stopPropagation()}>
             <h3>{t('keys.deleteConfirmTitle')}</h3>
             <p>{t('keys.deleteConfirmDesc')}</p>
-            <div className="uk-modal-name">{nexToDelete.name || t('keys.unnamedKey')}</div>
-            <div className="uk-modal-actions">
-              <button className="uk-btn uk-btn-ghost" onClick={() => setNexToDelete(null)}>{t('common.cancel')}</button>
-              <button className="uk-btn uk-btn-danger" onClick={handleNexDelete}>{t('keys.confirmDelete')}</button>
+            <div className="keys-dialog-name">{nexToDelete.name || t('keys.unnamedKey')}</div>
+            <div className="keys-dialog-actions">
+              <button className="keys-btn keys-btn-outline" onClick={() => setNexToDelete(null)}>{t('common.cancel')}</button>
+              <button className="keys-btn keys-btn-danger" onClick={handleNexDelete}>{t('keys.confirmDelete')}</button>
             </div>
           </div>
         </div>
@@ -419,5 +426,13 @@ export default function KeysPage() {
 }
 
 function maskNexKey(prefix: string): string {
-  return prefix.replace(/^(sk-nexus-)(.*)/, (_, p, s) => p + '*'.repeat(s.length));
+  return prefix.replace(/^(sk-nexus-)(.+)$/, (_, p, rest) => {
+    if (rest.length <= 5) return p + rest[0] + '*'.repeat(rest.length - 1);
+    return p + rest[0] + '*'.repeat(rest.length - 5) + rest.slice(-4);
+  });
+}
+
+function maskProvKey(prefix: string): string {
+  if (prefix.length <= 8) return prefix.slice(0, 4) + '*'.repeat(9);
+  return prefix.slice(0, 4) + '*'.repeat(9) + prefix.slice(-4);
 }
