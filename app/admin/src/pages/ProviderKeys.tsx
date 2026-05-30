@@ -15,10 +15,10 @@ import { Trash2, Users, Server } from 'lucide-react';
 
 // 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
-  openai: '#10A37F',
-  anthropic: '#D97706',
-  google: '#4285F4',
-  deepseek: '#6366F1',
+  openai: '#34D399',
+  anthropic: '#F59E0B',
+  google: '#60A5FA',
+  deepseek: '#A78BFA',
 };
 
 // 根据 slug 获取提供商颜色
@@ -53,8 +53,6 @@ export default function ProviderKeys() {
   // 表单状态
   const [formProvider, setFormProvider] = useState('');
   const [formApiKey, setFormApiKey] = useState('');
-  const [formBaseUrl, setFormBaseUrl] = useState('');
-  const [formPriority, setFormPriority] = useState('1');
 
   // 加载密钥和提供商数据
   const loadData = useCallback(() => {
@@ -98,8 +96,6 @@ export default function ProviderKeys() {
   const resetForm = () => {
     setFormProvider('');
     setFormApiKey('');
-    setFormBaseUrl('');
-    setFormPriority('1');
   };
 
   // 打开添加密钥弹窗
@@ -108,12 +104,10 @@ export default function ProviderKeys() {
     setShowAddModal(true);
   };
 
-  // 打开编辑弹窗（不填 API key 字段，仅编辑 base_url 和 priority）
+  // 打开编辑弹窗（不填 API key 字段）
   const openEditModal = (k: ProviderKey) => {
     setFormProvider(k.provider_slug);
     setFormApiKey('');
-    setFormBaseUrl(k.base_url);
-    setFormPriority(String(k.priority));
     setEditKey(k);
   };
 
@@ -124,8 +118,6 @@ export default function ProviderKeys() {
       await createProviderKey({
         provider_slug: formProvider,
         api_key: formApiKey,
-        base_url: formBaseUrl || undefined,
-        priority: parseInt(formPriority) || undefined,
       });
       setShowAddModal(false);
       loadData();
@@ -134,18 +126,17 @@ export default function ProviderKeys() {
     }
   };
 
-  // 编辑密钥（仅更新 base_url 和 priority，如填写了 api_key 则同时更新）
+  // 编辑密钥（如填写了 api_key 则更新）
   const handleEdit = async () => {
     if (!editKey) return;
     try {
-      const data: Record<string, unknown> = {
-        base_url: formBaseUrl,
-        priority: parseInt(formPriority) || editKey.priority,
-      };
-      if (formApiKey.trim()) {
-        data.api_key = formApiKey;
+      if (!formApiKey.trim()) {
+        setEditKey(null);
+        return;
       }
-      await updateProviderKey(editKey.id, data as Parameters<typeof updateProviderKey>[1]);
+      await updateProviderKey(editKey.id, {
+        api_key: formApiKey,
+      });
       setEditKey(null);
       loadData();
     } catch {
@@ -256,9 +247,7 @@ export default function ProviderKeys() {
             <tr>
               <th style={styles.th}>{t('providerKeys.thProvider')}</th>
               <th style={styles.th}>{t('providerKeys.thKey')}</th>
-              <th style={styles.th}>{t('providerKeys.thUrl')}</th>
               <th style={styles.th}>{t('providerKeys.thStatus')}</th>
-              <th style={styles.th}>{t('providerKeys.thPriority')}</th>
               <th style={{ ...styles.th, textAlign: 'right' }}>{t('providerKeys.thActions')}</th>
             </tr>
           </thead>
@@ -307,13 +296,6 @@ export default function ProviderKeys() {
                     </div>
                   </td>
 
-                  {/* Base URL */}
-                  <td style={styles.td}>
-                    <span style={styles.urlText} title={k.base_url}>
-                      {k.base_url.length > 28 ? k.base_url.slice(0, 28) + '...' : k.base_url}
-                    </span>
-                  </td>
-
                   {/* Status */}
                   <td style={styles.td}>
                     <span style={{
@@ -327,11 +309,6 @@ export default function ProviderKeys() {
                       }} />
                       {k.is_active ? t('common.active') : t('common.inactive')}
                     </span>
-                  </td>
-
-                  {/* Priority */}
-                  <td style={styles.td}>
-                    <span style={styles.priorityBadge}>#{k.priority}</span>
                   </td>
 
                   {/* Actions */}
@@ -467,8 +444,6 @@ export default function ProviderKeys() {
           providers={providers}
           provider={formProvider} setProvider={setFormProvider}
           apiKey={formApiKey} setApiKey={setFormApiKey}
-          baseUrl={formBaseUrl} setBaseUrl={setFormBaseUrl}
-          priority={formPriority} setPriority={setFormPriority}
           t={t}
           onSubmit={handleAdd}
           onCancel={() => setShowAddModal(false)}
@@ -483,8 +458,6 @@ export default function ProviderKeys() {
           providers={providers}
           provider={formProvider} setProvider={setFormProvider}
           apiKey={formApiKey} setApiKey={setFormApiKey}
-          baseUrl={formBaseUrl} setBaseUrl={setFormBaseUrl}
-          priority={formPriority} setPriority={setFormPriority}
           t={t}
           onSubmit={handleEdit}
           onCancel={() => setEditKey(null)}
@@ -531,14 +504,12 @@ export default function ProviderKeys() {
 }
 
 function KeyForm({
-  providers, provider, setProvider, apiKey, setApiKey, baseUrl, setBaseUrl,
-  priority, setPriority, t, onSubmit, onCancel, submitLabel, isEdit,
+  providers, provider, setProvider, apiKey, setApiKey,
+  t, onSubmit, onCancel, submitLabel, isEdit,
 }: {
   providers: AdminProvider[];
   provider: string; setProvider: (v: string) => void;
   apiKey: string; setApiKey: (v: string) => void;
-  baseUrl: string; setBaseUrl: (v: string) => void;
-  priority: string; setPriority: (v: string) => void;
   t: (key: string) => string;
   onSubmit: () => void;
   onCancel: () => void;
@@ -582,26 +553,6 @@ function KeyForm({
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           placeholder={isEdit ? t('providerKeys.apiKeyPlaceholder') + ' (leave blank to keep)' : t('providerKeys.apiKeyPlaceholder')}
-          style={formStyles.input}
-        />
-      </div>
-      <div style={formStyles.field}>
-        <label style={formStyles.label}>{t('providerKeys.baseUrlLabel')}</label>
-        <input
-          type="text"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder={t('providerKeys.baseUrlPlaceholder')}
-          style={formStyles.input}
-        />
-      </div>
-      <div style={formStyles.field}>
-        <label style={formStyles.label}>{t('providerKeys.priorityLabel')}</label>
-        <input
-          type="number"
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-          min="1"
           style={formStyles.input}
         />
       </div>
@@ -786,11 +737,6 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all 0.1s ease',
     flexShrink: 0,
   },
-  urlText: {
-    fontSize: '12px',
-    color: '#A1A1AA',
-    fontFamily: "'DM Sans', sans-serif",
-  },
   statusBadge: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -805,12 +751,6 @@ const styles: Record<string, React.CSSProperties> = {
     width: '5px',
     height: '5px',
     borderRadius: '50%',
-  },
-  priorityBadge: {
-    fontSize: '12px',
-    fontWeight: '600',
-    color: '#71717A',
-    fontFamily: "'DM Sans', sans-serif",
   },
   actions: {
     display: 'flex',

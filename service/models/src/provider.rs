@@ -13,6 +13,8 @@ pub struct Provider {
     pub logo_url: Option<String>,
     pub api_base_url: String,
     pub api_type: String,
+    pub openai_api_url: Option<String>,
+    pub anthropic_api_url: Option<String>,
     pub is_active: bool,
     pub priority: i32,
     pub created_at: DateTime<Utc>,
@@ -33,6 +35,8 @@ impl Provider {
             logo_url: None,
             api_base_url,
             api_type: "openai".to_string(),
+            openai_api_url: None,
+            anthropic_api_url: None,
             is_active: true,
             priority: 100,
             created_at: Utc::now(),
@@ -56,6 +60,16 @@ impl Provider {
     /// * `priority` - 优先级（数值越低越优先）
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.priority = priority;
+        self
+    }
+
+    pub fn with_openai_api_url(mut self, url: String) -> Self {
+        self.openai_api_url = Some(url);
+        self
+    }
+
+    pub fn with_anthropic_api_url(mut self, url: String) -> Self {
+        self.anthropic_api_url = Some(url);
         self
     }
 }

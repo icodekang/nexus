@@ -245,6 +245,8 @@ struct CreateProviderRequest {
     api_base_url: Option<String>,
     api_type: Option<String>,
     priority: Option<i32>,
+    openai_api_url: Option<String>,
+    anthropic_api_url: Option<String>,
 }
 
 /// GET /admin/providers
@@ -270,6 +272,8 @@ async fn list_providers(
                 "logo_url": p.logo_url,
                 "api_base_url": p.api_base_url,
                 "api_type": p.api_type,
+                "openai_api_url": p.openai_api_url,
+                "anthropic_api_url": p.anthropic_api_url,
                 "is_active": p.is_active,
                 "priority": p.priority,
                 "created_at": p.created_at.to_rfc3339(),
@@ -300,6 +304,12 @@ async fn create_provider(
     if let Some(t) = body.api_type {
         provider = provider.with_api_type(t);
     }
+    if let Some(url) = body.openai_api_url {
+        provider = provider.with_openai_api_url(url);
+    }
+    if let Some(url) = body.anthropic_api_url {
+        provider = provider.with_anthropic_api_url(url);
+    }
 
     state
         .db
@@ -313,6 +323,8 @@ async fn create_provider(
         "slug": provider.slug,
         "api_base_url": provider.api_base_url,
         "api_type": provider.api_type,
+        "openai_api_url": provider.openai_api_url,
+        "anthropic_api_url": provider.anthropic_api_url,
         "is_active": provider.is_active,
         "priority": provider.priority,
         "created_at": provider.created_at.to_rfc3339(),
@@ -326,6 +338,8 @@ struct UpdateProviderRequest {
     slug: Option<String>,
     api_base_url: Option<String>,
     api_type: Option<String>,
+    openai_api_url: Option<String>,
+    anthropic_api_url: Option<String>,
     is_active: Option<bool>,
     priority: Option<i32>,
 }
@@ -350,6 +364,8 @@ async fn update_provider(
             body.slug.as_deref(),
             body.api_base_url.as_deref(),
             body.api_type.as_deref(),
+            body.openai_api_url.as_deref(),
+            body.anthropic_api_url.as_deref(),
             body.is_active,
             body.priority,
         )
@@ -735,13 +751,27 @@ async fn test_provider_key(
     let api_key = decrypt_api_key(&provider_key.api_key_encrypted)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to decrypt API key: {}", e)))?;
 
-    // Test by making a minimal request to the provider's /models endpoint
-    let client = reqwest::Client::new();
-    let test_url = if provider_key.base_url.is_empty() {
+    // Look up the provider to get the correct API URL
+    let base_url = if let Ok(all_providers) = state.db.list_all_providers().await {
+        if let Some(provider) = all_providers.iter().find(|p| p.slug == provider_key.provider_slug) {
+            provider.openai_api_url.clone().unwrap_or_else(|| {
+                provider.api_base_url.clone()
+            })
+        } else {
+            provider_key.base_url.clone()
+        }
+    } else {
+        provider_key.base_url.clone()
+    };
+
+    let test_url = if base_url.is_empty() {
         format!("https://api.example.com/v1/models")
     } else {
-        format!("{}/models", provider_key.base_url.trim_end_matches('/'))
+        format!("{}/models", base_url.trim_end_matches('/'))
     };
+
+    // Test by making a minimal request to the provider's /models endpoint
+    let client = reqwest::Client::new();
 
     let result = client
         .get(&test_url)

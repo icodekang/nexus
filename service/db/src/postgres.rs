@@ -208,8 +208,8 @@ impl PostgresPool {
     pub async fn create_provider(&self, provider: &Provider) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO providers (id, name, slug, logo_url, api_base_url, api_type, is_active, priority, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO providers (id, name, slug, logo_url, api_base_url, api_type, openai_api_url, anthropic_api_url, is_active, priority, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(provider.id)
@@ -218,6 +218,8 @@ impl PostgresPool {
         .bind(&provider.logo_url)
         .bind(&provider.api_base_url)
         .bind(&provider.api_type)
+        .bind(&provider.openai_api_url)
+        .bind(&provider.anthropic_api_url)
         .bind(provider.is_active)
         .bind(provider.priority)
         .bind(provider.created_at)
@@ -243,6 +245,8 @@ impl PostgresPool {
             logo_url: row.get("logo_url"),
             api_base_url: row.get("api_base_url"),
             api_type: row.get("api_type"),
+            openai_api_url: row.get("openai_api_url"),
+            anthropic_api_url: row.get("anthropic_api_url"),
             is_active: row.get("is_active"),
             priority: row.get("priority"),
             created_at: row.get("created_at"),
@@ -760,6 +764,8 @@ impl PostgresPool {
         slug: Option<&str>,
         api_base_url: Option<&str>,
         api_type: Option<&str>,
+        openai_api_url: Option<&str>,
+        anthropic_api_url: Option<&str>,
         is_active: Option<bool>,
         priority: Option<i32>,
     ) -> Result<(), DbError> {
@@ -770,8 +776,10 @@ impl PostgresPool {
                 slug = COALESCE($3, slug),
                 api_base_url = COALESCE($4, api_base_url),
                 api_type = COALESCE($5, api_type),
-                is_active = COALESCE($6, is_active),
-                priority = COALESCE($7, priority)
+                openai_api_url = COALESCE($6, openai_api_url),
+                anthropic_api_url = COALESCE($7, anthropic_api_url),
+                is_active = COALESCE($8, is_active),
+                priority = COALESCE($9, priority)
             WHERE id = $1
             "#,
         )
@@ -780,6 +788,8 @@ impl PostgresPool {
         .bind(slug)
         .bind(api_base_url)
         .bind(api_type)
+        .bind(openai_api_url)
+        .bind(anthropic_api_url)
         .bind(is_active)
         .bind(priority)
         .execute(self.inner())

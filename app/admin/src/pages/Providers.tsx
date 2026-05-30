@@ -8,18 +8,30 @@ import { useI18n } from '../i18n';
 import Modal from '../components/Modal';
 import { fetchProviders, createProvider, updateProvider, deleteProvider, fetchProviderKeys, fetchModels, type AdminProvider } from '../api/admin';
 
+import openaiIcon from '../assets/icons/OpenAI.svg';
+import anthropicIcon from '../assets/icons/Anthropic.svg';
+import geminiIcon from '../assets/icons/GoogleGemini.svg';
+import deepseekIcon from '../assets/icons/DeepSeek.png';
+
+const PROVIDER_LOGOS: Record<string, string> = {
+  openai: openaiIcon,
+  anthropic: anthropicIcon,
+  google: geminiIcon,
+  deepseek: deepseekIcon,
+};
+
 // 提供商品牌颜色映射
 const providerColors: Record<string, string> = {
-  openai: '#10A37F',
-  anthropic: '#D97706',
-  google: '#4285F4',
-  deepseek: '#6366F1',
+  openai: '#34D399',
+  anthropic: '#F59E0B',
+  google: '#60A5FA',
+  deepseek: '#A78BFA',
 };
 
 // 根据 slug 获取颜色，未知 slug 使用备用颜色
 function getColor(slug: string, index: number): string {
   if (providerColors[slug]) return providerColors[slug];
-  const fallback = ['#10A37F', '#D97706', '#4285F4', '#6366F1', '#EC4899', '#F59E0B'];
+  const fallback = ['#34D399', '#F59E0B', '#60A5FA', '#A78BFA', '#EC4899', '#F59E0B'];
   return fallback[index % fallback.length];
 }
 
@@ -41,9 +53,8 @@ export default function Providers() {
   // 表单状态
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
-  const [formApiUrl, setFormApiUrl] = useState('');
-  const [formApiType, setFormApiType] = useState('openai');
-  const [formPriority, setFormPriority] = useState('1');
+  const [formOpenaiUrl, setFormOpenaiUrl] = useState('');
+  const [formAnthropicUrl, setFormAnthropicUrl] = useState('');
   const [formActive, setFormActive] = useState(true);
 
   // 加载提供商列表
@@ -66,9 +77,8 @@ export default function Providers() {
   const resetForm = () => {
     setFormName('');
     setFormSlug('');
-    setFormApiUrl('');
-    setFormApiType('openai');
-    setFormPriority('1');
+    setFormOpenaiUrl('');
+    setFormAnthropicUrl('');
     setFormActive(true);
   };
 
@@ -82,9 +92,8 @@ export default function Providers() {
   const openEditModal = (p: AdminProvider) => {
     setFormName(p.name);
     setFormSlug(p.slug);
-    setFormApiUrl(p.api_base_url);
-    setFormApiType(p.api_type || 'openai');
-    setFormPriority(String(p.priority));
+    setFormOpenaiUrl(p.openai_api_url || '');
+    setFormAnthropicUrl(p.anthropic_api_url || '');
     setFormActive(p.is_active);
     setEditProvider(p);
   };
@@ -95,9 +104,8 @@ export default function Providers() {
       await createProvider({
         name: formName,
         slug: formSlug || formName.toLowerCase().replace(/\s+/g, '-'),
-        api_base_url: formApiUrl || undefined,
-        api_type: formApiType,
-        priority: parseInt(formPriority) || undefined,
+        openai_api_url: formOpenaiUrl || undefined,
+        anthropic_api_url: formAnthropicUrl || undefined,
         is_active: formActive,
       });
       setShowAddModal(false);
@@ -112,9 +120,8 @@ export default function Providers() {
       await updateProvider(editProvider.id, {
         name: formName,
         slug: formSlug,
-        api_base_url: formApiUrl,
-        api_type: formApiType,
-        priority: parseInt(formPriority) || editProvider.priority,
+        openai_api_url: formOpenaiUrl || undefined,
+        anthropic_api_url: formAnthropicUrl || undefined,
         is_active: formActive,
       });
       setEditProvider(null);
@@ -164,11 +171,16 @@ export default function Providers() {
       <div style={styles.grid}>
         {providers.map((p, i) => {
           const color = getColor(p.slug, i);
+          const logoSrc = PROVIDER_LOGOS[p.slug];
           return (
             <div key={p.id} style={styles.card}>
               <div style={styles.cardTop}>
-                <div style={{ ...styles.logo, backgroundColor: `${color}14`, color }}>
-                  {p.name.charAt(0)}
+                <div style={{ ...styles.logo, backgroundColor: `${color}14` }}>
+                  {logoSrc ? (
+                    <img src={logoSrc} alt={p.name} style={styles.logoImg} />
+                  ) : (
+                    <span style={{ ...styles.logoLetter, color }}>{p.name.charAt(0)}</span>
+                  )}
                 </div>
                 <div style={styles.info}>
                   <h3 style={styles.name}>{p.name}</h3>
@@ -187,15 +199,24 @@ export default function Providers() {
                 </span>
               </div>
               <div style={styles.stats}>
-                <div style={styles.stat}>
-                  <span style={styles.statValue}>{p.api_base_url.slice(0, 30)}{p.api_base_url.length > 30 ? '...' : ''}</span>
-                  <span style={styles.statLabel}>API URL</span>
-                </div>
-                <div style={styles.statDivider} />
-                <div style={styles.stat}>
-                  <span style={styles.statValue}>#{p.priority}</span>
-                  <span style={styles.statLabel}>{t('providers.priority')}</span>
-                </div>
+                {p.openai_api_url && (
+                  <div style={styles.stat}>
+                    <span style={styles.statValue}>{p.openai_api_url.slice(0, 28)}{p.openai_api_url.length > 28 ? '...' : ''}</span>
+                    <span style={styles.statLabel}>OpenAI API URL</span>
+                  </div>
+                )}
+                {p.anthropic_api_url && (
+                  <div style={styles.stat}>
+                    <span style={styles.statValue}>{p.anthropic_api_url.slice(0, 28)}{p.anthropic_api_url.length > 28 ? '...' : ''}</span>
+                    <span style={styles.statLabel}>Anthropic API URL</span>
+                  </div>
+                )}
+                {!p.openai_api_url && !p.anthropic_api_url && (
+                  <div style={styles.stat}>
+                    <span style={{ ...styles.statValue, color: '#A1A1AA' }}>—</span>
+                    <span style={styles.statLabel}>API URL</span>
+                  </div>
+                )}
               </div>
               <div style={styles.cardActions}>
                 <button style={styles.cardActionBtn} onClick={() => openEditModal(p)}>
@@ -222,9 +243,8 @@ export default function Providers() {
         <ProviderForm
           name={formName} setName={setFormName}
           slug={formSlug} setSlug={setFormSlug}
-          apiUrl={formApiUrl} setApiUrl={setFormApiUrl}
-          apiType={formApiType} setApiType={setFormApiType}
-          priority={formPriority} setPriority={setFormPriority}
+          openaiUrl={formOpenaiUrl} setOpenaiUrl={setFormOpenaiUrl}
+          anthropicUrl={formAnthropicUrl} setAnthropicUrl={setFormAnthropicUrl}
           isActive={formActive} setIsActive={setFormActive}
           t={t}
           onSubmit={handleAddProvider}
@@ -237,9 +257,8 @@ export default function Providers() {
         <ProviderForm
           name={formName} setName={setFormName}
           slug={formSlug} setSlug={setFormSlug}
-          apiUrl={formApiUrl} setApiUrl={setFormApiUrl}
-          apiType={formApiType} setApiType={setFormApiType}
-          priority={formPriority} setPriority={setFormPriority}
+          openaiUrl={formOpenaiUrl} setOpenaiUrl={setFormOpenaiUrl}
+          anthropicUrl={formAnthropicUrl} setAnthropicUrl={setFormAnthropicUrl}
           isActive={formActive} setIsActive={setFormActive}
           t={t}
           onSubmit={handleEditProvider}
@@ -276,14 +295,13 @@ export default function Providers() {
 }
 
 function ProviderForm({
-  name, setName, slug, setSlug, apiUrl, setApiUrl, apiType, setApiType, priority, setPriority, isActive, setIsActive,
+  name, setName, slug, setSlug, openaiUrl, setOpenaiUrl, anthropicUrl, setAnthropicUrl, isActive, setIsActive,
   t, onSubmit, onCancel, submitLabel,
 }: {
   name: string; setName: (v: string) => void;
   slug: string; setSlug: (v: string) => void;
-  apiUrl: string; setApiUrl: (v: string) => void;
-  apiType: string; setApiType: (v: string) => void;
-  priority: string; setPriority: (v: string) => void;
+  openaiUrl: string; setOpenaiUrl: (v: string) => void;
+  anthropicUrl: string; setAnthropicUrl: (v: string) => void;
   isActive: boolean; setIsActive: (v: boolean) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
   onSubmit: () => void;
@@ -314,33 +332,22 @@ function ProviderForm({
         />
       </div>
       <div style={formStyles.field}>
-        <label style={formStyles.label}>API Base URL</label>
+        <label style={formStyles.label}>OpenAI API URL</label>
         <input
           type="text"
-          value={apiUrl}
-          onChange={(e) => setApiUrl(e.target.value)}
-          placeholder="https://api.example.com/v1"
+          value={openaiUrl}
+          onChange={(e) => setOpenaiUrl(e.target.value)}
+          placeholder="https://api.openai.com/v1"
           style={formStyles.input}
         />
       </div>
       <div style={formStyles.field}>
-        <label style={formStyles.label}>API Type</label>
-        <select
-          value={apiType}
-          onChange={(e) => setApiType(e.target.value)}
-          style={{ ...formStyles.input, cursor: 'pointer' }}
-        >
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-        </select>
-      </div>
-      <div style={formStyles.field}>
-        <label style={formStyles.label}>{t('providers.priorityLabel')}</label>
+        <label style={formStyles.label}>Anthropic API URL</label>
         <input
-          type="number"
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-          min="1"
+          type="text"
+          value={anthropicUrl}
+          onChange={(e) => setAnthropicUrl(e.target.value)}
+          placeholder="https://api.anthropic.com/v1"
           style={formStyles.input}
         />
       </div>
@@ -493,10 +500,19 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  logoImg: {
+    width: '24px',
+    height: '24px',
+    objectFit: 'contain',
+    display: 'block',
+  },
+  logoLetter: {
     fontSize: '16px',
     fontWeight: '700',
     fontFamily: "'Instrument Sans', sans-serif",
-    flexShrink: 0,
   },
   info: {
     flex: 1,
@@ -530,12 +546,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
   stats: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingTop: '14px',
     borderTop: '1px solid #F5F5F4',
+    gap: '8px',
+    flexWrap: 'wrap',
   },
   stat: {
     flex: 1,
+    minWidth: '120px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -546,6 +565,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     color: '#18181B',
     fontFamily: "'DM Sans', sans-serif",
+    wordBreak: 'break-all',
   },
   statLabel: {
     fontSize: '10px',
