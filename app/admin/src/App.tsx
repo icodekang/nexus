@@ -11,6 +11,7 @@ import Users from './pages/Users';
 import Providers from './pages/Providers';
 import ProviderKeys from './pages/ProviderKeys';
 import Models from './pages/Models';
+import Chat from './pages/Chat';
 import Transactions from './pages/Transactions';
 import Login from './pages/Login';
 
@@ -37,6 +38,7 @@ function Sidebar() {
     { path: '/users', label: t('sidebar.users'), icon: UsersIcon },
     { path: '/providers', label: t('sidebar.providers'), icon: ProvidersIcon },
     { path: '/models', label: t('sidebar.models'), icon: ModelsIcon },
+    { path: '/chat', label: t('sidebar.chat'), icon: ChatIcon },
     { path: '/provider-keys', label: t('sidebar.providerKeys'), icon: ProviderKeysIcon },
     { path: '/transactions', label: t('sidebar.transactions'), icon: TransactionsIcon },
   ];
@@ -163,6 +165,14 @@ function TransactionsIcon() {
   );
 }
 
+function ChatIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 /**
  * Layout - 页面布局组件
  * @description 侧边栏 + 主内容区的组合布局
@@ -193,6 +203,7 @@ function AppRoutes() {
         <Route path="/providers" element={<ProtectedRoute><Providers /></ProtectedRoute>} />
         <Route path="/provider-keys" element={<ProtectedRoute><ProviderKeys /></ProtectedRoute>} />
         <Route path="/models" element={<ProtectedRoute><Models /></ProtectedRoute>} />
+        <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
       </Route>
     </Routes>

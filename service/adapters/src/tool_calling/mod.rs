@@ -101,13 +101,15 @@ impl ToolCallMiddleware {
         &self,
         request: ChatRequest,
         provider: &str,
-    ) -> Result<Vec<ChatChunk>, ProviderError> {
+        tx: tokio::sync::mpsc::UnboundedSender<ChatChunk>,
+    ) -> Result<(), ProviderError> {
         let response = self.chat_with_tools(request, provider).await?;
-        Ok(vec![ChatChunk {
+        let _ = tx.send(ChatChunk {
             delta: response.message.content.clone(),
             finished: true,
             finish_reason: Some("stop".to_string()),
-        }])
+        });
+        Ok(())
     }
 }
 
@@ -175,9 +177,8 @@ impl ProviderClient for ToolCallMiddleware {
         self.chat_with_tools(request, self.provider_id()).await
     }
 
-    async fn chat_stream(&self, request: ChatRequest) -> Result<Vec<ChatChunk>, ProviderError> {
-        self.chat_stream_with_tools(request, self.provider_id())
-            .await
+    async fn chat_stream(&self, request: ChatRequest, tx: tokio::sync::mpsc::UnboundedSender<ChatChunk>) -> Result<(), ProviderError> {
+        self.chat_stream_with_tools(request, self.provider_id(), tx).await
     }
 
     async fn embeddings(

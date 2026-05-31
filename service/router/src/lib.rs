@@ -65,7 +65,7 @@ impl RouterCore {
         let model = self
             .models
             .iter()
-            .find(|m| m.slug == model_slug)
+            .find(|m| m.model_id == model_slug)
             .ok_or(RouterError::ModelNotFound(model_slug.to_string()))?;
 
         // Find providers that support this model
@@ -109,7 +109,7 @@ impl RouterCore {
     /// # 返回
     /// 模型信息（如果存在）
     pub fn get_model(&self, slug: &str) -> Option<&LlmModel> {
-        self.models.iter().find(|m| m.slug == slug)
+        self.models.iter().find(|m| m.model_id == slug)
     }
 }
 

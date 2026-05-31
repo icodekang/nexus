@@ -404,8 +404,6 @@ struct CreateModelRequest {
     provider_id: String,
     /// Model 名称
     name: String,
-    /// Model slug（唯一标识）
-    slug: String,
     /// 实际模型 ID（如 gpt-4o）
     model_id: String,
     /// 模式：chat、completion、embedding
@@ -438,7 +436,6 @@ async fn list_models(
                 "id": m.id.to_string(),
                 "provider_id": m.provider_id,
                 "name": m.name,
-                "slug": m.slug,
                 "model_id": m.model_id,
                 "mode": m.mode.as_str(),
                 "context_window": m.context_window,
@@ -467,24 +464,9 @@ async fn create_model(
         _ => ModelMode::Chat,
     };
 
-    // Check for duplicate slug
-    let slug_exists = state
-        .db
-        .model_slug_exists(&body.slug)
-        .await
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("DB error: {}", e)))?;
-
-    if slug_exists {
-        return Err(ApiError::InvalidRequest(format!(
-            "Model with slug '{}' already exists",
-            body.slug
-        )));
-    }
-
     let model = LlmModel::new(
         body.provider_id,
         body.name,
-        body.slug,
         body.model_id,
         mode,
         body.context_window.unwrap_or(4096),
@@ -503,11 +485,12 @@ async fn create_model(
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create model: {}", e)))?;
 
+    let _ = state.redis.invalidate_models_cache().await;
+
     Ok(Json(serde_json::json!({
         "id": model.id.to_string(),
         "provider_id": model.provider_id,
         "name": model.name,
-        "slug": model.slug,
         "model_id": model.model_id,
         "mode": model.mode.as_str(),
         "context_window": model.context_window,
@@ -522,7 +505,6 @@ async fn create_model(
 #[derive(Debug, Deserialize)]
 struct UpdateModelRequest {
     name: Option<String>,
-    slug: Option<String>,
     model_id: Option<String>,
     provider_id: Option<String>,
     context_window: Option<i32>,
@@ -550,7 +532,6 @@ async fn update_model(
         .update_model(
             model_id,
             body.name.as_deref(),
-            body.slug.as_deref(),
             body.model_id.as_deref(),
             body.provider_id.as_deref(),
             body.context_window,
@@ -561,12 +542,12 @@ async fn update_model(
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update model: {}", e)))?;
 
+    let _ = state.redis.invalidate_models_cache().await;
+
     Ok(Json(serde_json::json!({ "updated": true })))
 }
 
 /// DELETE /admin/models/:id
-///
-/// 软删除 Model（将 is_active 设为 false）
 async fn delete_model(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
@@ -577,9 +558,11 @@ async fn delete_model(
 
     state
         .db
-        .delete_model_soft(model_id)
+        .delete_model(model_id)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to delete model: {}", e)))?;
+
+    let _ = state.redis.invalidate_models_cache().await;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

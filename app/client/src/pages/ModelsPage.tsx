@@ -104,7 +104,7 @@ type SortField = 'name' | 'context_window';
 type SortDir = 'asc' | 'desc';
 
 export default function ModelsPage() {
-  const { models, loaded, loadModels } = useModelState();
+  const { models, loaded, loadModels, refreshModels } = useModelState();
   const { t } = useI18n();
 
   const [search, setSearch] = useState('');
@@ -119,6 +119,16 @@ export default function ModelsPage() {
   useEffect(() => {
     if (!loaded) loadModels();
   }, [loaded, loadModels]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshModels();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshModels]);
 
   const providers = useMemo(() => {
     const set = new Set(models.map((m) => m.provider));

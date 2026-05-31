@@ -1,0 +1,316 @@
+/* ========================================
+   DocSidebar — Editorial Document Navigation
+   Aesthetic: Refined warmth, editorial precision,
+   generous spacing, subtle hierarchy
+   ======================================== */
+
+.docsidebar {
+  width: 260px;
+  min-width: 260px;
+  height: 100%;
+  background: #FAFAF8;
+  border-right: 1px solid #E7E5E4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.25s cubic-bezier(0.22, 0.61, 0.36, 1),
+              min-width 0.25s cubic-bezier(0.22, 0.61, 0.36, 1),
+              opacity 0.25s ease;
+}
+
+.docsidebar-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ===== Collapsed Strip ===== */
+.docsidebar-collapsed-strip {
+  width: 40px;
+  min-width: 40px;
+  height: 100%;
+  background: #FAFAF8;
+  border-right: 1px solid #E7E5E4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+  flex-shrink: 0;
+}
+
+.docsidebar-expand-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #78716C;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+}
+
+.docsidebar-expand-btn:hover {
+  background: #F0EFED;
+  color: #44403C;
+}
+
+/* ===== Header ===== */
+.docsidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px 16px;
+  border-bottom: 1px solid #F0EFED;
+  flex-shrink: 0;
+}
+
+.docsidebar-header-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docsidebar-header-icon {
+  color: #6366F1;
+  flex-shrink: 0;
+}
+
+.docsidebar-header-title {
+  font-family: 'Fraunces', 'Source Serif 4', serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1C1917;
+  letter-spacing: -0.01em;
+}
+
+.docsidebar-collapse-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #A8A29E;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+}
+
+.docsidebar-collapse-btn:hover {
+  background: #F0EFED;
+  color: #57534E;
+}
+
+/* ===== Navigation ===== */
+.docsidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #D6D3D1 transparent;
+}
+
+.docsidebar-nav::-webkit-scrollbar {
+  width: 3px;
+}
+
+.docsidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.docsidebar-nav::-webkit-scrollbar-thumb {
+  background: #D6D3D1;
+  border-radius: 10px;
+}
+
+.docsidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: #A8A29E;
+}
+
+/* ===== Section ===== */
+.docsidebar-section {
+  margin-bottom: 2px;
+}
+
+.docsidebar-section-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 8px 7px 10px;
+  border-radius: 7px;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #57534E;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  font-family: 'DM Sans', sans-serif;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.docsidebar-section-header:hover {
+  background: #F0EFED;
+  color: #1C1917;
+}
+
+.docsidebar-section-header.expanded {
+  color: #1C1917;
+}
+
+.docsidebar-section-icon {
+  display: flex;
+  align-items: center;
+  color: #A8A29E;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.docsidebar-section-header:hover .docsidebar-section-icon,
+.docsidebar-section-header.expanded .docsidebar-section-icon {
+  color: #6366F1;
+}
+
+.docsidebar-section-label {
+  flex: 1;
+}
+
+.docsidebar-chevron {
+  flex-shrink: 0;
+  color: #A8A29E;
+  transition: transform 0.2s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.docsidebar-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+/* ===== Section Items Container ===== */
+.docsidebar-section-items {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.docsidebar-section-items.expanded {
+  grid-template-rows: 1fr;
+}
+
+.docsidebar-section-items-inner {
+  overflow: hidden;
+}
+
+/* ===== Items ===== */
+.docsidebar-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px 6px 24px;
+  border-radius: 6px;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #78716C;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s ease;
+}
+
+.docsidebar-item:hover {
+  background: #F0EFED;
+  color: #44403C;
+}
+
+.docsidebar-item.active {
+  background: #EEF2FF;
+  color: #4338CA;
+  font-weight: 500;
+}
+
+.docsidebar-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: #F5F5F4;
+  color: #A8A29E;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.docsidebar-item:hover .docsidebar-item-icon {
+  background: #E7E5E4;
+  color: #78716C;
+}
+
+.docsidebar-item.active .docsidebar-item-icon {
+  background: #C7D2FE;
+  color: #4F46E5;
+}
+
+.docsidebar-item-label {
+  line-height: 1.4;
+}
+
+/* ===== Footer ===== */
+.docsidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border-top: 1px solid #F0EFED;
+  flex-shrink: 0;
+}
+
+.docsidebar-footer-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #6366F1;
+  flex-shrink: 0;
+}
+
+.docsidebar-footer-text {
+  font-size: 10.5px;
+  font-weight: 450;
+  color: #A8A29E;
+  font-family: 'DM Sans', sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .docsidebar {
+    position: fixed;
+    left: 0;
+    top: 49px;
+    bottom: 0;
+    z-index: 40;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.08);
+    transform: translateX(0);
+    transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .docsidebar-collapsed-strip {
+    position: fixed;
+    left: 0;
+    top: 49px;
+    bottom: 0;
+    z-index: 40;
+  }
+}

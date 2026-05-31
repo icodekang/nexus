@@ -18,6 +18,7 @@ interface ModelState {
 
   // Actions
   loadModels: () => Promise<void>;                                // 加载模型列表
+  refreshModels: () => Promise<void>;                             // 强制刷新模型列表
   getModelsByProvider: () => Record<string, Model[]>;             // 按服务商分组获取模型
 }
 
@@ -63,6 +64,15 @@ export const useModelState = create<ModelState>((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  /**
+   * refreshModels - 强制刷新模型列表
+   * @description 清除 loaded 标记后重新加载，用于模型数据变更后同步
+   */
+  refreshModels: async () => {
+    set({ loaded: false });
+    await get().loadModels();
   },
 
   /**

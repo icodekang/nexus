@@ -13,6 +13,8 @@ import { create } from 'zustand';
 interface AuthState {
   token: string | null;      // JWT token
   user: { id: string; phone?: string; email?: string } | null;  // 用户信息
+  isAuthenticated: boolean;  // 是否已认证
+  showLoginModal: boolean;   // 登录弹窗显示状态
 
   // Actions
   login: (token: string, user: { id: string; phone?: string; email?: string }) => void;  // 登录

@@ -406,7 +406,7 @@ pub async fn log_api_call(
 ) {
     let log = models::ApiLog::new(
         auth.user.id,
-        auth.api_key_id.unwrap_or(uuid::Uuid::nil()),
+        auth.api_key_id,
         provider_id.to_string(),
         model_id.to_string(),
         mode.to_string(),
@@ -459,14 +459,14 @@ pub async fn list_models_impl(state: &Arc<AppState>) -> Result<Vec<serde_json::V
         .iter()
         .filter_map(|m| {
             let provider = provider_map.get(&m.provider_id)?;
-            let pricing = pricing_map.get(&m.slug);
+            let pricing = pricing_map.get(&m.model_id);
             let mut entry = serde_json::json!({
-                "id":              m.slug.clone(),
+                "id":              m.model_id.clone(),
                 "object":          "model",
                 "created":         1713123123,
                 "owned_by":        m.provider_id.clone(),
                 "permission":      [],
-                "root":            m.slug.clone(),
+                "root":            m.model_id.clone(),
                 "parent":          serde_json::Value::Null,
                 "provider":        m.provider_id.clone(),
                 "provider_name":   provider.name.clone(),

@@ -15,8 +15,6 @@ pub struct LlmModel {
     pub provider_id: String,
     /// 模型名称
     pub name: String,
-    /// 模型标识符（URL 友好）
-    pub slug: String,
     /// 提供商的实际模型 ID
     pub model_id: String,
     /// 模型模式
@@ -39,14 +37,12 @@ impl LlmModel {
     /// # 参数
     /// * `provider_id` - 提供商 ID
     /// * `name` - 模型名称
-    /// * `slug` - 模型标识符
     /// * `model_id` - 提供商的实际模型 ID
     /// * `mode` - 模型模式
     /// * `context_window` - 上下文窗口大小
     pub fn new(
         provider_id: String,
         name: String,
-        slug: String,
         model_id: String,
         mode: ModelMode,
         context_window: i32,
@@ -55,7 +51,6 @@ impl LlmModel {
             id: Uuid::new_v4(),
             provider_id,
             name,
-            slug,
             model_id,
             mode,
             context_window,
@@ -132,7 +127,7 @@ impl ModelWithProvider {
     /// * `provider` - 提供商
     pub fn from_model(model: &LlmModel, provider: &Provider) -> Self {
         Self {
-            id: model.slug.clone(),
+            id: model.model_id.clone(),
             name: model.name.clone(),
             provider: provider.slug.clone(),
             provider_name: provider.name.clone(),
@@ -151,73 +146,73 @@ impl BuiltinModels {
     pub fn all() -> Vec<LlmModel> {
         vec![
             Self::chat_with_desc(
-                "openai", "GPT-4o", "gpt-4o", "gpt-4o",
+                "openai", "GPT-4o", "gpt-4o",
                 128000,
                 vec!["vision".to_string(), "function_call".to_string()],
                 "OpenAI's flagship multimodal model with vision and tool use capabilities.",
             ),
             Self::chat_with_desc(
-                "openai", "GPT-4o Mini", "gpt-4o-mini", "gpt-4o-mini",
+                "openai", "GPT-4o Mini", "gpt-4o-mini",
                 128000,
                 vec!["function_call".to_string()],
                 "Cost-efficient small model with function calling support.",
             ),
             Self::chat_with_desc(
-                "openai", "GPT-4 Turbo", "gpt-4-turbo", "gpt-4-turbo",
+                "openai", "GPT-4 Turbo", "gpt-4-turbo",
                 128000,
                 vec!["vision".to_string()],
                 "High-performance model with vision capabilities at lower cost.",
             ),
             Self::chat_with_desc(
-                "openai", "GPT-3.5 Turbo", "gpt-3.5-turbo", "gpt-3.5-turbo-1106",
+                "openai", "GPT-3.5 Turbo", "gpt-3.5-turbo-1106",
                 16385,
                 vec![],
                 "Fast and affordable model for everyday tasks.",
             ),
             Self::chat_with_desc(
-                "anthropic", "Claude 3.5 Sonnet", "claude-3-5-sonnet", "claude-3-5-sonnet-20241022",
+                "anthropic", "Claude 3.5 Sonnet", "claude-3-5-sonnet-20241022",
                 200000,
                 vec!["vision".to_string()],
                 "Anthropic's most balanced model with excellent reasoning and vision.",
             ),
             Self::chat_with_desc(
-                "anthropic", "Claude 3 Opus", "claude-3-opus", "claude-3-opus-20240229",
+                "anthropic", "Claude 3 Opus", "claude-3-opus-20240229",
                 200000,
                 vec!["vision".to_string()],
                 "Anthropic's most powerful model for complex analysis and reasoning.",
             ),
             Self::chat_with_desc(
-                "anthropic", "Claude 3 Haiku", "claude-3-haiku", "claude-3-haiku-20240307",
+                "anthropic", "Claude 3 Haiku", "claude-3-haiku-20240307",
                 200000,
                 vec![],
                 "Anthropic's fastest model, ideal for quick responses and simple tasks.",
             ),
             Self::chat_with_desc(
-                "google", "Gemini 1.5 Pro", "gemini-1-5-pro", "gemini-1.5-pro",
+                "google", "Gemini 1.5 Pro", "gemini-1.5-pro",
                 2000000,
                 vec!["vision".to_string()],
                 "Google's flagship model with massive 2M token context window.",
             ),
             Self::chat_with_desc(
-                "google", "Gemini 1.5 Flash", "gemini-1-5-flash", "gemini-1.5-flash",
+                "google", "Gemini 1.5 Flash", "gemini-1.5-flash",
                 1000000,
                 vec!["vision".to_string()],
                 "Fast and efficient model with 1M token context window.",
             ),
             Self::chat_with_desc(
-                "google", "Gemini 1.0 Pro", "gemini-1-0-pro", "gemini-pro",
+                "google", "Gemini 1.0 Pro", "gemini-pro",
                 32768,
                 vec![],
                 "Google's reliable general-purpose model.",
             ),
             Self::chat_with_desc(
-                "deepseek", "DeepSeek V3", "deepseek-chat", "deepseek-chat",
+                "deepseek", "DeepSeek V3", "deepseek-chat",
                 64000,
                 vec![],
                 "DeepSeek's latest flagship model with strong general performance.",
             ),
             Self::chat_with_desc(
-                "deepseek", "DeepSeek Coder", "deepseek-coder", "deepseek-coder",
+                "deepseek", "DeepSeek Coder", "deepseek-coder",
                 64000,
                 vec![],
                 "Specialized coding model with exceptional code generation abilities.",
@@ -229,7 +224,6 @@ impl BuiltinModels {
     fn chat(
         provider: &str,
         name: &str,
-        slug: &str,
         model_id: &str,
         context_window: i32,
         capabilities: Vec<String>,
@@ -237,7 +231,6 @@ impl BuiltinModels {
         LlmModel::new(
             provider.to_string(),
             name.to_string(),
-            slug.to_string(),
             model_id.to_string(),
             ModelMode::Chat,
             context_window,
@@ -248,13 +241,12 @@ impl BuiltinModels {
     fn chat_with_desc(
         provider: &str,
         name: &str,
-        slug: &str,
         model_id: &str,
         context_window: i32,
         capabilities: Vec<String>,
         description: &str,
     ) -> LlmModel {
-        Self::chat(provider, name, slug, model_id, context_window, capabilities)
+        Self::chat(provider, name, model_id, context_window, capabilities)
             .with_description(description)
     }
 }

@@ -12,7 +12,7 @@ pub struct ApiLog {
     /// 用户 ID
     pub user_id: Uuid,
     /// API Key ID
-    pub api_key_id: Uuid,
+    pub api_key_id: Option<Uuid>,
     /// 提供商 ID
     pub provider_id: String,
     /// 模型 ID
@@ -44,7 +44,7 @@ impl ApiLog {
     /// * `mode` - 模式
     pub fn new(
         user_id: Uuid,
-        api_key_id: Uuid,
+        api_key_id: Option<Uuid>,
         provider_id: String,
         model_id: String,
         mode: String,

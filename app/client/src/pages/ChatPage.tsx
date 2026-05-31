@@ -28,7 +28,7 @@ export default function ChatPage() {
     deleteConversation,
   } = useChatStore();
 
-  const { models, loaded, loadModels } = useModelState();
+  const { models, loaded, loadModels, refreshModels } = useModelState();
 
   const [inputValue, setInputValue] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -44,6 +44,17 @@ export default function ChatPage() {
   useEffect(() => {
     if (!loaded) loadModels();
   }, [loaded, loadModels]);
+
+  // Refresh models when tab becomes visible (e.g. after editing in admin)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshModels();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshModels]);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)');

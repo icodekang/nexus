@@ -19,11 +19,10 @@ export default function Models() {
   const [formError, setFormError] = useState('');
 
   const [formName, setFormName] = useState('');
-  const [formSlug, setFormSlug] = useState('');
   const [formModelId, setFormModelId] = useState('');
   const [formProviderId, setFormProviderId] = useState('');
-  const [formContext, setFormContext] = useState('');
-  const [formCaps, setFormCaps] = useState('');
+  const [formContextNum, setFormContextNum] = useState('');
+  const [formContextUnit, setFormContextUnit] = useState('K');
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -56,20 +55,30 @@ export default function Models() {
     return String(cw);
   };
 
+  const parseContextValue = (cw: number): { num: string; unit: string } => {
+    if (cw >= 1_000_000 && cw % 1_000_000 === 0) return { num: String(cw / 1_000_000), unit: 'M' };
+    if (cw >= 1000 && cw % 1000 === 0) return { num: String(cw / 1000), unit: 'K' };
+    return { num: String(cw), unit: 'tokens' };
+  };
+
+  const contextUnitMultiplier: Record<string, number> = {
+    tokens: 1,
+    K: 1000,
+    M: 1_000_000,
+  };
+
   const resetForm = () => {
     setFormName('');
-    setFormSlug('');
     setFormModelId('');
     setFormProviderId('');
-    setFormContext('');
-    setFormCaps('');
+    setFormContextNum('');
+    setFormContextUnit('K');
     setFormError('');
   };
 
   const openAddModal = () => {
     resetForm();
     setShowAddModal(true);
-    // Refresh providers when opening the modal
     fetchProviders()
       .then((res) => setProviders(res.data))
       .catch(() => {});
@@ -78,25 +87,25 @@ export default function Models() {
   const openEditModal = (m: AdminModel) => {
     setFormError('');
     setFormName(m.name);
-    setFormSlug(m.slug);
     setFormModelId(m.model_id);
     setFormProviderId(m.provider_id);
-    setFormContext(String(m.context_window));
-    setFormCaps(m.capabilities.join(', '));
+    const ctx = parseContextValue(m.context_window);
+    setFormContextNum(ctx.num);
+    setFormContextUnit(ctx.unit);
     setEditModel(m);
   };
 
   const handleAddModel = async () => {
-    if (!formName.trim() || !formProviderId) return;
+    if (!formModelId.trim() || !formProviderId) return;
     setFormError('');
+    const name = formName.trim() || formModelId.trim();
+    const contextNum = parseInt(formContextNum) || 128;
     try {
       await createModel({
         provider_id: formProviderId,
-        name: formName,
-        slug: formSlug || formName.toLowerCase().replace(/\s+/g, '-'),
-        model_id: formModelId || formSlug || formName.toLowerCase().replace(/\s+/g, '-'),
-        context_window: parseInt(formContext) || 4096,
-        capabilities: formCaps.split(',').map((c) => c.trim()).filter(Boolean),
+        name,
+        model_id: formModelId.trim(),
+        context_window: contextNum * (contextUnitMultiplier[formContextUnit] || 1),
       });
       setShowAddModal(false);
       loadData();
@@ -106,16 +115,18 @@ export default function Models() {
   };
 
   const handleEditModel = async () => {
-    if (!editModel || !formName.trim()) return;
+    if (!editModel || !formModelId.trim()) return;
     setFormError('');
+    const name = (formName.trim() && formName.trim() !== editModel.name && formName.trim() !== editModel.model_id)
+      ? formName.trim()
+      : formModelId.trim();
+    const contextNum = parseInt(formContextNum) || 128;
     try {
       await updateModel(editModel.id, {
-        name: formName,
-        slug: formSlug,
-        model_id: formModelId,
+        name,
+        model_id: formModelId.trim(),
         provider_id: formProviderId || undefined,
-        context_window: parseInt(formContext) || editModel.context_window,
-        capabilities: formCaps.split(',').map((c) => c.trim()).filter(Boolean),
+        context_window: contextNum * (contextUnitMultiplier[formContextUnit] || 1),
       });
       setEditModel(null);
       loadData();
@@ -159,9 +170,8 @@ export default function Models() {
               <th style={{ ...styles.th, paddingLeft: '20px' }}>{t('models.thModel')}</th>
               <th style={styles.th}>{t('models.thProvider')}</th>
               <th style={styles.th}>{t('models.thContext')}</th>
-              <th style={styles.th}>{t('models.thCapabilities')}</th>
               <th style={styles.th}>{t('users.thStatus')}</th>
-              <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}></th>
+              <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}>{t('models.thActions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -186,13 +196,6 @@ export default function Models() {
                   </td>
                   <td style={styles.td}>
                     <span style={styles.context}>{formatContext(m.context_window)}</span>
-                  </td>
-                  <td style={styles.td}>
-                    <div style={styles.caps}>
-                      {m.capabilities.length > 0 ? m.capabilities.map((c) => (
-                        <span key={c} style={styles.capTag}>{c}</span>
-                      )) : <span style={styles.noCap}>-</span>}
-                    </div>
                   </td>
                   <td style={styles.td}>
                     <span style={{
@@ -222,7 +225,7 @@ export default function Models() {
             })}
             {!loading && models.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ ...styles.td, textAlign: 'center', color: '#A1A1AA', padding: '40px' }}>
+                <td colSpan={5} style={{ ...styles.td, textAlign: 'center', color: '#A1A1AA', padding: '40px' }}>
                   No models yet
                 </td>
               </tr>
@@ -234,11 +237,10 @@ export default function Models() {
       <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title={t('models.addModel')}>
         <ModelForm
           name={formName} setName={setFormName}
-          slug={formSlug} setSlug={setFormSlug}
           modelId={formModelId} setModelId={setFormModelId}
           providerId={formProviderId} setProviderId={setFormProviderId}
-          context={formContext} setContext={setFormContext}
-          caps={formCaps} setCaps={setFormCaps}
+          contextNum={formContextNum} setContextNum={setFormContextNum}
+          contextUnit={formContextUnit} setContextUnit={setFormContextUnit}
           providers={providers}
           error={formError}
           t={t}
@@ -251,11 +253,10 @@ export default function Models() {
       <Modal open={!!editModel} onClose={() => setEditModel(null)} title={t('models.editModel')}>
         <ModelForm
           name={formName} setName={setFormName}
-          slug={formSlug} setSlug={setFormSlug}
           modelId={formModelId} setModelId={setFormModelId}
           providerId={formProviderId} setProviderId={setFormProviderId}
-          context={formContext} setContext={setFormContext}
-          caps={formCaps} setCaps={setFormCaps}
+          contextNum={formContextNum} setContextNum={setFormContextNum}
+          contextUnit={formContextUnit} setContextUnit={setFormContextUnit}
           providers={providers}
           error={formError}
           t={t}
@@ -298,16 +299,15 @@ const errorStyle: React.CSSProperties = {
 };
 
 function ModelForm({
-  name, setName, slug, setSlug, modelId, setModelId,
-  providerId, setProviderId, context, setContext, caps, setCaps,
+  name, setName, modelId, setModelId,
+  providerId, setProviderId, contextNum, setContextNum, contextUnit, setContextUnit,
   providers, error, t, onSubmit, onCancel, submitLabel,
 }: {
   name: string; setName: (v: string) => void;
-  slug: string; setSlug: (v: string) => void;
   modelId: string; setModelId: (v: string) => void;
   providerId: string; setProviderId: (v: string) => void;
-  context: string; setContext: (v: string) => void;
-  caps: string; setCaps: (v: string) => void;
+  contextNum: string; setContextNum: (v: string) => void;
+  contextUnit: string; setContextUnit: (v: string) => void;
   providers: AdminProvider[];
   error: string;
   t: (key: string, params?: Record<string, string | number>) => string;
@@ -318,17 +318,6 @@ function ModelForm({
   return (
     <div style={formStyles.form}>
       {error && <div style={errorStyle}>{error}</div>}
-      <div style={formStyles.field}>
-        <label style={formStyles.label}>{t('models.nameLabel')}</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t('models.namePlaceholder')}
-          style={formStyles.input}
-          autoFocus
-        />
-      </div>
       <div style={formStyles.field}>
         <label style={formStyles.label}>{t('models.providerLabel')}</label>
         <select
@@ -343,48 +332,51 @@ function ModelForm({
         </select>
       </div>
       <div style={formStyles.field}>
-        <label style={formStyles.label}>Slug</label>
-        <input
-          type="text"
-          value={slug}
-          onChange={(e) => setSlug(e.target.value)}
-          placeholder="gpt-4o"
-          style={formStyles.input}
-        />
-      </div>
-      <div style={formStyles.field}>
-        <label style={formStyles.label}>Model ID</label>
+        <label style={formStyles.label}>{t('models.modelIdLabel')} <span style={{ color: '#EF4444' }}>*</span></label>
         <input
           type="text"
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
-          placeholder="gpt-4o"
+          placeholder={t('models.modelIdPlaceholder')}
+          style={formStyles.input}
+          autoFocus
+        />
+      </div>
+      <div style={formStyles.field}>
+        <label style={formStyles.label}>{t('models.nameLabel')}</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={t('models.namePlaceholder')}
           style={formStyles.input}
         />
       </div>
       <div style={formStyles.field}>
         <label style={formStyles.label}>{t('models.contextLabel')}</label>
-        <input
-          type="number"
-          value={context}
-          onChange={(e) => setContext(e.target.value)}
-          placeholder="128000"
-          style={formStyles.input}
-        />
-      </div>
-      <div style={formStyles.field}>
-        <label style={formStyles.label}>{t('models.capabilitiesLabel')}</label>
-        <input
-          type="text"
-          value={caps}
-          onChange={(e) => setCaps(e.target.value)}
-          placeholder={t('models.capsPlaceholder')}
-          style={formStyles.input}
-        />
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            type="number"
+            value={contextNum}
+            onChange={(e) => setContextNum(e.target.value)}
+            placeholder="128"
+            style={{ ...formStyles.input, flex: 1 }}
+            min="1"
+          />
+          <select
+            value={contextUnit}
+            onChange={(e) => setContextUnit(e.target.value)}
+            style={{ ...formStyles.input, width: '90px', flexShrink: 0, cursor: 'pointer' }}
+          >
+            <option value="tokens">tokens</option>
+            <option value="K">K</option>
+            <option value="M">M</option>
+          </select>
+        </div>
       </div>
       <div style={formStyles.actions}>
         <button style={formStyles.cancelBtn} onClick={onCancel}>{t('common.cancel')}</button>
-        <button style={formStyles.submitBtn} onClick={onSubmit} disabled={!name.trim() || !providerId}>
+        <button style={formStyles.submitBtn} onClick={onSubmit} disabled={!modelId.trim() || !providerId}>
           {submitLabel}
         </button>
       </div>
@@ -514,17 +506,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "'DM Sans', sans-serif",
   },
   context: { color: '#71717A', fontSize: '12px' },
-  caps: { display: 'flex', gap: '4px', flexWrap: 'wrap' },
-  capTag: {
-    fontSize: '10px',
-    fontWeight: '500',
-    color: '#71717A',
-    backgroundColor: '#F5F5F4',
-    padding: '2px 8px',
-    borderRadius: '9999px',
-    fontFamily: "'DM Sans', sans-serif",
-  },
-  noCap: { color: '#A1A1AA' },
   status: {
     display: 'flex',
     alignItems: 'center',

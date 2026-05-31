@@ -328,6 +328,24 @@
   flex-shrink: 0;
 }
 
+.payment-icon-svg.alipay-icon {
+  color: #1677FF;
+}
+
+.payment-icon-svg.wechat-icon {
+  color: #07C160;
+}
+
+.recharge-payment-btn:hover .payment-icon-svg.alipay-icon,
+.recharge-payment-btn.active .payment-icon-svg.alipay-icon {
+  color: #1677FF;
+}
+
+.recharge-payment-btn:hover .payment-icon-svg.wechat-icon,
+.recharge-payment-btn.active .payment-icon-svg.wechat-icon {
+  color: #07C160;
+}
+
 /* Modal footer */
 .recharge-modal-footer {
   display: flex;

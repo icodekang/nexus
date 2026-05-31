@@ -31,7 +31,8 @@ pub trait ProviderClient: Send + Sync {
     async fn chat_stream(
         &self,
         request: ProviderChatRequest,
-    ) -> Result<Vec<ChatChunk>, ProviderError>;
+        tx: tokio::sync::mpsc::UnboundedSender<ChatChunk>,
+    ) -> Result<(), ProviderError>;
     async fn embeddings(
         &self,
         request: EmbeddingsRequest,
@@ -219,7 +220,8 @@ impl HttpProviderClient {
     pub async fn chat_stream(
         &self,
         request: ProviderChatRequest,
-    ) -> Result<Vec<ChatChunk>, ProviderError> {
+        tx: tokio::sync::mpsc::UnboundedSender<ChatChunk>,
+    ) -> Result<(), ProviderError> {
         let url = if let Some(stream_path) = &self.config.stream_path {
             self.build_url(stream_path)
         } else {
@@ -258,8 +260,6 @@ impl HttpProviderClient {
             req = req.header(&key, &value);
         }
 
-        let mut chunks = Vec::new();
-
         let resp = req
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -279,19 +279,20 @@ impl HttpProviderClient {
 
             for line in text.lines() {
                 if let Some(chunk) = stream_handler.parse_sse_event(line) {
-                    chunks.push(ChatChunk {
+                    let finished = chunk.finished;
+                    let _ = tx.send(ChatChunk {
                         delta: chunk.delta,
                         finished: chunk.finished,
                         finish_reason: chunk.finish_reason,
                     });
-                    if chunk.finished {
-                        return Ok(chunks);
+                    if finished {
+                        return Ok(());
                     }
                 }
             }
         }
 
-        Ok(chunks)
+        Ok(())
     }
 
     pub async fn embeddings(
@@ -458,8 +459,9 @@ impl ProviderClient for HttpProviderClient {
     async fn chat_stream(
         &self,
         request: ProviderChatRequest,
-    ) -> Result<Vec<ChatChunk>, ProviderError> {
-        self.chat_stream(request).await
+        tx: tokio::sync::mpsc::UnboundedSender<ChatChunk>,
+    ) -> Result<(), ProviderError> {
+        self.chat_stream(request, tx).await
     }
 
     async fn embeddings(

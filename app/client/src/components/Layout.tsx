@@ -4,6 +4,7 @@ import { MessageSquare, Key, BookOpen, Layers, LogOut, Zap, Menu, X, Wallet, Che
 import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../i18n';
 import LoginModal from './LoginModal';
+import DocSidebar from './DocSidebar';
 import './Layout.css';
 
 export default function Layout() {
@@ -164,10 +165,13 @@ export default function Layout() {
         </div>
       )}
 
-      {/* Main content */}
-      <main className="main-content">
-        <Outlet />
-      </main>
+      {/* Layout body: sidebar + main content */}
+      <div className="layout-body">
+        {location.pathname.startsWith('/guide') && <DocSidebar />}
+        <main className="main-content">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

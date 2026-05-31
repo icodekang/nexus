@@ -164,6 +164,13 @@ impl RedisPool {
         Ok(result)
     }
 
+    /// 删除缓存的模型列表，强制下次请求从数据库重新加载
+    pub async fn invalidate_models_cache(&self) -> Result<()> {
+        let mut conn = self.conn().await?;
+        let _: () = conn.del("models:all").await?;
+        Ok(())
+    }
+
     // ============ 短信验证码 ============
 
     /// 存储短信验证码（5 分钟有效期）

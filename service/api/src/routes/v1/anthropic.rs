@@ -342,92 +342,94 @@ async fn anthropic_stream_handler(
                     extra: Default::default(),
                 };
 
-                match client.chat_stream(provider_request).await {
-                    Ok(chunks) => {
-                        // message_start
-                        let _ = tx.send(Ok(Event::default().event("message_start").data(
-                            serde_json::json!({
-                                "type": "message_start",
-                                "message": {
-                                    "id": format!("msg_{}", uuid::Uuid::new_v4()),
-                                    "type": "message",
-                                    "role": "assistant",
-                                    "content": [],
-                                    "model": model.clone(),
-                                }
-                            })
-                            .to_string(),
-                        )));
+                let (stream_tx, mut stream_rx) = tokio::sync::mpsc::unbounded_channel::<provider_client::ChatChunk>();
 
-                        // content_block_start
-                        let _ = tx.send(Ok(Event::default().event("content_block_start").data(
-                            serde_json::json!({
-                                "type": "content_block_start",
-                                "index": 0,
-                                "content_block": { "type": "text", "text": "" }
-                            })
-                            .to_string(),
-                        )));
+                let tx_clone = tx.clone();
+                let model_clone = model.clone();
+                let forward_handle = tokio::spawn(async move {
+                    let msg_id = format!("msg_{}", uuid::Uuid::new_v4());
 
-                        let mut text_accum = String::new();
-
-                        for chunk in chunks {
-                            if !chunk.delta.is_empty() {
-                                text_accum.push_str(&chunk.delta);
-
-                                let _ = tx.send(Ok(Event::default()
-                                    .event("content_block_delta")
-                                    .data(
-                                        serde_json::json!({
-                                            "type": "content_block_delta",
-                                            "index": 0,
-                                            "delta": { "type": "text_delta", "text": chunk.delta }
-                                        })
-                                        .to_string(),
-                                    )));
+                    let _ = tx_clone.send(Ok(Event::default().event("message_start").data(
+                        serde_json::json!({
+                            "type": "message_start",
+                            "message": {
+                                "id": msg_id,
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [],
+                                "model": model_clone,
                             }
+                        }).to_string(),
+                    )));
 
-                            if chunk.finished {
-                                let _ = tx.send(Ok(Event::default()
-                                    .event("content_block_stop")
-                                    .data(r#"{"type":"content_block_stop"}"#.to_string())));
+                    let _ = tx_clone.send(Ok(Event::default().event("content_block_start").data(
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": 0,
+                            "content_block": { "type": "text", "text": "" }
+                        }).to_string(),
+                    )));
 
-                                let _ = tx.send(Ok(Event::default().event("message_delta").data(
+                    let mut text_accum = String::new();
+
+                    while let Some(chunk) = stream_rx.recv().await {
+                        if !chunk.delta.is_empty() {
+                            text_accum.push_str(&chunk.delta);
+
+                            let _ = tx_clone.send(Ok(Event::default()
+                                .event("content_block_delta")
+                                .data(
                                     serde_json::json!({
-                                        "type": "message_delta",
-                                        "delta": { "stop_reason": "end_turn" },
-                                        "usage": { "output_tokens": text_accum.len() as i32 / 4 }
+                                        "type": "content_block_delta",
+                                        "index": 0,
+                                        "delta": { "type": "text_delta", "text": chunk.delta }
                                     })
                                     .to_string(),
                                 )));
+                        }
 
-                                let _ = tx.send(Ok(Event::default()
-                                    .event("message_stop")
-                                    .data(r#"{"type":"message_stop"}"#.to_string())));
-                            }
+                        if chunk.finished {
+                            // content_block_stop
+                            let _ = tx_clone.send(Ok(Event::default()
+                                .event("content_block_stop")
+                                .data(serde_json::json!({ "type": "content_block_stop", "index": 0 }).to_string())));
+                            // message_delta (usage/stats)
+                            let _ = tx_clone.send(Ok(Event::default()
+                                .event("message_delta")
+                                .data(serde_json::json!({
+                                    "type": "message_delta",
+                                    "delta": {
+                                        "stop_reason": chunk.finish_reason.as_deref().unwrap_or("end_turn"),
+                                        "stop_sequence": null,
+                                    },
+                                    "usage": { "output_tokens": text_accum.len() / 4 }
+                                }).to_string())));
+                            // message_stop
+                            let _ = tx_clone.send(Ok(Event::default()
+                                .event("message_stop")
+                                .data(serde_json::json!({ "type": "message_stop" }).to_string())));
+                            break;
                         }
                     }
+                });
+
+                match client.chat_stream(provider_request, stream_tx).await {
+                    Ok(()) => { let _ = forward_handle.await; }
                     Err(e) => {
                         if let Some(kid) = used_key_id {
-                            let mut s = state_clone.key_scheduler.write().await;
-                            s.record_failure(&provider_slug, kid);
+                            let mut scheduler = state_clone.key_scheduler.write().await;
+                            scheduler.record_failure(&provider_slug, kid);
                         }
                         let _ = tx.send(Ok(Event::default()
                             .event("error")
-                            .data(format!(
-                                "{{\"type\":\"error\",\"error\":{{\"type\":\"api_error\",\"message\":\"{}\"}}}}",
-                                e
-                            ))));
+                            .data(format!("{{\"error\": \"{}\"}}", e))));
                     }
                 }
             }
             Err(e) => {
                 let _ = tx.send(Ok(Event::default()
                     .event("error")
-                    .data(format!(
-                        "{{\"type\":\"error\",\"error\":{{\"type\":\"api_error\",\"message\":\"{}\"}}}}",
-                        e
-                    ))));
+                    .data(format!("{{\"error\": \"{}\"}}", e))));
             }
         }
 

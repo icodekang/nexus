@@ -249,7 +249,6 @@ export interface AdminModel {
   id: string;
   provider_id: string;
   name: string;
-  slug: string;
   model_id: string;
   mode: string;
   context_window: number;
@@ -278,7 +277,7 @@ export async function fetchModels(): Promise<ModelsResponse> {
  * @param data - 模型配置（服务商 ID、名称、slug、模型 ID 等）
  * @returns 创建的模型信息
  */
-export async function createModel(data: { provider_id: string; name: string; slug: string; model_id: string; mode?: string; context_window?: number; capabilities?: string[] }): Promise<AdminModel> {
+export async function createModel(data: { provider_id: string; name: string; model_id: string; mode?: string; context_window?: number; capabilities?: string[] }): Promise<AdminModel> {
   return request<AdminModel>('/admin/models', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -291,7 +290,7 @@ export async function createModel(data: { provider_id: string; name: string; slu
  * @param data - 要更新的字段
  * @returns 更新是否成功
  */
-export async function updateModel(id: string, data: { name?: string; slug?: string; model_id?: string; provider_id?: string; context_window?: number; capabilities?: string[]; is_active?: boolean }): Promise<{ updated: boolean }> {
+export async function updateModel(id: string, data: { name?: string; model_id?: string; provider_id?: string; context_window?: number; capabilities?: string[]; is_active?: boolean }): Promise<{ updated: boolean }> {
   return request<{ updated: boolean }>(`/admin/models/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -376,6 +375,79 @@ export async function deleteProviderKey(id: string): Promise<{ deleted: boolean 
   return request<{ deleted: boolean }>(`/admin/provider-keys/${id}`, {
     method: 'DELETE',
   });
+}
+
+// ============ Chat Test (admin streaming chat) ============
+
+export interface AdminChatChunk {
+  content: string;
+  finished: boolean;
+}
+
+export async function* streamAdminChat(model: string, messages: { role: string; content: string }[]): AsyncGenerator<AdminChatChunk> {
+  const token = localStorage.getItem('nexus_admin_token');
+  const response = await fetch(`${API_BASE}/v1/chat/completions?stream=true`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 2048,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: { message: 'Chat request failed' } }));
+    throw new Error(err.error?.message || `HTTP ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (!data || data === '[DONE]') continue;
+
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
+        if (parsed.choices?.[0]?.delta?.content != null) {
+          yield {
+            content: parsed.choices[0].delta.content,
+            finished: false,
+          };
+        }
+        if (parsed.choices?.[0]?.finish_reason === 'stop') {
+          yield { content: '', finished: true };
+          return;
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) continue;
+        throw e;
+      }
+    }
+  }
+
+  yield { content: '', finished: true };
 }
 
 /**

@@ -34,7 +34,7 @@ pub fn build_tool_system_prompt(tools: &[ToolDef], provider: &str) -> String {
         }
         "deepseek" => {
             format!(
-                "可用工具：\n{}\n\n调用格式：\n```tool_json\n{{\"tool\": \"<名称>\", \"args\": {{...}}}}\n```\n\n每次只调用一个工具。",
+                "Tools:\n{}\n\nCall a tool by writing:\n```tool_json\n{{\"tool\": \"<name>\", \"args\": {{...}}}}\n```\n\nOnly call one tool per response.",
                 tools_json
             )
         }

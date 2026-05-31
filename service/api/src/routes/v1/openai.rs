@@ -169,7 +169,7 @@ async fn unified_chat(
     // Look up model
     let db_model = state
         .db
-        .get_model_by_slug(&model)
+        .get_model_by_id(&model)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?
         .ok_or_else(|| ApiError::ModelNotFound(model.clone()))?;
@@ -393,34 +393,43 @@ async fn openai_stream_handler(
         };
 
         match client_result {
-            Ok(client) => match client.chat_stream(provider_request).await {
-                Ok(chunks) => {
-                    for chunk in chunks {
+            Ok(client) => {
+                let (stream_tx, mut stream_rx) = tokio::sync::mpsc::unbounded_channel::<provider_client::ChatChunk>();
+
+                let tx_clone = tx.clone();
+                let model_name_clone = model_name.clone();
+                let forward_handle = tokio::spawn(async move {
+                    while let Some(chunk) = stream_rx.recv().await {
                         let event = if chunk.finished {
-                            let chat_chunk = ChatChunk::new(&model_name, "", true);
-                            Event::default()
-                                .event("message")
-                                .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
+                            let chat_chunk = models::ChatChunk::new(&model_name_clone, "", true);
+                            Event::default().event("message").data(
+                                serde_json::to_string(&chat_chunk).unwrap_or_default(),
+                            )
                         } else {
-                            let chat_chunk = ChatChunk::new(&model_name, &chunk.delta, false);
-                            Event::default()
-                                .event("message")
-                                .data(serde_json::to_string(&chat_chunk).unwrap_or_default())
+                            let chat_chunk =
+                                models::ChatChunk::new(&model_name_clone, &chunk.delta, false);
+                            Event::default().event("message").data(
+                                serde_json::to_string(&chat_chunk).unwrap_or_default(),
+                            )
                         };
-                        let _ = tx.send(Ok(event));
+                        let _ = tx_clone.send(Ok(event));
                         if chunk.finished {
                             break;
                         }
                     }
-                }
-                Err(e) => {
-                    if let Some(kid) = used_key_id {
-                        let mut s = state_clone.key_scheduler.write().await;
-                        s.record_failure(&provider_clone, kid);
+                });
+
+                match client.chat_stream(provider_request, stream_tx).await {
+                    Ok(()) => { let _ = forward_handle.await; }
+                    Err(e) => {
+                        if let Some(kid) = used_key_id {
+                            let mut scheduler = state_clone.key_scheduler.write().await;
+                            scheduler.record_failure(&provider_clone, kid);
+                        }
+                        let _ = tx.send(Ok(Event::default()
+                            .event("error")
+                            .data(format!("{{\"error\": \"{}\"}}", e))));
                     }
-                    let _ = tx.send(Ok(Event::default()
-                        .event("error")
-                        .data(format!("{{\"error\": \"{}\"}}", e))));
                 }
             },
             Err(e) => {

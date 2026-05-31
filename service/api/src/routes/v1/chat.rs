@@ -31,8 +31,9 @@ use models::{
     ChatResponse, JudgeScoreInfo, Message, ModelResult, Usage,
 };
 use provider_client::{
-    ChatRequest as ProviderChatRequest, HttpProviderClient,
-    Message as ProviderMessage, ProviderClient, ProviderClientFactory,
+    ChatChunk as ProviderChatChunk, ChatRequest as ProviderChatRequest,
+    HttpProviderClient, Message as ProviderMessage, ProviderClient, ProviderClientFactory,
+    ProviderError,
 };
 use router::key_scheduler::SelectedKey;
 
@@ -174,7 +175,7 @@ pub async fn chat_completions(
     // 3. Look up the model
     let model = state
         .db
-        .get_model_by_slug(&model_slug)
+        .get_model_by_id(&model_slug)
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?
         .ok_or_else(|| ApiError::ModelNotFound(request.model.clone()))?;
@@ -184,18 +185,6 @@ pub async fn chat_completions(
 
     // 6. Validate request parameters
     validate_chat_request(&request, model.context_window)?;
-
-    // 5. Check if model supports streaming if requested
-    if is_stream
-        && !model
-            .capabilities
-            .iter()
-            .any(|c| c == "streaming" || c == "stream")
-    {
-        return Err(ApiError::InvalidRequest(
-            "Model does not support streaming".to_string(),
-        ));
-    }
 
     let provider_for_request = if provider_slug.is_empty() {
         model.provider_id.clone()
@@ -237,7 +226,7 @@ pub async fn chat_completions(
 
     if is_stream {
         // =============================================================
-        // STREAMING PATH — now uses session-aware key scheduling
+        // STREAMING PATH — session-aware key scheduling with fallback
         // =============================================================
         let (tx, rx) = broadcast::channel::<Result<Event, std::convert::Infallible>>(1024);
 
@@ -245,102 +234,148 @@ pub async fn chat_completions(
         let state_clone = state.clone();
         let auth_clone = auth.clone();
         let provider_clone = provider_for_request.clone();
-        let model_slug_clone = model.slug.clone();
+        let model_slug_clone = model.model_id.clone();
         let session_id_clone = session_id.clone();
+        let mut req_template = provider_request.clone();
+        let providers_to_try_clone = providers_to_try.clone();
+
+        // Send initial keepalive so client knows stream is alive
+        let _ = tx.send(Ok(Event::default().data("{\"status\":\"connected\"}")));
 
         tokio::spawn(async move {
-            let mut total_output_tokens: i32 = 0;
+            let total_output_tokens: i32 = 0;
             let mut used_key_id: Option<uuid::Uuid> = None;
-            let estimated_input_tokens = provider_request
+            let mut used_provider = provider_clone.clone();
+            let estimated_input_tokens = req_template
                 .messages
                 .iter()
                 .map(|m| (m.content.len() / 4) as i32)
                 .sum::<i32>()
                 .max(1);
 
-            let selected_key = {
-                let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.tick();
-                session_id_clone
-                    .as_ref()
-                    .map(|sid| scheduler.select_key_for_session(&provider_clone, sid))
-                    .flatten()
-            };
+            let mut stream_success = false;
 
-            let client_result = match &selected_key {
-                Some(sk) => {
-                    used_key_id = Some(sk.key.id);
-                    HttpProviderClient::new_with_key(&provider_clone, &sk.key)
-                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+            for try_provider in &providers_to_try_clone {
+                req_template.provider = try_provider.clone();
+
+                let selected_key = {
+                    let mut scheduler = state_clone.key_scheduler.write().await;
+                    scheduler.tick();
+                    if try_provider == &provider_clone {
+                        session_id_clone
+                            .as_ref()
+                            .map(|sid| scheduler.select_key_for_session(try_provider, sid))
+                            .flatten()
+                    } else {
+                        scheduler.select_key_no_session(try_provider)
+                    }
+                };
+
+                let client_result = match &selected_key {
+                    Some(sk) => {
+                        used_key_id = Some(sk.key.id);
+                        let decrypted_key = db::decrypt_api_key(&sk.key.api_key_encrypted)
+                            .map_err(|e| ProviderError::ApiKeyNotSet(e.to_string()));
+                        match decrypted_key {
+                            Ok(dk) => HttpProviderClient::new_with_decrypted_key(
+                                try_provider,
+                                &dk,
+                                sk.key.id,
+                            )
+                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
+                            .map_err(|e| {
+                                ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
+                            }),
+                            Err(e) => Err(ApiError::Internal(anyhow::anyhow!(
+                                "Failed to decrypt key: {}",
+                                e
+                            ))),
+                        }
+                    }
+                    None => HttpProviderClient::new(try_provider)
+                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
                         .map_err(|e| {
                             ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
-                        })
-                }
-                None => HttpProviderClient::new(&provider_clone)
-                    .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                    .map_err(|e| {
-                        ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
-                    }),
-            };
+                        }),
+                };
 
-            match client_result {
-                Ok((client, _)) => {
-                    match client.chat_stream(provider_request).await {
-                        Ok(chunks) => {
-                            for chunk in chunks {
-                                if !chunk.delta.is_empty() {
-                                    total_output_tokens += 1;
-                                }
+                match client_result {
+                    Ok((client, _)) => {
+                        let (stream_tx, mut stream_rx) =
+                            tokio::sync::mpsc::unbounded_channel::<ProviderChatChunk>();
 
+                        let tx_clone = tx.clone();
+                        let model_name_clone = model_name.clone();
+                        let forward_handle = tokio::spawn(async move {
+                            while let Some(chunk) = stream_rx.recv().await {
                                 let event = if chunk.finished {
-                                    let chat_chunk = models::ChatChunk::new(&model_name, "", true);
+                                    let chat_chunk =
+                                        models::ChatChunk::new(&model_name_clone, "", true);
                                     Event::default().event("message").data(
                                         serde_json::to_string(&chat_chunk).unwrap_or_default(),
                                     )
                                 } else {
-                                    let chat_chunk =
-                                        models::ChatChunk::new(&model_name, &chunk.delta, false);
+                                    let chat_chunk = models::ChatChunk::new(
+                                        &model_name_clone,
+                                        &chunk.delta,
+                                        false,
+                                    );
                                     Event::default().event("message").data(
                                         serde_json::to_string(&chat_chunk).unwrap_or_default(),
                                     )
                                 };
-                                let _ = tx.send(Ok(event));
+                                let _ = tx_clone.send(Ok(event));
                                 if chunk.finished {
                                     break;
                                 }
                             }
-                        }
-                        Err(e) => {
-                            if let Some(kid) = used_key_id {
-                                let mut scheduler = state_clone.key_scheduler.write().await;
-                                scheduler.record_failure(&provider_clone, kid);
+                        });
+
+                        match client.chat_stream(req_template.clone(), stream_tx).await {
+                            Ok(()) => {
+                                let _ = forward_handle.await;
+                                stream_success = true;
+                                used_provider = try_provider.clone();
+                                break;
                             }
-                            let _ = tx.send(Ok(Event::default()
-                                .event("error")
-                                .data(format!("{{\"error\": \"{}\"}}", e))));
+                            Err(e) => {
+                                tracing::warn!("Streaming provider {} failed: {}", try_provider, e);
+                                if let Some(kid) = used_key_id {
+                                    let mut scheduler =
+                                        state_clone.key_scheduler.write().await;
+                                    scheduler.record_failure(try_provider, kid);
+                                }
+                                used_key_id = None;
+                            }
                         }
                     }
+                    Err(_e) => {
+                        if let Some(kid) = used_key_id {
+                            let mut scheduler = state_clone.key_scheduler.write().await;
+                            scheduler.record_failure(try_provider, kid);
+                        }
+                        used_key_id = None;
+                    }
                 }
-                Err(e) => {
-                    let _ = tx.send(Ok(Event::default().event("error").data(format!(
-                        "{{\"error\": \"Failed to create provider client: {}\"}}",
-                        e
-                    ))));
-                }
+            }
+
+            if !stream_success {
+                let _ = tx.send(Ok(Event::default()
+                    .event("error")
+                    .data("{\"error\": \"All providers failed. Please try again later.\"}")));
             }
 
             if let Some(kid) = used_key_id {
                 let latency_ms = start_time.elapsed().as_millis() as i32;
                 let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.record_success(&provider_clone, kid, latency_ms as f64);
+                scheduler.record_success(&used_provider, kid, latency_ms as f64);
             }
 
-            // Log streaming API call — use actual token counts when available
             let latency_ms = start_time.elapsed().as_millis() as i32;
             log_api_call(
                 &state_clone,
                 &auth_clone,
-                &provider_clone,
+                &used_provider,
                 &model_slug_clone,
                 "chat",
                 estimated_input_tokens,
@@ -471,7 +506,7 @@ pub async fn chat_completions(
                 &state,
                 &auth,
                 &used_provider,
-                &model.slug,
+                &model.model_id,
                 "chat",
                 prompt_tokens,
                 completion_tokens,
@@ -512,7 +547,7 @@ async fn log_api_call(
 
     let log = models::ApiLog::new(
         auth.user.id,
-        auth.api_key_id.unwrap_or(Uuid::nil()),
+        auth.api_key_id,
         provider_id.to_string(),
         model_id.to_string(),
         mode.to_string(),
@@ -749,7 +784,7 @@ pub async fn chat_batch(
             // < 4 models: use all, no scoring
             (
                 "general".to_string(),
-                all_models.iter().map(|m| m.slug.clone()).collect(),
+                all_models.iter().map(|m| m.model_id.clone()).collect(),
                 false,
                 String::new(),
             )
@@ -776,7 +811,7 @@ pub async fn chat_batch(
         let max_tokens = request.max_tokens;
         let sid = session_id.clone();
 
-        let model_info = all_models.iter().find(|m| m.slug == *slug).cloned();
+        let model_info = all_models.iter().find(|m| m.model_id == *slug).cloned();
 
         let task = tokio::spawn(async move {
             let start = std::time::Instant::now();
@@ -966,7 +1001,7 @@ pub async fn chat_batch_judge(
             Ok(s) => {
                 let judge = state
                     .db
-                    .get_model_by_slug("gpt-4o")
+                    .get_model_by_id("gpt-4o")
                     .await
                     .map(|m| m.map(|x| x.name).unwrap_or_else(|| "gpt-4o".to_string()))
                     .unwrap_or_else(|_| "gpt-4o".to_string());
@@ -1011,30 +1046,30 @@ pub async fn chat_batch_judge(
 fn select_judge_model(answer_slugs: &[String], all_models: &[models::LlmModel]) -> String {
     let answer_providers: std::collections::HashSet<&str> = answer_slugs
         .iter()
-        .filter_map(|s| all_models.iter().find(|m| m.slug == *s))
+        .filter_map(|s| all_models.iter().find(|m| m.model_id == *s))
         .map(|m| m.provider_id.as_str())
         .collect();
 
     // 优先选 gpt-4o（如果不在回答列表中）
     if !answer_slugs.iter().any(|s| s == "gpt-4o") {
-        if all_models.iter().any(|m| m.slug == "gpt-4o") {
+        if all_models.iter().any(|m| m.model_id == "gpt-4o") {
             return "gpt-4o".to_string();
         }
     }
 
     // 选一个不同 provider 的模型
     for model in all_models {
-        if !answer_slugs.contains(&model.slug)
+        if !answer_slugs.contains(&model.model_id)
             && !answer_providers.contains(model.provider_id.as_str())
         {
-            return model.slug.clone();
+            return model.model_id.clone();
         }
     }
 
     // 退而求其次：选任意不同的模型
     for model in all_models {
-        if !answer_slugs.contains(&model.slug) {
-            return model.slug.clone();
+        if !answer_slugs.contains(&model.model_id) {
+            return model.model_id.clone();
         }
     }
 
@@ -1112,7 +1147,7 @@ fn smart_select_models(query: &str, models: &[models::LlmModel]) -> (String, Vec
         if selected.len() >= 3 {
             break;
         }
-        if let Some(model) = models.iter().find(|m| m.slug == slug) {
+        if let Some(model) = models.iter().find(|m| m.model_id == slug) {
             if !used_providers.contains(&model.provider_id) {
                 selected.push(slug.to_string());
                 used_providers.insert(model.provider_id.clone());
@@ -1125,8 +1160,8 @@ fn smart_select_models(query: &str, models: &[models::LlmModel]) -> (String, Vec
             if selected.len() >= 3 {
                 break;
             }
-            if !selected.contains(&model.slug) && !used_providers.contains(&model.provider_id) {
-                selected.push(model.slug.clone());
+            if !selected.contains(&model.model_id) && !used_providers.contains(&model.provider_id) {
+                selected.push(model.model_id.clone());
                 used_providers.insert(model.provider_id.clone());
             }
         }
@@ -1178,7 +1213,7 @@ async fn judge_responses(
 
     let judge_model = state
         .db
-        .get_model_by_slug("gpt-4o")
+        .get_model_by_id("gpt-4o")
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Judge model lookup failed: {}", e)))?
         .ok_or_else(|| ApiError::ModelNotFound("gpt-4o".to_string()))?;

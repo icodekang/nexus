@@ -258,15 +258,14 @@ impl PostgresPool {
     pub async fn create_model(&self, model: &LlmModel) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO models (id, provider_id, name, slug, model_id, mode, context_window, 
+            INSERT INTO models (id, provider_id, name, model_id, mode, context_window, 
                               capabilities, description, is_active, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(model.id)
         .bind(&model.provider_id)
         .bind(&model.name)
-        .bind(&model.slug)
         .bind(&model.model_id)
         .bind(model.mode.as_str())
         .bind(model.context_window)
@@ -302,23 +301,14 @@ impl PostgresPool {
         Ok(rows.iter().map(|r| self.row_to_model(r)).collect())
     }
 
-    pub async fn get_model_by_slug(&self, slug: &str) -> Result<Option<LlmModel>, DbError> {
+    pub async fn get_model_by_id(&self, model_id: &str) -> Result<Option<LlmModel>, DbError> {
         let row: Option<PgRow> =
-            sqlx::query("SELECT * FROM models WHERE slug = $1 AND is_active = true")
-                .bind(slug)
+            sqlx::query("SELECT * FROM models WHERE model_id = $1 AND is_active = true")
+                .bind(model_id)
                 .fetch_optional(self.inner())
                 .await?;
 
         Ok(row.map(|r| self.row_to_model(&r)))
-    }
-
-    pub async fn model_slug_exists(&self, slug: &str) -> Result<bool, DbError> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM models WHERE slug = $1)")
-                .bind(slug)
-                .fetch_one(self.inner())
-                .await?;
-        Ok(exists)
     }
 
     fn row_to_model(&self, row: &PgRow) -> LlmModel {
@@ -331,7 +321,6 @@ impl PostgresPool {
             id: row.get("id"),
             provider_id: row.get("provider_id"),
             name: row.get("name"),
-            slug: row.get("slug"),
             model_id: row.get("model_id"),
             mode: match row.get::<String, _>("mode").as_str() {
                 "completion" => ModelMode::Completion,
@@ -929,7 +918,6 @@ impl PostgresPool {
         &self,
         id: Uuid,
         name: Option<&str>,
-        slug: Option<&str>,
         model_id: Option<&str>,
         provider_id: Option<&str>,
         context_window: Option<i32>,
@@ -941,19 +929,17 @@ impl PostgresPool {
             r#"
             UPDATE models SET
                 name = COALESCE($2, name),
-                slug = COALESCE($3, slug),
-                model_id = COALESCE($4, model_id),
-                provider_id = COALESCE($5, provider_id),
-                context_window = COALESCE($6, context_window),
-                capabilities = COALESCE($7, capabilities),
-                description = COALESCE($9, description),
-                is_active = COALESCE($8, is_active)
+                model_id = COALESCE($3, model_id),
+                provider_id = COALESCE($4, provider_id),
+                context_window = COALESCE($5, context_window),
+                capabilities = COALESCE($6, capabilities),
+                description = COALESCE($8, description),
+                is_active = COALESCE($7, is_active)
             WHERE id = $1
             "#,
         )
         .bind(id)
         .bind(name)
-        .bind(slug)
         .bind(model_id)
         .bind(provider_id)
         .bind(context_window)
@@ -966,8 +952,8 @@ impl PostgresPool {
         Ok(())
     }
 
-    pub async fn delete_model_soft(&self, id: Uuid) -> Result<(), DbError> {
-        sqlx::query("UPDATE models SET is_active = false WHERE id = $1")
+    pub async fn delete_model(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM models WHERE id = $1")
             .bind(id)
             .execute(self.inner())
             .await?;
