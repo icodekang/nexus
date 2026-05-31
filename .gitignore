@@ -82,3 +82,4 @@ CLAUDE.md
 .claw/settings.local.json
 .claw/sessions/
 .clawhip/
+service/target-local/
