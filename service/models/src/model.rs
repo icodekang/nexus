@@ -117,6 +117,9 @@ pub struct ModelWithProvider {
     pub capabilities: Vec<String>,
     /// 模型描述
     pub description: Option<String>,
+    /// 厂商是否至少有一个活跃密钥配置
+    #[serde(default)]
+    pub is_key_configured: bool,
 }
 
 impl ModelWithProvider {
@@ -134,7 +137,13 @@ impl ModelWithProvider {
             context_window: model.context_window,
             capabilities: model.capabilities.clone(),
             description: model.description.clone(),
+            is_key_configured: false,
         }
+    }
+
+    pub fn with_key_configured(mut self, configured: bool) -> Self {
+        self.is_key_configured = configured;
+        self
     }
 }
 

@@ -178,17 +178,21 @@ export const useChatStore = create<ChatState>((set, get) => {
         const generator = streamChat(modelId, messages, convId);
         currentGenerator = generator;
         let fullContent = '';
+        let rafId: number | null = null;
+        const convRef = { current: convId };
+        const msgRef = { current: assistantMsg.id };
 
-        for await (const chunk of generator) {
-          fullContent += chunk;
+        const flush = () => {
+          rafId = null;
+          const content = fullContent;
           set((s) => {
             const convs = s.conversations.map((c) => {
-              if (c.id !== convId) return c;
+              if (c.id !== convRef.current) return c;
               return {
                 ...c,
                 messages: c.messages.map((m) =>
-                  m.id === assistantMsg.id
-                    ? { ...m, content: fullContent, model: modelId }
+                  m.id === msgRef.current
+                    ? { ...m, content, model: modelId }
                     : m
                 ),
                 updatedAt: Date.now(),
@@ -196,7 +200,19 @@ export const useChatStore = create<ChatState>((set, get) => {
             });
             return { conversations: convs };
           });
+        };
+
+        for await (const chunk of generator) {
+          fullContent += chunk;
+          if (rafId === null) {
+            rafId = requestAnimationFrame(() => flush());
+          }
         }
+
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+        flush();
       } catch {
         set((s) => {
           const convs = s.conversations.map((c) => {

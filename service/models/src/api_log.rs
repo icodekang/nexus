@@ -166,3 +166,24 @@ pub struct ModelUsage {
     /// 输出 Token 数
     pub output_tokens: i64,
 }
+
+/// 每日消费统计（用于图表展示）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyCharge {
+    /// 日期
+    pub day: chrono::NaiveDate,
+    /// 输入 Token 数
+    pub input_tokens: i64,
+    /// 输出 Token 数
+    pub output_tokens: i64,
+    /// 当日总费用
+    pub total_cost: rust_decimal::Decimal,
+}
+
+/// 每日按模型分组消费统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyModelCharge {
+    pub day: chrono::NaiveDate,
+    pub model_slug: String,
+    pub total_cost: rust_decimal::Decimal,
+}

@@ -907,7 +907,7 @@ impl PostgresPool {
     }
 
     pub async fn list_all_models(&self) -> Result<Vec<LlmModel>, DbError> {
-        let rows = sqlx::query("SELECT * FROM models WHERE is_active = true ORDER BY name")
+        let rows = sqlx::query("SELECT * FROM models ORDER BY is_active DESC, name")
             .fetch_all(self.inner())
             .await?;
 
@@ -1398,6 +1398,74 @@ impl PostgresPool {
         .await?;
 
         Ok(rows.iter().map(|r| self.row_to_token_charge(r)).collect())
+    }
+
+    pub async fn get_daily_charges(
+        &self,
+        user_id: Uuid,
+        days: i32,
+    ) -> Result<Vec<models::DailyCharge>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                DATE(created_at) as day,
+                COALESCE(SUM(input_tokens), 0)::bigint as input_tokens,
+                COALESCE(SUM(output_tokens), 0)::bigint as output_tokens,
+                COALESCE(SUM(total_cost), 0) as total_cost
+            FROM token_charges
+            WHERE user_id = $1
+              AND created_at >= NOW() - ($2 || ' days')::interval
+            GROUP BY DATE(created_at)
+            ORDER BY day ASC
+            "#,
+        )
+        .bind(user_id)
+        .bind(days)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| models::DailyCharge {
+                day: r.get::<chrono::NaiveDate, _>("day"),
+                input_tokens: r.get::<i64, _>("input_tokens") as i64,
+                output_tokens: r.get::<i64, _>("output_tokens") as i64,
+                total_cost: r.get::<rust_decimal::Decimal, _>("total_cost"),
+            })
+            .collect())
+    }
+
+    pub async fn get_daily_charges_by_model(
+        &self,
+        user_id: Uuid,
+        days: i32,
+    ) -> Result<Vec<models::DailyModelCharge>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                DATE(created_at) as day,
+                model_slug,
+                COALESCE(SUM(total_cost), 0) as total_cost
+            FROM token_charges
+            WHERE user_id = $1
+              AND created_at >= NOW() - ($2 || ' days')::interval
+            GROUP BY DATE(created_at), model_slug
+            ORDER BY day ASC, model_slug ASC
+            "#,
+        )
+        .bind(user_id)
+        .bind(days)
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| models::DailyModelCharge {
+                day: r.get::<chrono::NaiveDate, _>("day"),
+                model_slug: r.get::<String, _>("model_slug"),
+                total_cost: r.get::<rust_decimal::Decimal, _>("total_cost"),
+            })
+            .collect())
     }
 
     fn row_to_token_charge(&self, row: &PgRow) -> TokenCharge {

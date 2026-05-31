@@ -17,7 +17,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::state::AppState;
-use models::{ChatChunk, Message as InternalMessage};
+use models::Message as InternalMessage;
 use provider_client::{
     ChatRequest as ProviderChatRequest, HttpProviderClient, Message as ProviderMessage,
 };

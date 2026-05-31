@@ -23,6 +23,9 @@ export default function Models() {
   const [formProviderId, setFormProviderId] = useState('');
   const [formContextNum, setFormContextNum] = useState('');
   const [formContextUnit, setFormContextUnit] = useState('K');
+  const [formPromptPrice, setFormPromptPrice] = useState('');
+  const [formCompletionPrice, setFormCompletionPrice] = useState('');
+  const [formIsActive, setFormIsActive] = useState(true);
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -55,6 +58,14 @@ export default function Models() {
     return String(cw);
   };
 
+  const fmtPrice = (price?: string) => {
+    if (!price) return '-';
+    const n = parseFloat(price);
+    if (n === 0) return '¥0';
+    const perMillion = n * 1_000_000;
+    return `¥${perMillion.toFixed(2)}/M`;
+  };
+
   const parseContextValue = (cw: number): { num: string; unit: string } => {
     if (cw >= 1_000_000 && cw % 1_000_000 === 0) return { num: String(cw / 1_000_000), unit: 'M' };
     if (cw >= 1000 && cw % 1000 === 0) return { num: String(cw / 1000), unit: 'K' };
@@ -73,6 +84,9 @@ export default function Models() {
     setFormProviderId('');
     setFormContextNum('');
     setFormContextUnit('K');
+    setFormPromptPrice('');
+    setFormCompletionPrice('');
+    setFormIsActive(true);
     setFormError('');
   };
 
@@ -92,6 +106,14 @@ export default function Models() {
     const ctx = parseContextValue(m.context_window);
     setFormContextNum(ctx.num);
     setFormContextUnit(ctx.unit);
+    if (m.pricing) {
+      setFormPromptPrice(m.pricing.prompt_price || '');
+      setFormCompletionPrice(m.pricing.completion_price || '');
+    } else {
+      setFormPromptPrice('');
+      setFormCompletionPrice('');
+    }
+    setFormIsActive(m.is_active);
     setEditModel(m);
   };
 
@@ -100,12 +122,16 @@ export default function Models() {
     setFormError('');
     const name = formName.trim() || formModelId.trim();
     const contextNum = parseInt(formContextNum) || 128;
+    const pp = formPromptPrice.trim() ? parseFloat(formPromptPrice) : undefined;
+    const cp = formCompletionPrice.trim() ? parseFloat(formCompletionPrice) : undefined;
     try {
       await createModel({
         provider_id: formProviderId,
         name,
         model_id: formModelId.trim(),
         context_window: contextNum * (contextUnitMultiplier[formContextUnit] || 1),
+        prompt_price: pp,
+        completion_price: cp,
       });
       setShowAddModal(false);
       loadData();
@@ -121,12 +147,17 @@ export default function Models() {
       ? formName.trim()
       : formModelId.trim();
     const contextNum = parseInt(formContextNum) || 128;
+    const pp = formPromptPrice.trim() ? parseFloat(formPromptPrice) : undefined;
+    const cp = formCompletionPrice.trim() ? parseFloat(formCompletionPrice) : undefined;
     try {
       await updateModel(editModel.id, {
         name,
         model_id: formModelId.trim(),
         provider_id: formProviderId || undefined,
         context_window: contextNum * (contextUnitMultiplier[formContextUnit] || 1),
+        prompt_price: pp,
+        completion_price: cp,
+        is_active: formIsActive,
       });
       setEditModel(null);
       loadData();
@@ -170,6 +201,7 @@ export default function Models() {
               <th style={{ ...styles.th, paddingLeft: '20px' }}>{t('models.thModel')}</th>
               <th style={styles.th}>{t('models.thProvider')}</th>
               <th style={styles.th}>{t('models.thContext')}</th>
+              <th style={styles.th}>{t('models.thPricing')}</th>
               <th style={styles.th}>{t('users.thStatus')}</th>
               <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}>{t('models.thActions')}</th>
             </tr>
@@ -198,13 +230,24 @@ export default function Models() {
                     <span style={styles.context}>{formatContext(m.context_window)}</span>
                   </td>
                   <td style={styles.td}>
+                    <span style={styles.pricingCell}>
+                      {m.pricing ? (
+                        m.pricing.pricing_mode === 'per_request'
+                          ? '按次计费'
+                          : <>{fmtPrice(m.pricing.prompt_price)} / {fmtPrice(m.pricing.completion_price)}</>
+                      ) : (
+                        <span style={{ color: '#D6D3D1' }}>未配置</span>
+                      )}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
                     <span style={{
                       ...styles.status,
-                      color: m.is_active ? '#22C55E' : '#EF4444',
+                      color: m.is_active ? '#22C55E' : '#A1A1AA',
                     }}>
                       <span style={{
                         ...styles.statusDot,
-                        backgroundColor: m.is_active ? '#22C55E' : '#EF4444',
+                        backgroundColor: m.is_active ? '#22C55E' : '#A1A1AA',
                       }} />
                       {m.is_active ? t('common.active') : t('common.inactive')}
                     </span>
@@ -225,7 +268,7 @@ export default function Models() {
             })}
             {!loading && models.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ ...styles.td, textAlign: 'center', color: '#A1A1AA', padding: '40px' }}>
+                <td colSpan={6} style={{ ...styles.td, textAlign: 'center', color: '#A1A1AA', padding: '40px' }}>
                   No models yet
                 </td>
               </tr>
@@ -241,6 +284,9 @@ export default function Models() {
           providerId={formProviderId} setProviderId={setFormProviderId}
           contextNum={formContextNum} setContextNum={setFormContextNum}
           contextUnit={formContextUnit} setContextUnit={setFormContextUnit}
+          promptPrice={formPromptPrice} setPromptPrice={setFormPromptPrice}
+          completionPrice={formCompletionPrice} setCompletionPrice={setFormCompletionPrice}
+          isActive={formIsActive} setIsActive={setFormIsActive}
           providers={providers}
           error={formError}
           t={t}
@@ -257,6 +303,9 @@ export default function Models() {
           providerId={formProviderId} setProviderId={setFormProviderId}
           contextNum={formContextNum} setContextNum={setFormContextNum}
           contextUnit={formContextUnit} setContextUnit={setFormContextUnit}
+          promptPrice={formPromptPrice} setPromptPrice={setFormPromptPrice}
+          completionPrice={formCompletionPrice} setCompletionPrice={setFormCompletionPrice}
+          isActive={formIsActive} setIsActive={setFormIsActive}
           providers={providers}
           error={formError}
           t={t}
@@ -301,6 +350,8 @@ const errorStyle: React.CSSProperties = {
 function ModelForm({
   name, setName, modelId, setModelId,
   providerId, setProviderId, contextNum, setContextNum, contextUnit, setContextUnit,
+  promptPrice, setPromptPrice, completionPrice, setCompletionPrice,
+  isActive, setIsActive,
   providers, error, t, onSubmit, onCancel, submitLabel,
 }: {
   name: string; setName: (v: string) => void;
@@ -308,6 +359,9 @@ function ModelForm({
   providerId: string; setProviderId: (v: string) => void;
   contextNum: string; setContextNum: (v: string) => void;
   contextUnit: string; setContextUnit: (v: string) => void;
+  promptPrice: string; setPromptPrice: (v: string) => void;
+  completionPrice: string; setCompletionPrice: (v: string) => void;
+  isActive: boolean; setIsActive: (v: boolean) => void;
   providers: AdminProvider[];
   error: string;
   t: (key: string, params?: Record<string, string | number>) => string;
@@ -373,6 +427,50 @@ function ModelForm({
             <option value="M">M</option>
           </select>
         </div>
+      </div>
+      <div style={formStyles.field}>
+        <label style={formStyles.label}>Price (¥ / token)</label>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            type="text"
+            value={promptPrice}
+            onChange={(e) => setPromptPrice(e.target.value)}
+            placeholder="Input price"
+            style={{ ...formStyles.input, flex: 1 }}
+          />
+          <input
+            type="text"
+            value={completionPrice}
+            onChange={(e) => setCompletionPrice(e.target.value)}
+            placeholder="Output price"
+            style={{ ...formStyles.input, flex: 1 }}
+          />
+        </div>
+      </div>
+      <div style={formStyles.field}>
+        <label style={formStyles.label}>Status</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px',
+          border: `1.5px solid ${isActive ? '#22C55E' : '#E7E5E4'}`,
+          borderRadius: '8px', backgroundColor: isActive ? '#F0FDF4' : '#FAFAFA',
+          transition: 'all 0.15s ease' }}>
+          <div style={{
+            width: '36px', height: '20px', borderRadius: '10px',
+            backgroundColor: isActive ? '#22C55E' : '#D4D4D8',
+            position: 'relative', transition: 'background 0.2s ease', flexShrink: 0
+          }}>
+            <div style={{
+              width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+              position: 'absolute', top: '2px',
+              left: isActive ? '18px' : '2px',
+              transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.15)'
+            }} />
+          </div>
+          <span style={{ fontSize: '13px', fontFamily: "'DM Sans', sans-serif", color: isActive ? '#16A34A' : '#71717A' }}>
+            {isActive ? t('common.active') : t('common.inactive')}
+          </span>
+          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)}
+            style={{ display: 'none' }} />
+        </label>
       </div>
       <div style={formStyles.actions}>
         <button style={formStyles.cancelBtn} onClick={onCancel}>{t('common.cancel')}</button>
@@ -506,6 +604,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "'DM Sans', sans-serif",
   },
   context: { color: '#71717A', fontSize: '12px' },
+  pricingCell: { color: '#71717A', fontSize: '11px', fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' },
   status: {
     display: 'flex',
     alignItems: 'center',

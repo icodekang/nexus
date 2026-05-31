@@ -127,6 +127,7 @@ export const en = {
     thModel: 'Model',
     thProvider: 'Provider',
     thContext: 'Context',
+    thPricing: 'Pricing',
     thActions: 'Actions',
     nameLabel: 'Model Name',
     namePlaceholder: 'e.g. GPT-4o',

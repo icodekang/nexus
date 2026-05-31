@@ -327,6 +327,16 @@ pub async fn charge_tokens(
                 cache_read_tokens,
             );
 
+            tracing::info!(
+                "Billing: user={user_id} model={model_slug} provider={provider_slug} input={input_tokens} output={output_tokens} cost={cost}",
+                user_id = user_id,
+                model_slug = model_slug,
+                provider_slug = provider_slug,
+                input_tokens = input_tokens,
+                output_tokens = output_tokens,
+                cost = breakdown.total,
+            );
+
             // 扣减余额
             if let Err(e) = state.db.deduct_balance(user_id, breakdown.total).await {
                 tracing::warn!("Failed to deduct balance for user {}: {:?}", user_id, e);
@@ -360,7 +370,11 @@ pub async fn charge_tokens(
             (breakdown, key_source.to_string())
         }
         Ok(None) => {
-            tracing::warn!("No pricing found for model: {}", model_slug);
+            tracing::warn!(
+                "No pricing found for model: {model} (user={user}), charge recorded as free",
+                model = model_slug,
+                user = user_id,
+            );
             (CostBreakdown::default(), key_source.to_string())
         }
         Err(e) => {

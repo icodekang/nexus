@@ -245,6 +245,16 @@ export async function deleteProvider(id: string): Promise<{ deleted: boolean }> 
  * AdminModel - 模型配置信息
  * @description 包含模型的配置、能力描述和状态
  */
+export interface AdminModelPricing {
+  prompt_price?: string;
+  completion_price?: string;
+  image_price?: string | null;
+  reasoning_price?: string | null;
+  cache_read_price?: string | null;
+  request_price?: string | null;
+  pricing_mode?: string;
+}
+
 export interface AdminModel {
   id: string;
   provider_id: string;
@@ -255,6 +265,7 @@ export interface AdminModel {
   capabilities: string[];
   is_active: boolean;
   created_at: string;
+  pricing?: AdminModelPricing;
 }
 
 /**
@@ -277,7 +288,7 @@ export async function fetchModels(): Promise<ModelsResponse> {
  * @param data - 模型配置（服务商 ID、名称、slug、模型 ID 等）
  * @returns 创建的模型信息
  */
-export async function createModel(data: { provider_id: string; name: string; model_id: string; mode?: string; context_window?: number; capabilities?: string[] }): Promise<AdminModel> {
+export async function createModel(data: { provider_id: string; name: string; model_id: string; mode?: string; context_window?: number; capabilities?: string[]; prompt_price?: number; completion_price?: number }): Promise<AdminModel> {
   return request<AdminModel>('/admin/models', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -290,7 +301,7 @@ export async function createModel(data: { provider_id: string; name: string; mod
  * @param data - 要更新的字段
  * @returns 更新是否成功
  */
-export async function updateModel(id: string, data: { name?: string; model_id?: string; provider_id?: string; context_window?: number; capabilities?: string[]; is_active?: boolean }): Promise<{ updated: boolean }> {
+export async function updateModel(id: string, data: { name?: string; model_id?: string; provider_id?: string; context_window?: number; capabilities?: string[]; is_active?: boolean; prompt_price?: number; completion_price?: number }): Promise<{ updated: boolean }> {
   return request<{ updated: boolean }>(`/admin/models/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),

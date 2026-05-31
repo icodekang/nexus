@@ -10,8 +10,8 @@ use crate::config::{AuthConfig, ProviderConfig, ProviderRegistry};
 use crate::error::ProviderError;
 use crate::providers::get_registry;
 use crate::types::{
-    ChatRequest as ProviderChatRequest, ChatResponse, EmbeddingsRequest, EmbeddingsResponse,
-    ProviderType,
+    ChatChunk, ChatRequest as ProviderChatRequest, ChatResponse, EmbeddingsRequest,
+    EmbeddingsResponse, ProviderType,
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -37,14 +37,6 @@ pub trait ProviderClient: Send + Sync {
         &self,
         request: EmbeddingsRequest,
     ) -> Result<EmbeddingsResponse, ProviderError>;
-}
-
-/// Chat chunk for streaming
-#[derive(Debug, Clone)]
-pub struct ChatChunk {
-    pub delta: String,
-    pub finished: bool,
-    pub finish_reason: Option<String>,
 }
 
 /// Generic HTTP provider client
@@ -283,6 +275,7 @@ impl HttpProviderClient {
                     let _ = tx.send(ChatChunk {
                         delta: chunk.delta,
                         finished: chunk.finished,
+                        usage: None,
                         finish_reason: chunk.finish_reason,
                     });
                     if finished {

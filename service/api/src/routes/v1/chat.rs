@@ -243,7 +243,7 @@ pub async fn chat_completions(
         let _ = tx.send(Ok(Event::default().data("{\"status\":\"connected\"}")));
 
         tokio::spawn(async move {
-            let total_output_tokens: i32 = 0;
+            let total_output_tokens = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
             let mut used_key_id: Option<uuid::Uuid> = None;
             let mut used_provider = provider_clone.clone();
             let estimated_input_tokens = req_template
@@ -306,8 +306,10 @@ pub async fn chat_completions(
 
                         let tx_clone = tx.clone();
                         let model_name_clone = model_name.clone();
+                        let tokens_clone = total_output_tokens.clone();
                         let forward_handle = tokio::spawn(async move {
                             while let Some(chunk) = stream_rx.recv().await {
+                                tokens_clone.fetch_add((chunk.delta.len() as i32 / 4).max(1), std::sync::atomic::Ordering::Relaxed);
                                 let event = if chunk.finished {
                                     let chat_chunk =
                                         models::ChatChunk::new(&model_name_clone, "", true);
@@ -379,8 +381,11 @@ pub async fn chat_completions(
                 &model_slug_clone,
                 "chat",
                 estimated_input_tokens,
-                total_output_tokens,
+                total_output_tokens.load(std::sync::atomic::Ordering::Relaxed),
                 latency_ms,
+                used_key_id,
+                None,
+                false,
             )
             .await;
         });
@@ -511,6 +516,9 @@ pub async fn chat_completions(
                 prompt_tokens,
                 completion_tokens,
                 latency_ms,
+                key_id,
+                None,
+                false,
             )
             .await;
         }
@@ -532,9 +540,9 @@ fn add_rate_limit_headers(response: &mut Response, limit: i64, remaining: i64, r
     headers.insert("X-RateLimit-Reset", reset.to_string().parse().unwrap());
 }
 
-/// 记录 API 调用到数据库
+/// 记录 API 调用到数据库，同时扣费
 async fn log_api_call(
-    state: &AppState,
+    state: &Arc<AppState>,
     auth: &AuthContext,
     provider_id: &str,
     model_id: &str,
@@ -542,6 +550,9 @@ async fn log_api_call(
     input_tokens: i32,
     output_tokens: i32,
     latency_ms: i32,
+    provider_key_id: Option<uuid::Uuid>,
+    user_provider_key_id: Option<uuid::Uuid>,
+    is_user_key: bool,
 ) {
     use uuid::Uuid;
 
@@ -555,9 +566,31 @@ async fn log_api_call(
     .with_tokens(input_tokens, output_tokens)
     .with_latency(latency_ms);
 
+    let api_log_id = log.id;
+    let generation_id = Uuid::new_v4();
+
     if let Err(e) = state.db.create_api_log(&log).await {
         tracing::error!("Failed to create API log: {}", e);
     }
+
+    let is_free = !is_user_key && provider_key_id.is_none();
+    super::shared::charge_tokens(
+        state,
+        auth.user.id,
+        generation_id,
+        model_id,
+        provider_id,
+        api_log_id,
+        is_free,
+        provider_key_id,
+        user_provider_key_id,
+        input_tokens,
+        output_tokens,
+        0,
+        0,
+        0,
+    )
+    .await;
 }
 
 /// POST /v1/completions
@@ -638,6 +671,9 @@ pub async fn embeddings(
         total_tokens,
         0,
         latency_ms,
+        None,
+        None,
+        false,
     )
     .await;
 

@@ -410,3 +410,284 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* =============================================
+   Usage Chart
+   ============================================= */
+.usage-chart-container {
+  background: #fff;
+  border: 1px solid #F0F0F0;
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.usage-chart-wrapper {
+  width: 100%;
+}
+
+.usage-chart-wrapper {
+  width: 100%;
+}
+
+.usage-chart-container-inner {
+  position: relative;
+}
+
+.usage-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-tooltip-popup {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 10px 14px;
+  background: rgba(245, 245, 244, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.chart-tooltip-popup {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 10px 14px;
+  background: #FFFFFF;
+  border: 1px solid #E7E5E4;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  z-index: 10;
+  pointer-events: none;
+  min-width: 140px;
+}
+
+.chart-tooltip-model-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1px 0;
+}
+
+.chart-tooltip-model-name {
+  font-size: 11px;
+  color: #A8A29E;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.chart-tooltip-model-cost {
+  font-size: 11px;
+  color: #78716C;
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-divider {
+  height: 1px;
+  background: #E7E5E4;
+  margin: 4px 0;
+}
+
+.chart-tooltip-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chart-tooltip-total-label {
+  font-size: 11px;
+  color: #78716C;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+}
+
+.chart-tooltip-total-cost {
+  font-size: 11px;
+  color: #1C1917;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-date {
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chart-tooltip-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  font-family: 'DM Sans', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chart-tooltip-tokens {
+  font-size: 14px;
+  font-weight: 600;
+  color: #A5B4FC;
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-cost {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6EE7B7;
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-tokens {
+  font-size: 13px;
+  font-weight: 500;
+  color: #78716C;
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-date {
+  font-size: 11px;
+  color: #57534E;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chart-tooltip-label {
+  font-size: 10px;
+  color: #78716C;
+  font-family: 'DM Sans', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* =============================================
+   Orders List
+   ============================================= */
+.orders-list-container {
+  background: #fff;
+  border: 1px solid #F0F0F0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.orders-list {
+  max-height: 420px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #D4D4D8 transparent;
+}
+
+.orders-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.orders-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.orders-list::-webkit-scrollbar-thumb {
+  background: #D4D4D8;
+  border-radius: 10px;
+}
+
+.order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 20px;
+  border-bottom: 1px solid #F5F5F4;
+  transition: background 0.12s ease;
+}
+
+.order-row:last-child {
+  border-bottom: none;
+}
+
+.order-row:hover {
+  background: #FAFAF9;
+}
+
+.order-row-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.order-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #EEF2FF;
+  color: #6366F1;
+  flex-shrink: 0;
+}
+
+.order-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.order-id {
+  font-size: 12px;
+  font-weight: 500;
+  color: #52525B;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.order-time {
+  font-size: 11px;
+  color: #A1A1AA;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.order-row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.order-plan {
+  font-size: 12px;
+  color: #71717A;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.order-amount {
+  font-size: 13px;
+  font-weight: 500;
+  color: #10B981;
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+}

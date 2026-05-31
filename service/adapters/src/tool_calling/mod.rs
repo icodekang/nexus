@@ -2,9 +2,9 @@ pub mod defs;
 pub mod parser;
 pub mod prompt;
 
-use crate::client::{ChatChunk, ProviderClient};
+use crate::client::ProviderClient;
 use crate::error::ProviderError;
-use crate::types::{ChatRequest, ChatResponse, Message};
+use crate::types::{ChatChunk, ChatRequest, ChatResponse, Message};
 use async_trait::async_trait;
 use defs::ToolDef;
 use parser::{extract_tool_calls, ToolCall};
@@ -107,6 +107,7 @@ impl ToolCallMiddleware {
         let _ = tx.send(ChatChunk {
             delta: response.message.content.clone(),
             finished: true,
+            usage: None,
             finish_reason: Some("stop".to_string()),
         });
         Ok(())

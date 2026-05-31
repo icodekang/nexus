@@ -75,9 +75,9 @@ export default function Transactions() {
       ? transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0) / Math.max(1, transactions.filter((tx) => tx.amount > 0).length)
       : 0;
     return {
-      revenueToday: `$${revenueToday.toFixed(2)}`,
+      revenueToday: `¥${revenueToday.toFixed(2)}`,
       count: total,
-      avgOrder: `$${avgOrder.toFixed(2)}`,
+      avgOrder: `¥${avgOrder.toFixed(2)}`,
     };
   }, [transactions, total]);
 
@@ -141,7 +141,7 @@ export default function Transactions() {
               <th style={styles.th}>{t('transactions.thAmount')}</th>
               <th style={styles.th}>{t('transactions.thStatus')}</th>
               <th style={styles.th}>{t('transactions.thDate')}</th>
-              <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}></th>
+              <th style={{ ...styles.th, paddingRight: '20px', textAlign: 'right' }}>{t('transactions.thActions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -170,7 +170,7 @@ export default function Transactions() {
                     ...styles.amount,
                     color: tx.amount < 0 ? '#EF4444' : '#18181B',
                   }}>
-                    {tx.amount < 0 ? `-$${Math.abs(tx.amount)}` : `$${tx.amount}`}
+                    {tx.amount < 0 ? `-¥${Math.abs(tx.amount)}` : `¥${tx.amount}`}
                   </span>
                 </td>
                 <td style={styles.td}>
@@ -238,7 +238,7 @@ export default function Transactions() {
             <DetailRow label={t('transactions.detailUser')} value={detailTx.user_email} />
             <DetailRow label={t('transactions.detailType')} value={typeLabel(detailTx.transaction_type)} />
             <DetailRow label={t('transactions.detailPlan')} value={detailTx.plan || '-'} />
-            <DetailRow label={t('transactions.detailAmount')} value={detailTx.amount < 0 ? `-$${Math.abs(detailTx.amount)}` : `$${detailTx.amount}`} />
+            <DetailRow label={t('transactions.detailAmount')} value={detailTx.amount < 0 ? `-¥${Math.abs(detailTx.amount)}` : `¥${detailTx.amount}`} />
             <DetailRow label={t('transactions.detailStatus')} value={statusLabel(detailTx.status)} />
             <DetailRow label={t('transactions.detailDate')} value={detailTx.created_at.slice(0, 10)} />
             {detailTx.description && (

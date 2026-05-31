@@ -52,6 +52,7 @@ export interface Model {
   context_window: number;
   capabilities: string[];
   description: string | null;
+  is_key_configured?: boolean;
 }
 
 export interface ChatMessage {
@@ -201,6 +202,19 @@ export async function* streamChat(model: string, messages: ChatMessage[], sessio
   }
 }
 
+export interface DailyUsageItem {
+  day: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost: string;
+}
+
+export interface DailyModelUsage {
+  day: string;
+  models: Array<{ model: string; cost: string }>;
+  total_cost: string;
+}
+
 // ─── Balance & Packages ──────────────────────────────────────────────
 
 export async function fetchBalance() {
@@ -209,6 +223,14 @@ export async function fetchBalance() {
 
 export async function fetchUsage() {
   return request<UsageData>('/v1/me/usage');
+}
+
+export async function fetchDailyUsage() {
+  return request<{ data: DailyUsageItem[] }>('/v1/me/usage/daily');
+}
+
+export async function fetchDailyModelUsage() {
+  return request<{ data: DailyModelUsage[] }>('/v1/me/usage/daily/by-model');
 }
 
 export async function fetchCharges(page = 1, perPage = 20) {
@@ -224,6 +246,27 @@ export async function purchasePackage(packageId: string) {
     method: 'POST',
     body: JSON.stringify({ package_id: packageId }),
   });
+}
+
+export async function recharge(amount: number) {
+  return request<{ message: string; amount: number; balance: string }>('/v1/me/recharge', {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  });
+}
+
+export interface TransactionItem {
+  id: string;
+  type: string;
+  amount: number;
+  plan: string | null;
+  status: string;
+  description: string | null;
+  created_at: string;
+}
+
+export async function fetchTransactions() {
+  return request<{ data: TransactionItem[] }>('/v1/me/transactions');
 }
 
 // ─── API Keys ────────────────────────────────────────────────────────

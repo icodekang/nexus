@@ -127,6 +127,7 @@ export const zh = {
     thModel: '模型',
     thProvider: '服务商',
     thContext: '上下文',
+    thPricing: '计费标准',
     thActions: '操作',
     nameLabel: '模型名称',
     namePlaceholder: '例如 GPT-4o',

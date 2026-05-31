@@ -414,6 +414,10 @@ struct CreateModelRequest {
     capabilities: Option<Vec<String>>,
     /// 模型描述
     description: Option<String>,
+    /// 输入价格 (USD/token)
+    prompt_price: Option<f64>,
+    /// 输出价格 (USD/token)
+    completion_price: Option<f64>,
 }
 
 /// GET /admin/models
@@ -429,10 +433,19 @@ async fn list_models(
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to list models: {}", e)))?;
 
+    let pricings = state
+        .db
+        .list_model_pricing()
+        .await
+        .unwrap_or_default();
+    use std::collections::HashMap;
+    let pricing_map: HashMap<String, &models::ModelPricing> =
+        pricings.iter().map(|p| (p.model_slug.clone(), p)).collect();
+
     let data: Vec<serde_json::Value> = models
         .iter()
         .map(|m| {
-            serde_json::json!({
+            let mut entry = serde_json::json!({
                 "id": m.id.to_string(),
                 "provider_id": m.provider_id,
                 "name": m.name,
@@ -443,7 +456,19 @@ async fn list_models(
                 "description": m.description,
                 "is_active": m.is_active,
                 "created_at": m.created_at.to_rfc3339(),
-            })
+            });
+            if let Some(p) = pricing_map.get(&m.model_id) {
+                entry["pricing"] = serde_json::json!({
+                    "prompt_price": p.prompt_price,
+                    "completion_price": p.completion_price,
+                    "image_price": p.image_price,
+                    "reasoning_price": p.reasoning_price,
+                    "cache_read_price": p.cache_read_price,
+                    "request_price": p.request_price,
+                    "pricing_mode": p.pricing_mode.as_str(),
+                });
+            }
+            entry
         })
         .collect();
 
@@ -485,6 +510,30 @@ async fn create_model(
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to create model: {}", e)))?;
 
+    if let (Some(pp), Some(cp)) = (body.prompt_price, body.completion_price) {
+        if pp > 0.0 || cp > 0.0 {
+            let pricing = models::ModelPricing {
+                id: uuid::Uuid::new_v4(),
+                model_slug: model.model_id.clone(),
+                provider_slug: model.provider_id.clone(),
+                prompt_price: rust_decimal::Decimal::from_f64_retain(pp).unwrap_or_default(),
+                completion_price: rust_decimal::Decimal::from_f64_retain(cp).unwrap_or_default(),
+                image_price: None,
+                reasoning_price: None,
+                cache_read_price: None,
+                request_price: None,
+                pricing_mode: models::PricingMode::PerToken,
+                avg_tokens_per_request: 5000,
+                effective_from: chrono::Utc::now(),
+                effective_until: None,
+                is_active: true,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            };
+            let _ = state.db.upsert_model_pricing(&pricing).await;
+        }
+    }
+
     let _ = state.redis.invalidate_models_cache().await;
 
     Ok(Json(serde_json::json!({
@@ -511,6 +560,8 @@ struct UpdateModelRequest {
     capabilities: Option<Vec<String>>,
     description: Option<String>,
     is_active: Option<bool>,
+    prompt_price: Option<f64>,
+    completion_price: Option<f64>,
 }
 
 /// PUT /admin/models/:id
@@ -541,6 +592,35 @@ async fn update_model(
         )
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to update model: {}", e)))?;
+
+    // Update pricing if provided
+    if body.prompt_price.is_some() || body.completion_price.is_some() {
+        if let Ok(models) = state.db.list_all_models().await {
+            if let Some(m) = models.iter().find(|m| m.id == model_id) {
+                let pp = body.prompt_price.unwrap_or(0.0);
+                let cp = body.completion_price.unwrap_or(0.0);
+                let pricing = models::ModelPricing {
+                    id: uuid::Uuid::new_v4(),
+                    model_slug: m.model_id.clone(),
+                    provider_slug: m.provider_id.clone(),
+                    prompt_price: rust_decimal::Decimal::from_f64_retain(pp).unwrap_or_default(),
+                    completion_price: rust_decimal::Decimal::from_f64_retain(cp).unwrap_or_default(),
+                    image_price: None,
+                    reasoning_price: None,
+                    cache_read_price: None,
+                    request_price: None,
+                    pricing_mode: models::PricingMode::PerToken,
+                    avg_tokens_per_request: 5000,
+                    effective_from: chrono::Utc::now(),
+                    effective_until: None,
+                    is_active: true,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                };
+                let _ = state.db.upsert_model_pricing(&pricing).await;
+            }
+        }
+    }
 
     let _ = state.redis.invalidate_models_cache().await;
 

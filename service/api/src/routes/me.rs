@@ -17,9 +17,13 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/balance", get(get_balance))
         .route("/usage", get(usage))
+        .route("/usage/daily", get(daily_usage))
+        .route("/usage/daily/by-model", get(daily_usage_by_model))
         .route("/charges", get(list_charges))
         .route("/packages", get(list_packages))
         .route("/purchase", post(purchase_package))
+        .route("/recharge", post(recharge))
+        .route("/transactions", get(list_transactions))
         .route("/keys", get(list_keys).post(create_key))
         .route("/keys/:key_id", delete(delete_key))
         .route("/provider-keys", get(list_provider_keys).post(create_provider_key))
@@ -91,6 +95,65 @@ async fn usage(
             "output_tokens": u.output_tokens,
         })).collect::<Vec<_>>(),
     })))
+}
+
+/// GET /v1/me/usage/daily - 最近7天每日消费
+async fn daily_usage(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let days = 7;
+    let charges = state
+        .db
+        .get_daily_charges(auth.user.id, days)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get daily charges: {}", e)))?;
+
+    let mut filled: Vec<serde_json::Value> = Vec::new();
+    for i in (0..days).rev() {
+        let date = chrono::Utc::now().date_naive() - chrono::Duration::days(i as i64);
+        let charge = charges.iter().find(|c| c.day == date);
+        filled.push(serde_json::json!({
+            "day": date.format("%Y-%m-%d").to_string(),
+            "input_tokens": charge.map(|c| c.input_tokens).unwrap_or(0),
+            "output_tokens": charge.map(|c| c.output_tokens).unwrap_or(0),
+            "total_cost": charge.map(|c| c.total_cost).unwrap_or(rust_decimal::Decimal::ZERO),
+        }));
+    }
+
+    Ok(Json(serde_json::json!({ "data": filled })))
+}
+
+/// GET /v1/me/usage/daily/by-model - 最近7天每日按模型分组消费
+async fn daily_usage_by_model(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let days = 7;
+    let charges = state
+        .db
+        .get_daily_charges_by_model(auth.user.id, days)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to get daily model charges: {}", e)))?;
+
+    let mut result: Vec<serde_json::Value> = Vec::new();
+    for i in (0..days).rev() {
+        let date = chrono::Utc::now().date_naive() - chrono::Duration::days(i as i64);
+        let day_str = date.format("%Y-%m-%d").to_string();
+        let day_charges: Vec<_> = charges.iter().filter(|c| c.day == date).collect();
+        let models: Vec<_> = day_charges.iter().map(|c| serde_json::json!({
+            "model": c.model_slug,
+            "cost": c.total_cost,
+        })).collect();
+        let total: rust_decimal::Decimal = day_charges.iter().map(|c| c.total_cost).sum();
+        result.push(serde_json::json!({
+            "day": day_str,
+            "models": models,
+            "total_cost": total,
+        }));
+    }
+
+    Ok(Json(serde_json::json!({ "data": result })))
 }
 
 // ─── 消费明细 ───────────────────────────────────────────────────────
@@ -191,6 +254,72 @@ async fn purchase_package(
         "message": "Purchase successful",
         "credits_added": total,
         "balance": balance.balance,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct RechargeRequest {
+    amount: f64,
+}
+
+/// POST /v1/me/recharge — 直接充值（跳过支付）
+async fn recharge(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+    Json(req): Json<RechargeRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if req.amount <= 0.0 {
+        return Err(ApiError::InvalidRequest("Amount must be positive".to_string()));
+    }
+    if req.amount > 10000.0 {
+        return Err(ApiError::InvalidRequest("Amount exceeds maximum".to_string()));
+    }
+
+    let amount = rust_decimal::Decimal::from_f64_retain(req.amount)
+        .unwrap_or(rust_decimal::Decimal::ZERO);
+    state.db.add_balance(auth.user.id, amount).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    let tx = models::Transaction::new(
+        auth.user.id,
+        models::TransactionType::TokenPurchase,
+        req.amount,
+    )
+    .with_plan("直接充值".to_string())
+    .with_description(format!("Recharged ${:.2}", req.amount));
+    let _ = state.db.create_transaction(&tx).await;
+
+    let balance = state.db.get_user_balance(auth.user.id).await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Recharge successful",
+        "amount": req.amount,
+        "balance": balance.balance,
+    })))
+}
+
+/// GET /v1/me/transactions
+async fn list_transactions(
+    State(state): State<Arc<AppState>>,
+    Extension(auth): Extension<AuthContext>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let txs = state
+        .db
+        .list_transactions(auth.user.id, 50)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "data": txs.iter().map(|tx| serde_json::json!({
+            "id": tx.id,
+            "type": tx.transaction_type.as_str(),
+            "amount": tx.amount,
+            "plan": tx.plan,
+            "status": tx.status.as_str(),
+            "description": tx.description,
+            "created_at": tx.created_at.to_rfc3339(),
+        })).collect::<Vec<_>>(),
     })))
 }
 

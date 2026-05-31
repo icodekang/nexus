@@ -73,12 +73,27 @@ pub async fn list_models(
     };
 
     // Convert to ModelWithProvider
+    // Check which providers have active system keys
+    let system_keys = state
+        .db
+        .list_provider_keys()
+        .await
+        .unwrap_or_default();
+    let providers_with_keys: std::collections::HashSet<String> = system_keys
+        .iter()
+        .filter(|k| k.is_active)
+        .map(|k| k.provider_slug.clone())
+        .collect();
+
     let models_with_providers: Vec<ModelWithProvider> = all_models
         .iter()
         .filter_map(|m| {
             provider_map
                 .get(&m.provider_id)
-                .map(|p| ModelWithProvider::from_model(m, p))
+                .map(|p| {
+                    let configured = providers_with_keys.contains(&m.provider_id);
+                    ModelWithProvider::from_model(m, p).with_key_configured(configured)
+                })
         })
         .collect();
 
