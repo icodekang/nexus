@@ -447,6 +447,38 @@ impl PostgresPool {
         Ok(())
     }
 
+    pub async fn list_all_user_provider_keys_with_users(
+        &self,
+    ) -> Result<Vec<(UserProviderKey, String)>, DbError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT upk.*, u.email as user_email
+            FROM user_provider_keys upk
+            JOIN users u ON upk.user_id = u.id
+            ORDER BY upk.created_at DESC
+            "#,
+        )
+        .fetch_all(self.inner())
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let upk = self.row_to_user_provider_key(r);
+                let user_email: String = r.get("user_email");
+                (upk, user_email)
+            })
+            .collect())
+    }
+
+    pub async fn admin_delete_user_provider_key(&self, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM user_provider_keys WHERE id = $1")
+            .bind(id)
+            .execute(self.inner())
+            .await?;
+        Ok(())
+    }
+
     fn row_to_user_provider_key(&self, row: &PgRow) -> UserProviderKey {
         UserProviderKey {
             id: row.get("id"),

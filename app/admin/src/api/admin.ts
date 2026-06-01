@@ -486,6 +486,9 @@ export interface UserApiKey {
   is_active: boolean;
   last_used_at: string | null;
   created_at: string;
+  key_type: 'api_key' | 'provider_key';
+  provider_slug?: string;
+  priority_level?: string;
 }
 
 /**
@@ -512,10 +515,14 @@ export async function fetchUserApiKeys(userId?: string, userEmail?: string): Pro
 /**
  * deleteUserApiKey - 删除用户 API 密钥
  * @param id - 密钥 ID
+ * @param keyType - 可选，密钥类型 ("provider_key" 表示 BYOK 厂商密钥)
  * @returns 删除是否成功
  */
-export async function deleteUserApiKey(id: string): Promise<{ deleted: boolean }> {
-  return request<{ deleted: boolean }>(`/admin/user-keys/${id}`, {
+export async function deleteUserApiKey(id: string, keyType?: string): Promise<{ deleted: boolean }> {
+  const params = new URLSearchParams();
+  if (keyType) params.set('key_type', keyType);
+  const query = params.toString();
+  return request<{ deleted: boolean }>(`/admin/user-keys/${id}${query ? `?${query}` : ''}`, {
     method: 'DELETE',
   });
 }

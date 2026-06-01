@@ -33,56 +33,128 @@ use models::{
 use provider_client::{
     ChatChunk as ProviderChatChunk, ChatRequest as ProviderChatRequest,
     HttpProviderClient, Message as ProviderMessage, ProviderClient, ProviderClientFactory,
-    ProviderError,
 };
 use router::key_scheduler::SelectedKey;
 
 /// 会话亲和性 Header
 const SESSION_HEADER: &str = "x-session-id";
 
-/// 选择 Provider 的 API Key（支持会话亲和性）
-///
-/// 如果提供 session_id，调度器会尽量为同一会话选择相同的 Key
-/// 这样可以提高用户体验（会话一致性）
-async fn select_provider_key(
-    state: &Arc<AppState>,
-    provider_slug: &str,
-    session_id: Option<&str>,
-) -> Result<Option<SelectedKey>, ApiError> {
-    let mut scheduler = state.key_scheduler.write().await;
-    scheduler.tick();
-    match session_id {
-        Some(sid) => Ok(scheduler.select_key_for_session(provider_slug, sid)),
-        None => Ok(scheduler.select_key_no_session(provider_slug)),
-    }
+/// Key selection result combining BYOK and system keys.
+struct ChatKeySelection {
+    is_user_key: bool,
+    user_provider_key_id: Option<uuid::Uuid>,
+    selected: Option<SelectedKey>,
+    decrypted_user_key: Option<String>,
+    user_base_url: String,
 }
 
-/// 从选中的 Key 创建 Provider 客户端
-///
-/// 同时返回 key_id 以便调用者记录成功/失败
-fn create_client_with_key(
+/// Select a chat key with BYOK priority: user prioritized > system > user fallback.
+async fn select_chat_key(
+    state: &Arc<AppState>,
+    user_id: uuid::Uuid,
     provider_slug: &str,
-    selected: Option<SelectedKey>,
+    session_id: Option<&str>,
+) -> Result<ChatKeySelection, ApiError> {
+    let user_keys = state
+        .db
+        .list_user_provider_keys_by_provider(user_id, provider_slug)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    let prioritized: Vec<_> = user_keys
+        .iter()
+        .filter(|k| k.priority_level == models::PriorityLevel::Prioritized)
+        .collect();
+
+    if !prioritized.is_empty() {
+        let uk = prioritized[0];
+        let decrypted = db::decrypt_api_key(&uk.api_key_encrypted)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Key decrypt failed: {}", e)))?;
+        return Ok(ChatKeySelection {
+            is_user_key: true,
+            user_provider_key_id: Some(uk.id),
+            selected: None,
+            decrypted_user_key: Some(decrypted),
+            user_base_url: uk.base_url.clone(),
+        });
+    }
+
+    let system_selected = {
+        let mut scheduler = state.key_scheduler.write().await;
+        scheduler.tick();
+        match session_id {
+            Some(sid) => scheduler.select_key_for_session(provider_slug, sid),
+            None => scheduler.select_key_no_session(provider_slug),
+        }
+    };
+
+    if let Some(sk) = system_selected {
+        return Ok(ChatKeySelection {
+            is_user_key: false,
+            user_provider_key_id: None,
+            selected: Some(sk),
+            decrypted_user_key: None,
+            user_base_url: String::new(),
+        });
+    }
+
+    let fallback: Vec<_> = user_keys
+        .iter()
+        .filter(|k| k.priority_level == models::PriorityLevel::Fallback)
+        .collect();
+
+    if let Some(uk) = fallback.first() {
+        let decrypted = db::decrypt_api_key(&uk.api_key_encrypted)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Key decrypt failed: {}", e)))?;
+        return Ok(ChatKeySelection {
+            is_user_key: true,
+            user_provider_key_id: Some(uk.id),
+            selected: None,
+            decrypted_user_key: Some(decrypted),
+            user_base_url: uk.base_url.clone(),
+        });
+    }
+
+    Ok(ChatKeySelection {
+        is_user_key: false,
+        user_provider_key_id: None,
+        selected: None,
+        decrypted_user_key: None,
+        user_base_url: String::new(),
+    })
+}
+
+/// Create a provider client from a ChatKeySelection.
+fn create_client_from_selection(
+    provider_slug: &str,
+    selection: &ChatKeySelection,
 ) -> Result<(Arc<dyn ProviderClient>, Option<uuid::Uuid>), ApiError> {
-    match selected {
-        Some(sk) => {
-            let decrypted_key = db::decrypt_api_key(&sk.key.api_key_encrypted).map_err(|e| {
-                ApiError::ProviderError(format!("Failed to decrypt provider key: {}", e))
-            })?;
-            let client = HttpProviderClient::new_with_decrypted_key(
-                provider_slug,
-                &decrypted_key,
-                sk.key.id,
-            )
+    if selection.is_user_key {
+        let dk = selection.decrypted_user_key.as_ref()
+            .ok_or_else(|| ApiError::ProviderError("Missing user key".to_string()))?;
+        let base_url = if selection.user_base_url.is_empty() {
+            provider_slug.to_string()
+        } else {
+            selection.user_base_url.clone()
+        };
+        let client = HttpProviderClient::new_with_decrypted_key(
+            &base_url, dk, selection.user_provider_key_id.unwrap(),
+        )
+        .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
+        Ok((Arc::new(client), selection.user_provider_key_id))
+    } else if let Some(sk) = &selection.selected {
+        let decrypted_key = db::decrypt_api_key(&sk.key.api_key_encrypted).map_err(|e| {
+            ApiError::ProviderError(format!("Failed to decrypt provider key: {}", e))
+        })?;
+        let client = HttpProviderClient::new_with_decrypted_key(
+            provider_slug, &decrypted_key, sk.key.id,
+        )
+        .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
+        Ok((Arc::new(client), Some(sk.key.id)))
+    } else {
+        let client = HttpProviderClient::new(provider_slug)
             .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
-            Ok((Arc::new(client), Some(sk.key.id)))
-        }
-        None => {
-            // Fallback to env-based key (legacy mode — no load balancing)
-            let client = HttpProviderClient::new(provider_slug)
-                .map_err(|e| ApiError::ProviderError(format!("Failed to create client: {}", e)))?;
-            Ok((Arc::new(client), None))
-        }
+        Ok((Arc::new(client), None))
     }
 }
 
@@ -242,10 +314,13 @@ pub async fn chat_completions(
         // Send initial keepalive so client knows stream is alive
         let _ = tx.send(Ok(Event::default().data("{\"status\":\"connected\"}")));
 
+        let auth_user_id = auth.user.id;
         tokio::spawn(async move {
             let total_output_tokens = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
             let mut used_key_id: Option<uuid::Uuid> = None;
             let mut used_provider = provider_clone.clone();
+            let mut is_user_key = false;
+            let mut user_provider_key_id: Option<uuid::Uuid> = None;
             let estimated_input_tokens = req_template
                 .messages
                 .iter()
@@ -258,46 +333,35 @@ pub async fn chat_completions(
             for try_provider in &providers_to_try_clone {
                 req_template.provider = try_provider.clone();
 
-                let selected_key = {
-                    let mut scheduler = state_clone.key_scheduler.write().await;
-                    scheduler.tick();
-                    if try_provider == &provider_clone {
-                        session_id_clone
-                            .as_ref()
-                            .map(|sid| scheduler.select_key_for_session(try_provider, sid))
-                            .flatten()
-                    } else {
-                        scheduler.select_key_no_session(try_provider)
+                let session_to_use = if try_provider == &provider_clone {
+                    session_id_clone.as_deref()
+                } else {
+                    None
+                };
+
+                let chat_key = match select_chat_key(
+                    &state_clone,
+                    auth_user_id,
+                    try_provider,
+                    session_to_use,
+                )
+                .await
+                {
+                    Ok(ck) => ck,
+                    Err(e) => {
+                        tracing::warn!("Key selection failed for {}: {}", try_provider, e);
+                        continue;
                     }
                 };
 
-                let client_result = match &selected_key {
-                    Some(sk) => {
-                        used_key_id = Some(sk.key.id);
-                        let decrypted_key = db::decrypt_api_key(&sk.key.api_key_encrypted)
-                            .map_err(|e| ProviderError::ApiKeyNotSet(e.to_string()));
-                        match decrypted_key {
-                            Ok(dk) => HttpProviderClient::new_with_decrypted_key(
-                                try_provider,
-                                &dk,
-                                sk.key.id,
-                            )
-                            .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, Some(sk.key.id)))
-                            .map_err(|e| {
-                                ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
-                            }),
-                            Err(e) => Err(ApiError::Internal(anyhow::anyhow!(
-                                "Failed to decrypt key: {}",
-                                e
-                            ))),
-                        }
-                    }
-                    None => HttpProviderClient::new(try_provider)
-                        .map(|c| (Arc::new(c) as Arc<dyn ProviderClient>, None))
-                        .map_err(|e| {
-                            ApiError::Internal(anyhow::anyhow!("HTTP client error: {}", e))
-                        }),
-                };
+                is_user_key = chat_key.is_user_key;
+                user_provider_key_id = chat_key.user_provider_key_id;
+
+                let client_result = create_client_from_selection(try_provider, &chat_key)
+                    .map(|(c, kid)| {
+                        used_key_id = kid;
+                        (c, kid)
+                    });
 
                 match client_result {
                     Ok((client, _)) => {
@@ -342,21 +406,30 @@ pub async fn chat_completions(
                             }
                             Err(e) => {
                                 tracing::warn!("Streaming provider {} failed: {}", try_provider, e);
-                                if let Some(kid) = used_key_id {
-                                    let mut scheduler =
-                                        state_clone.key_scheduler.write().await;
-                                    scheduler.record_failure(try_provider, kid);
+                                if !is_user_key {
+                                    if let Some(kid) = used_key_id {
+                                        let mut scheduler =
+                                            state_clone.key_scheduler.write().await;
+                                        scheduler.record_failure(try_provider, kid);
+                                    }
                                 }
                                 used_key_id = None;
+                                is_user_key = false;
+                                user_provider_key_id = None;
                             }
                         }
                     }
-                    Err(_e) => {
-                        if let Some(kid) = used_key_id {
-                            let mut scheduler = state_clone.key_scheduler.write().await;
-                            scheduler.record_failure(try_provider, kid);
+                    Err(e) => {
+                        tracing::warn!("Client creation failed for {}: {}", try_provider, e);
+                        if !is_user_key {
+                            if let Some(kid) = used_key_id {
+                                let mut scheduler = state_clone.key_scheduler.write().await;
+                                scheduler.record_failure(try_provider, kid);
+                            }
                         }
                         used_key_id = None;
+                        is_user_key = false;
+                        user_provider_key_id = None;
                     }
                 }
             }
@@ -367,10 +440,12 @@ pub async fn chat_completions(
                     .data("{\"error\": \"All providers failed. Please try again later.\"}")));
             }
 
-            if let Some(kid) = used_key_id {
-                let latency_ms = start_time.elapsed().as_millis() as i32;
-                let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.record_success(&used_provider, kid, latency_ms as f64);
+            if !is_user_key {
+                if let Some(kid) = used_key_id {
+                    let latency_ms = start_time.elapsed().as_millis() as i32;
+                    let mut scheduler = state_clone.key_scheduler.write().await;
+                    scheduler.record_success(&used_provider, kid, latency_ms as f64);
+                }
             }
 
             let latency_ms = start_time.elapsed().as_millis() as i32;
@@ -384,8 +459,8 @@ pub async fn chat_completions(
                 total_output_tokens.load(std::sync::atomic::Ordering::Relaxed),
                 latency_ms,
                 used_key_id,
-                None,
-                false,
+                user_provider_key_id,
+                is_user_key,
             )
             .await;
         });
@@ -402,18 +477,27 @@ pub async fn chat_completions(
         Ok(response)
     } else {
         // =============================================================
-        // NON-STREAMING PATH — session-aware key scheduling
+        // NON-STREAMING PATH — BYOK-priority key selection with fallback
         // =============================================================
         let mut last_error = None;
         let mut provider_resp = None;
         let mut used_provider = provider_for_request.clone();
+        let mut is_user_key;
+        let mut user_provider_key_id;
+        let mut final_key_id;
 
-        let selected_key =
-            select_provider_key(&state, &provider_for_request, session_id.as_deref()).await?;
-        let (client, key_id) =
-            create_client_with_key(&provider_for_request, selected_key)?;
+        let chat_key = select_chat_key(
+            &state,
+            auth.user.id,
+            &provider_for_request,
+            session_id.as_deref(),
+        )
+        .await?;
+        is_user_key = chat_key.is_user_key;
+        user_provider_key_id = chat_key.user_provider_key_id;
+        let (client, key_id) = create_client_from_selection(&provider_for_request, &chat_key)?;
+        final_key_id = key_id;
 
-        // client is Arc<dyn ProviderClient> (already unwrapped from Result)
         let mut req = provider_request.clone();
         req.provider = used_provider.clone();
 
@@ -421,13 +505,17 @@ pub async fn chat_completions(
             Ok(resp) => {
                 provider_resp = Some(resp);
                 let latency_ms = start_time.elapsed().as_millis() as i32;
-                record_key_result(&state, &provider_for_request, key_id, latency_ms, true)
-                    .await;
+                if !is_user_key {
+                    record_key_result(&state, &provider_for_request, key_id, latency_ms, true)
+                        .await;
+                }
             }
             Err(e) => {
                 tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
                 last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
-                record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+                if !is_user_key {
+                    record_key_result(&state, &provider_for_request, key_id, 0, false).await;
+                }
             }
         }
 
@@ -438,8 +526,13 @@ pub async fn chat_completions(
                     continue;
                 }
 
-                let selected_key = select_provider_key(&state, try_provider, None).await?;
-                let (client, key_id) = create_client_with_key(try_provider, selected_key)?;
+                let chat_key =
+                    select_chat_key(&state, auth.user.id, try_provider, None).await?;
+                is_user_key = chat_key.is_user_key;
+                user_provider_key_id = chat_key.user_provider_key_id;
+                let (client, fb_key_id) =
+                    create_client_from_selection(try_provider, &chat_key)?;
+                final_key_id = fb_key_id;
 
                 let mut req = provider_request.clone();
                 req.provider = try_provider.clone();
@@ -448,13 +541,18 @@ pub async fn chat_completions(
                         provider_resp = Some(resp);
                         used_provider = try_provider.clone();
                         let latency_ms = start_time.elapsed().as_millis() as i32;
-                        record_key_result(&state, try_provider, key_id, latency_ms, true).await;
+                        if !is_user_key {
+                            record_key_result(&state, try_provider, fb_key_id, latency_ms, true)
+                                .await;
+                        }
                         break;
                     }
                     Err(e) => {
                         tracing::warn!("Fallback provider {} failed: {}", try_provider, e);
                         last_error = Some(ApiError::Internal(anyhow::anyhow!("{}", e)));
-                        record_key_result(&state, try_provider, key_id, 0, false).await;
+                        if !is_user_key {
+                            record_key_result(&state, try_provider, fb_key_id, 0, false).await;
+                        }
                     }
                 }
             }
@@ -516,9 +614,9 @@ pub async fn chat_completions(
                 prompt_tokens,
                 completion_tokens,
                 latency_ms,
-                key_id,
-                None,
-                false,
+                final_key_id,
+                user_provider_key_id,
+                is_user_key,
             )
             .await;
         }
@@ -573,7 +671,7 @@ async fn log_api_call(
         tracing::error!("Failed to create API log: {}", e);
     }
 
-    let is_free = !is_user_key && provider_key_id.is_none();
+    let is_free = is_user_key || provider_key_id.is_none();
     super::shared::charge_tokens(
         state,
         auth.user.id,

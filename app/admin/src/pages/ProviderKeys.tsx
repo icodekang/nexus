@@ -158,7 +158,7 @@ export default function ProviderKeys() {
   const handleDeleteUserKey = async () => {
     if (!deleteUserKeyTarget) return;
     try {
-      await deleteUserApiKey(deleteUserKeyTarget.id);
+      await deleteUserApiKey(deleteUserKeyTarget.id, deleteUserKeyTarget.key_type);
       setDeleteUserKeyTarget(null);
       loadUserKeys();
     } catch {
@@ -372,6 +372,7 @@ export default function ProviderKeys() {
             <thead>
               <tr>
                 <th style={styles.th}>{t('providerKeys.thUser')}</th>
+                <th style={styles.th}>{t('providerKeys.thType')}</th>
                 <th style={styles.th}>{t('providerKeys.thKeyName')}</th>
                 <th style={styles.th}>{t('providerKeys.thKey')}</th>
                 <th style={styles.th}>{t('providerKeys.thStatus')}</th>
@@ -382,12 +383,32 @@ export default function ProviderKeys() {
             </thead>
             <tbody>
               {userKeys.map((k) => (
-                <tr key={k.id} style={styles.tr}>
+                <tr key={`${k.key_type}-${k.id}`} style={styles.tr}>
                   <td style={styles.td}>
                     <div style={styles.userCell}>
                       <div style={styles.userAvatar}>{k.user_email.charAt(0).toUpperCase()}</div>
                       <span style={styles.userEmail}>{k.user_email}</span>
                     </div>
+                  </td>
+                  <td style={styles.td}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      color: k.key_type === 'provider_key' ? '#7C3AED' : '#0EA5E9',
+                      backgroundColor: k.key_type === 'provider_key' ? 'rgba(124, 58, 237, 0.08)' : 'rgba(14, 165, 233, 0.08)',
+                    }}>
+                      {k.key_type === 'provider_key' ? t('providerKeys.byokKey') : t('providerKeys.nexusKey')}
+                    </span>
+                    {k.provider_slug && (
+                      <div style={{ fontSize: '11px', color: '#A1A1AA', marginTop: '2px' }}>
+                        {k.provider_slug}
+                      </div>
+                    )}
                   </td>
                   <td style={styles.td}>
                     <span style={styles.keyName}>{k.name || t('providerKeys.unnamed')}</span>

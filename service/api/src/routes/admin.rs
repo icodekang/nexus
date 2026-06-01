@@ -881,26 +881,32 @@ async fn list_user_api_keys(
     Extension(_auth): Extension<AuthContext>,
     Query(query): Query<UserApiKeyQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let keys =
+    let api_keys =
         state.db.list_all_api_keys_with_users().await.map_err(|e| {
             ApiError::Internal(anyhow::anyhow!("Failed to list user API keys: {}", e))
         })?;
 
-    let data: Vec<serde_json::Value> = keys
-        .iter()
-        .filter(|(k, email)| {
-            let matches_user_id = query
-                .user_id
-                .as_ref()
-                .map_or(true, |uid| k.user_id.to_string() == *uid);
-            let matches_email = query
-                .user_email
-                .as_ref()
-                .map_or(true, |em| email.contains(em));
-            matches_user_id && matches_email
-        })
-        .map(|(k, email)| {
-            serde_json::json!({
+    let provider_keys = state
+        .db
+        .list_all_user_provider_keys_with_users()
+        .await
+        .map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("Failed to list user provider keys: {}", e))
+        })?;
+
+    let mut data: Vec<serde_json::Value> = Vec::new();
+
+    for (k, email) in &api_keys {
+        let matches_user_id = query
+            .user_id
+            .as_ref()
+            .map_or(true, |uid| k.user_id.to_string() == *uid);
+        let matches_email = query
+            .user_email
+            .as_ref()
+            .map_or(true, |em| email.contains(em));
+        if matches_user_id && matches_email {
+            data.push(serde_json::json!({
                 "id": k.id.to_string(),
                 "user_id": k.user_id.to_string(),
                 "user_email": email,
@@ -909,26 +915,73 @@ async fn list_user_api_keys(
                 "is_active": k.is_active,
                 "last_used_at": k.last_used_at,
                 "created_at": k.created_at.to_rfc3339(),
-            })
-        })
-        .collect();
+                "key_type": "api_key",
+            }));
+        }
+    }
+
+    for (k, email) in &provider_keys {
+        let matches_user_id = query
+            .user_id
+            .as_ref()
+            .map_or(true, |uid| k.user_id.to_string() == *uid);
+        let matches_email = query
+            .user_email
+            .as_ref()
+            .map_or(true, |em| email.contains(em));
+        if matches_user_id && matches_email {
+            data.push(serde_json::json!({
+                "id": k.id.to_string(),
+                "user_id": k.user_id.to_string(),
+                "user_email": email,
+                "name": k.name,
+                "key_prefix": k.api_key_prefix,
+                "provider_slug": k.provider_slug,
+                "priority_level": serde_json::to_value(&k.priority_level).unwrap_or_default(),
+                "is_active": k.is_active,
+                "last_used_at": null,
+                "created_at": k.created_at.to_rfc3339(),
+                "key_type": "provider_key",
+            }));
+        }
+    }
+
+    data.sort_by(|a, b| {
+        b.get("created_at")
+            .and_then(|v| v.as_str())
+            .cmp(&a.get("created_at").and_then(|v| v.as_str()))
+    });
 
     Ok(Json(serde_json::json!({ "data": data })))
+}
+
+#[derive(Debug, Deserialize)]
+struct DeleteUserKeyQuery {
+    key_type: Option<String>,
 }
 
 async fn delete_user_api_key(
     State(state): State<Arc<AppState>>,
     Extension(_auth): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(query): Query<DeleteUserKeyQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let key_id =
         Uuid::parse_str(&id).map_err(|_| ApiError::InvalidRequest("Invalid key ID".to_string()))?;
 
-    state
-        .db
-        .delete_api_key(key_id)
-        .await
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete API key")))?;
+    if query.key_type.as_deref() == Some("provider_key") {
+        state
+            .db
+            .admin_delete_user_provider_key(key_id)
+            .await
+            .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete user provider key")))?;
+    } else {
+        state
+            .db
+            .delete_api_key(key_id)
+            .await
+            .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to delete API key")))?;
+    }
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

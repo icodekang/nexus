@@ -3,6 +3,7 @@ import { streamChat, type ChatMessage } from '../api/client';
 
 const CONVERSATIONS_KEY = 'nexus_conversations';
 const ACTIVE_ID_KEY = 'nexus_active_conversation';
+const SELECTED_MODEL_KEY = 'nexus_selected_model';
 
 export interface Message {
   id: string;
@@ -47,6 +48,18 @@ function saveActiveId(id: string | null) {
   }
 }
 
+function loadSelectedModelId(): string | null {
+  return localStorage.getItem(SELECTED_MODEL_KEY);
+}
+
+function saveSelectedModelId(id: string | null) {
+  if (id) {
+    localStorage.setItem(SELECTED_MODEL_KEY, id);
+  } else {
+    localStorage.removeItem(SELECTED_MODEL_KEY);
+  }
+}
+
 let idCounter = Date.now();
 function genId(): string {
   return (++idCounter).toString(36);
@@ -78,7 +91,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     conversations: persisted,
     activeConversationId: persisted.length > 0 ? activeId : null,
     isStreaming: false,
-    selectedModelId: null,
+    selectedModelId: loadSelectedModelId(),
 
     createConversation: (modelId) => {
       const id = genId();
@@ -94,6 +107,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         const convs = [conv, ...s.conversations];
         saveConversations(convs);
         saveActiveId(id);
+        saveSelectedModelId(modelId);
         return { conversations: convs, activeConversationId: id, selectedModelId: modelId };
       });
       return id;
@@ -117,6 +131,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
 
     setSelectedModelId: (id) => {
+      saveSelectedModelId(id);
       set({ selectedModelId: id });
     },
 
