@@ -101,8 +101,8 @@ impl PostgresPool {
     pub async fn create_api_key(&self, key: &ApiKey) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, is_active, last_used_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, is_active, last_used_at, created_at, key_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
         )
         .bind(key.id)
@@ -113,6 +113,7 @@ impl PostgresPool {
         .bind(key.is_active)
         .bind(key.last_used_at)
         .bind(key.created_at)
+        .bind(key.key_type.as_str())
         .execute(self.inner())
         .await
         .map_err(|e| {
@@ -158,6 +159,8 @@ impl PostgresPool {
         Ok(rows
             .iter()
             .map(|r| {
+                use models::NexusKeyType;
+                let key_type_str: String = r.get("key_type");
                 let api_key = ApiKey {
                     id: r.get("id"),
                     user_id: r.get("user_id"),
@@ -167,6 +170,7 @@ impl PostgresPool {
                     is_active: r.get("is_active"),
                     last_used_at: r.get("last_used_at"),
                     created_at: r.get("created_at"),
+                    key_type: NexusKeyType::from_str(&key_type_str),
                 };
                 let user_email: String = r.get("user_email");
                 (api_key, user_email)
@@ -191,6 +195,8 @@ impl PostgresPool {
     }
 
     fn row_to_api_key(&self, row: &PgRow) -> ApiKey {
+        use models::NexusKeyType;
+        let key_type_str: String = row.get("key_type");
         ApiKey {
             id: row.get("id"),
             user_id: row.get("user_id"),
@@ -200,6 +206,7 @@ impl PostgresPool {
             is_active: row.get("is_active"),
             last_used_at: row.get("last_used_at"),
             created_at: row.get("created_at"),
+            key_type: NexusKeyType::from_str(&key_type_str),
         }
     }
 

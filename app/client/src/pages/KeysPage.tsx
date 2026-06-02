@@ -34,7 +34,19 @@ const PROVIDER_LOGOS: Record<string, string> = {
   deepseek: deepseekIcon,
 };
 
+const NEXUS_KEY_TYPES = [
+  { value: 'openai_sdk', label: 'OpenAI SDK', desc: '/v1/openai' },
+  { value: 'anthropic_sdk', label: 'Anthropic SDK', desc: '/v1/anthropic' },
+  { value: 'http_messages', label: 'HTTP Messages', desc: '/v1/messages' },
+];
+
 type Tab = 'nexus' | 'byok';
+
+const KEY_TYPE_LABEL: Record<string, string> = {
+  openai_sdk: 'OpenAI SDK',
+  anthropic_sdk: 'Anthropic SDK',
+  http_messages: 'HTTP',
+};
 
 export default function KeysPage() {
   const { t, locale } = useI18n();
@@ -46,6 +58,7 @@ export default function KeysPage() {
   const [nexLoading, setNexLoading] = useState(true);
   const [nexCreating, setNexCreating] = useState(false);
   const [nexName, setNexName] = useState('');
+  const [nexusKeyType, setNexusKeyType] = useState('openai_sdk');
   const [nexShowForm, setNexShowForm] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -93,7 +106,7 @@ export default function KeysPage() {
     if (!requireAuth()) return;
     setNexCreating(true); setError('');
     try {
-      const res = await createApiKey(nexName.trim());
+      const res = await createApiKey(nexName.trim(), nexusKeyType);
       setNewKey(res.key);
       setNexName(''); setNexShowForm(false);
     } catch (err: unknown) { setError(getErrorMessage(err, t)); }
@@ -241,6 +254,15 @@ export default function KeysPage() {
                     onKeyDown={e => e.key === 'Enter' && handleNexCreate()}
                     autoFocus
                   />
+                  <select
+                    className="keys-select"
+                    value={nexusKeyType}
+                    onChange={e => setNexusKeyType(e.target.value)}
+                  >
+                    {NEXUS_KEY_TYPES.map(kt => (
+                      <option key={kt.value} value={kt.value}>{kt.label} ({kt.desc})</option>
+                    ))}
+                  </select>
                   <button className="keys-btn keys-btn-primary" onClick={handleNexCreate} disabled={nexCreating || !nexName.trim()}>
                     {nexCreating ? t('common.creating') : t('common.create')}
                   </button>
@@ -268,7 +290,10 @@ export default function KeysPage() {
                 <div key={key.id} className="keys-card" style={{ animationDelay: `${i * 0.04}s` }}>
                   <div className="keys-card-icon"><Key size={14} strokeWidth={1.75} /></div>
                   <div className="keys-card-body">
-                    <div className="keys-card-name">{key.name || t('keys.unnamedKey')}</div>
+                    <div className="keys-card-name">
+                      {key.name || t('keys.unnamedKey')}
+                      <span className="keys-tag">{KEY_TYPE_LABEL[key.key_type] || key.key_type}</span>
+                    </div>
                     <div className="keys-card-meta">
                       <span className="keys-card-prefix">{maskNexKey(key.key_prefix)}</span>
                       <span className="keys-card-date">{t('keys.createdDate', { date: fmt(key.created_at) })}</span>

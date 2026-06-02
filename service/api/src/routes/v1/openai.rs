@@ -19,13 +19,13 @@ use crate::middleware::auth::AuthContext;
 use crate::state::AppState;
 use models::Message as InternalMessage;
 use provider_client::{
-    ChatRequest as ProviderChatRequest, HttpProviderClient, Message as ProviderMessage,
+    ChatRequest as ProviderChatRequest, Message as ProviderMessage,
 };
 
 use super::shared::{
-    add_rate_limit_headers, check_balance, create_client,
+    add_rate_limit_headers, check_balance, create_client_from_source,
     default_session_id, extract_session_id, log_api_call,
-    rate_limit_for_user, record_result, select_key, validate_temperature,
+    rate_limit_for_user, record_result, select_key_with_priority, validate_temperature,
 };
 
 // ─── 请求类型 ───────────────────────────────────────────────────────────
@@ -260,26 +260,31 @@ async fn openai_blocking_handler(
     let mut last_error = None;
     let mut provider_resp = None;
 
-    // Primary provider with session affinity
-    let selected_key = select_key(
+    // Primary provider with BYOK priority
+    let (source, is_user_key) = select_key_with_priority(
         &state,
+        auth.user.id,
         &provider_for_request,
         default_session_id(&auth).as_deref(),
     )
     .await?;
-    let (client, key_id) = create_client(&provider_for_request, selected_key)?;
+    let (client, key_id) = create_client_from_source(&provider_for_request, &source)?;
 
     provider_request.provider = provider_for_request.clone();
     match client.chat(provider_request.clone()).await {
         Ok(resp) => {
             provider_resp = Some(resp);
             let latency_ms = start_time.elapsed().as_millis() as i32;
-            record_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+            if !is_user_key {
+                record_result(&state, &provider_for_request, key_id, latency_ms, true).await;
+            }
         }
         Err(e) => {
             tracing::warn!("Primary provider {} failed: {}", provider_for_request, e);
             last_error = Some(e);
-            record_result(&state, &provider_for_request, key_id, 0, false).await;
+            if !is_user_key {
+                record_result(&state, &provider_for_request, key_id, 0, false).await;
+            }
         }
     }
 
@@ -288,21 +293,31 @@ async fn openai_blocking_handler(
         if let Ok(all_providers) = state.db.list_providers().await {
             for p in &all_providers {
                 if p.is_active && p.slug != provider_for_request {
-                    let selected_key = select_key(&state, &p.slug, None).await?;
-                    let (client, key_id) = create_client(&p.slug, selected_key)?;
+                    let (fb_source, fb_is_user_key) = select_key_with_priority(
+                        &state,
+                        auth.user.id,
+                        &p.slug,
+                        None,
+                    )
+                    .await?;
+                    let (client, key_id) = create_client_from_source(&p.slug, &fb_source)?;
 
                     provider_request.provider = p.slug.clone();
                     match client.chat(provider_request.clone()).await {
                         Ok(resp) => {
                             provider_resp = Some(resp);
                             let latency_ms = start_time.elapsed().as_millis() as i32;
-                            record_result(&state, &p.slug, key_id, latency_ms, true).await;
+                            if !fb_is_user_key {
+                                record_result(&state, &p.slug, key_id, latency_ms, true).await;
+                            }
                             break;
                         }
                         Err(e) => {
                             tracing::warn!("Fallback provider {} failed: {}", p.slug, e);
                             last_error = Some(e);
-                            record_result(&state, &p.slug, key_id, 0, false).await;
+                            if !fb_is_user_key {
+                                record_result(&state, &p.slug, key_id, 0, false).await;
+                            }
                         }
                     }
                 }
@@ -370,6 +385,7 @@ async fn openai_stream_handler(
 
     tokio::spawn(async move {
         let mut used_key_id: Option<uuid::Uuid> = None;
+        let is_user_key: bool;
         let estimated_input_tokens = provider_request
             .messages
             .iter()
@@ -377,19 +393,30 @@ async fn openai_stream_handler(
             .sum::<i32>()
             .max(1);
 
-        let selected_key = {
-            let mut scheduler = state_clone.key_scheduler.write().await;
-            scheduler.tick();
-            sid.as_ref()
-                .and_then(|s| scheduler.select_key_for_session(&provider_clone, s))
-        };
-
-        let client_result = match &selected_key {
-            Some(sk) => {
-                used_key_id = Some(sk.key.id);
-                HttpProviderClient::new_with_key(&provider_clone, &sk.key)
+        let (source, user_key) = match select_key_with_priority(
+            &state_clone,
+            auth_clone.user.id,
+            &provider_clone,
+            sid.as_deref(),
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tx.send(Ok(Event::default()
+                    .event("error")
+                    .data(format!("{{\"error\": \"{}\"}}", e))));
+                return;
             }
-            None => HttpProviderClient::new(&provider_clone),
+        };
+        is_user_key = user_key;
+
+        let client_result = match create_client_from_source(&provider_clone, &source) {
+            Ok((c, kid)) => {
+                used_key_id = kid;
+                Ok(c)
+            }
+            Err(e) => Err(e),
         };
 
         match client_result {
@@ -422,9 +449,11 @@ async fn openai_stream_handler(
                 match client.chat_stream(provider_request, stream_tx).await {
                     Ok(()) => { let _ = forward_handle.await; }
                     Err(e) => {
-                        if let Some(kid) = used_key_id {
-                            let mut scheduler = state_clone.key_scheduler.write().await;
-                            scheduler.record_failure(&provider_clone, kid);
+                        if !is_user_key {
+                            if let Some(kid) = used_key_id {
+                                let mut scheduler = state_clone.key_scheduler.write().await;
+                                scheduler.record_failure(&provider_clone, kid);
+                            }
                         }
                         let _ = tx.send(Ok(Event::default()
                             .event("error")
@@ -439,10 +468,12 @@ async fn openai_stream_handler(
             }
         }
 
-        if let Some(kid) = used_key_id {
-            let latency_ms = start_time.elapsed().as_millis() as i32;
-            let mut scheduler = state_clone.key_scheduler.write().await;
-            scheduler.record_success(&provider_clone, kid, latency_ms as f64);
+        if !is_user_key {
+            if let Some(kid) = used_key_id {
+                let latency_ms = start_time.elapsed().as_millis() as i32;
+                let mut scheduler = state_clone.key_scheduler.write().await;
+                scheduler.record_success(&provider_clone, kid, latency_ms as f64);
+            }
         }
 
         let latency_ms = start_time.elapsed().as_millis() as i32;

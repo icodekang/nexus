@@ -11,7 +11,7 @@ use crate::middleware::auth::AuthContext;
 use crate::state::AppState;
 use auth::ApiKeyGenerator;
 use db;
-use models::{ApiKey, PriorityLevel, UserProviderKey};
+use models::{ApiKey, NexusKeyType, PriorityLevel, UserProviderKey};
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -341,6 +341,7 @@ async fn list_keys(
             "is_active": k.is_active,
             "last_used_at": k.last_used_at,
             "created_at": k.created_at,
+            "key_type": k.key_type.as_str(),
         })).collect::<Vec<_>>(),
     })))
 }
@@ -348,6 +349,7 @@ async fn list_keys(
 #[derive(Debug, Deserialize)]
 struct CreateKeyRequest {
     pub name: Option<String>,
+    pub key_type: Option<String>,
 }
 
 /// POST /v1/me/keys
@@ -359,11 +361,18 @@ async fn create_key(
     let generator = ApiKeyGenerator::new("sk-nexus");
     let (plain_key, hashed_key) = generator.generate();
 
+    let key_type = match request.key_type.as_deref() {
+        Some("openai_sdk") => NexusKeyType::OpenAiSdk,
+        Some("anthropic_sdk") => NexusKeyType::AnthropicSdk,
+        _ => NexusKeyType::HttpMessages,
+    };
+
     let mut api_key = ApiKey::new(
         auth.user.id,
         hashed_key,
         format!("sk-nexus-{}", &plain_key[9..20]),
-    );
+    )
+    .with_key_type(key_type);
     if let Some(name) = request.name {
         api_key = api_key.with_name(name);
     }
@@ -375,6 +384,7 @@ async fn create_key(
         "id": api_key.id,
         "key": plain_key,
         "name": api_key.name,
+        "key_type": api_key.key_type.as_str(),
         "created_at": api_key.created_at,
     })))
 }

@@ -13,6 +13,7 @@
 
 pub mod anthropic;
 pub mod chat;
+pub mod messages;
 pub mod models;
 pub mod openai;
 pub mod shared;
@@ -38,6 +39,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/chat/batch/judge", post(chat::chat_batch_judge))
         .route("/completions", post(chat::completions))
         .route("/embeddings", post(chat::embeddings))
+        .route("/messages", post(messages::messages_endpoint))
         .route(
             "/openai/chat/completions",
             post(openai::openai_chat_completions),

@@ -55,6 +55,39 @@ impl User {
     }
 }
 
+/// Nexus Key 类型
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NexusKeyType {
+    /// OpenAI SDK 兼容类型，端点 /v1/openai
+    #[serde(rename = "openai_sdk")]
+    OpenAiSdk,
+    /// Anthropic SDK 兼容类型，端点 /v1/anthropic
+    #[serde(rename = "anthropic_sdk")]
+    AnthropicSdk,
+    /// HTTP 协议类型（Anthropic Messages API），端点 /v1/messages
+    #[serde(rename = "http_messages")]
+    HttpMessages,
+}
+
+impl NexusKeyType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NexusKeyType::OpenAiSdk => "openai_sdk",
+            NexusKeyType::AnthropicSdk => "anthropic_sdk",
+            NexusKeyType::HttpMessages => "http_messages",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "openai_sdk" => NexusKeyType::OpenAiSdk,
+            "anthropic_sdk" => NexusKeyType::AnthropicSdk,
+            _ => NexusKeyType::HttpMessages,
+        }
+    }
+}
+
 /// API Key
 ///
 /// 用户生成的 API Key，用于认证和计费
@@ -76,6 +109,8 @@ pub struct ApiKey {
     pub last_used_at: Option<DateTime<Utc>>,
     /// 创建时间
     pub created_at: DateTime<Utc>,
+    /// Nexus Key 类型
+    pub key_type: NexusKeyType,
 }
 
 impl ApiKey {
@@ -95,12 +130,19 @@ impl ApiKey {
             is_active: true,
             last_used_at: None,
             created_at: Utc::now(),
+            key_type: NexusKeyType::HttpMessages,
         }
     }
 
     /// 设置 Key 名称
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
+        self
+    }
+
+    /// 设置 Key 类型
+    pub fn with_key_type(mut self, key_type: NexusKeyType) -> Self {
+        self.key_type = key_type;
         self
     }
 }

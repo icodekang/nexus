@@ -64,6 +64,7 @@ export interface ApiKey {
   id: string;
   name: string | null;
   key_prefix: string;
+  key_type: string;
   is_active: boolean;
   last_used_at: string | null;
   created_at: string;
@@ -275,10 +276,10 @@ export async function fetchApiKeys() {
   return request<{ data: ApiKey[] }>('/v1/me/keys');
 }
 
-export async function createApiKey(name: string) {
-  return request<{ id: string; key: string; name: string; created_at: string }>('/v1/me/keys', {
+export async function createApiKey(name: string, keyType?: string) {
+  return request<{ id: string; key: string; name: string; key_type: string; created_at: string }>('/v1/me/keys', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, key_type: keyType }),
   });
 }
 

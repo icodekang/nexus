@@ -916,6 +916,7 @@ async fn list_user_api_keys(
                 "last_used_at": k.last_used_at,
                 "created_at": k.created_at.to_rfc3339(),
                 "key_type": "api_key",
+                "nexus_key_type": k.key_type.as_str(),
             }));
         }
     }
