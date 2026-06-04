@@ -110,15 +110,12 @@ async fn main() -> anyhow::Result<()> {
         .nest("/v1/auth", routes::auth::routes());
 
     // ── 需要认证的 /v1/* 端点 ────────────────────────────────────────────
-    // 路由说明：
-    //   /v1/chat/completions       — 统一聊天接口
-    //   /v1/completions            — 文本补全（未实现）
-    //   /v1/embeddings             — 向量嵌入
-    //   /v1/models                 — 模型列表
-    //   /v1/openai/chat/completions  — OpenAI SDK 兼容
-    //   /v1/openai/models             — OpenAI SDK 兼容
-    //   /v1/anthropic/messages       — Anthropic SDK 兼容
-    //   /v1/anthropic/models          — Anthropic SDK 兼容
+    //   /v1/chat/completions  — 统一聊天接口
+    //   /v1/messages          — HTTP 协议端点
+    //   /v1/openai            — OpenAI SDK 兼容（含 /chat/completions 等子路径）
+    //   /v1/openai/models     — OpenAI 模型列表
+    //   /v1/anthropic         — Anthropic SDK 兼容（含 /v1/messages 等子路径）
+    //   /v1/anthropic/models  — Anthropic 模型列表
     let v1 = Router::new()
         .nest("/v1", routes::v1::routes())
         .layer(auth_mw.clone());

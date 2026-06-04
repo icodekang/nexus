@@ -26,6 +26,11 @@ test/
 │       ├── client-api.test.js    # Client API 测试
 │       ├── components.test.js    # Admin 组件测试
 │       └── client-pages.test.js  # Client 页面测试
+├── integration/
+│   ├── backend_api_test.rs       # 后端 API 数据结构测试
+│   ├── client_api_test.rs        # 客户端 API 数据结构测试
+│   ├── sdk_test.py               # OpenAI/Anthropic SDK 集成测试
+│   └── requirements.txt          # Python SDK 依赖
 └── README.md
 ```
 
@@ -50,6 +55,47 @@ node test/unit/frontend/client-pages.test.js
 # 或运行所有前端测试
 for f in test/unit/frontend/*.test.js; do node "$f"; done
 ```
+
+### OpenAI / Anthropic SDK 集成测试
+
+测试通过 Nexus API Key 使用官方 OpenAI Python SDK 和 Anthropic Python SDK 访问大模型。
+
+**前置条件：**
+- Nexus 后端服务正在运行
+- 已配置 Provider API Key（OPENAI_API_KEY / ANTHROPIC_API_KEY）
+- 数据库中已注册模型
+
+```bash
+# 安装 Python 依赖
+pip install -r test/integration/requirements.txt
+
+# 运行 SDK 集成测试（需要 Nexus 服务运行）
+python test/integration/sdk_test.py
+
+# 自定义 Nexus 服务器地址
+NEXUS_BASE_URL=http://localhost:8080 python test/integration/sdk_test.py
+
+# 使用自定义测试账号
+NEXUS_BASE_URL=http://localhost:8080 \
+NEXUS_TEST_EMAIL=admin@nexus.dev \
+NEXUS_TEST_PASSWORD=admin123 \
+python test/integration/sdk_test.py
+
+# 运行指定测试
+python test/integration/sdk_test.py -k "OpenAI SDK"
+
+# 列出所有测试用例
+python test/integration/sdk_test.py --list
+```
+
+**测试内容：**
+- API Key 创建、列表、验证
+- OpenAI SDK 非流式 / 流式 Chat Completion
+- OpenAI SDK 多轮对话、System Message
+- Anthropic SDK 非流式 / 流式 Messages
+- Anthropic SDK System Prompt、多轮对话
+- Anthropic SDK 响应结构验证
+- 跨 SDK 同模型访问
 
 ## 测试覆盖
 

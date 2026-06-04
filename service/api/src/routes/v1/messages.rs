@@ -55,7 +55,30 @@ pub struct MessagesRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct MessagesMessage {
     pub role: String,
-    pub content: String,
+    /// 消息内容 — 支持字符串或 content block 数组
+    pub content: serde_json::Value,
+}
+
+fn extract_content_text(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| {
+                let is_text = b.get("type")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t == "text")
+                    .unwrap_or(false);
+                if is_text {
+                    b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -103,7 +126,7 @@ pub async fn messages_endpoint(
         .into_iter()
         .map(|m| InternalMessage {
             role: m.role,
-            content: m.content,
+            content: extract_content_text(&m.content),
             name: None,
         })
         .collect();

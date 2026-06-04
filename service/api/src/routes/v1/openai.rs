@@ -69,18 +69,42 @@ pub struct OpenAIClientRequest {
 pub struct OpenAIMessage {
     /// 角色（system、user、assistant）
     pub role: String,
-    /// 消息内容
-    pub content: String,
+    /// 消息内容 — 支持字符串或 content part 数组
+    ///   字符串:  "hello"
+    ///   数组:    [{"type": "text", "text": "hello"}, {"type": "image_url", ...}]
+    pub content: serde_json::Value,
     /// 名称（可选，用于 user 消息）
     #[serde(default)]
     pub name: Option<String>,
+}
+
+fn extract_content_text(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| {
+                let is_text = p.get("type")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t == "text")
+                    .unwrap_or(false);
+                if is_text {
+                    p.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 impl From<OpenAIMessage> for InternalMessage {
     fn from(m: OpenAIMessage) -> Self {
         InternalMessage {
             role: m.role,
-            content: m.content,
+            content: extract_content_text(&m.content),
             name: m.name,
         }
     }
@@ -356,7 +380,33 @@ async fn openai_blocking_handler(
     )
     .await;
 
-    let mut response = Json(provider_resp).into_response();
+    let total_tokens = prompt_tokens + completion_tokens;
+    let created = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let openai_response = serde_json::json!({
+        "id": provider_resp.id,
+        "object": "chat.completion",
+        "created": created,
+        "model": provider_resp.model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": provider_resp.message.role,
+                "content": provider_resp.message.content
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
+    });
+
+    let mut response = Json(openai_response).into_response();
     add_rate_limit_headers(&mut response, rpm, remaining, reset_time);
     Ok(response)
 }

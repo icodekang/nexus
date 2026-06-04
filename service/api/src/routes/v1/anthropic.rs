@@ -29,7 +29,7 @@ use provider_client::{ChatRequest as ProviderChatRequest, Message as ProviderMes
 use super::shared::{
     add_rate_limit_headers, check_balance, create_client_from_source,
     default_session_id, extract_session_id, log_api_call, rate_limit_for_user,
-    select_key_with_priority,
+    select_key_with_priority, validate_temperature,
 };
 
 // ─── 请求/响应类型 ───────────────────────────────────────────────
@@ -68,8 +68,33 @@ pub struct AnthropicRequest {
 pub struct AnthropicMessage {
     /// 角色（user、assistant）
     pub role: String,
-    /// 消息内容
-    pub content: String,
+    /// 消息内容 — 支持字符串或 content block 数组
+    ///   字符串:  "hello"
+    ///   数组:    [{"type": "text", "text": "hello"}, {"type": "image", ...}]
+    pub content: serde_json::Value,
+}
+
+/// 从 content 字段提取纯文本
+fn extract_content_text(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| {
+                let is_text = b.get("type")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t == "text")
+                    .unwrap_or(false);
+                if is_text {
+                    b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 /// Anthropic 响应体
@@ -131,7 +156,7 @@ pub async fn anthropic_messages(
         .into_iter()
         .map(|m| InternalMessage {
             role: m.role,
-            content: m.content,
+            content: extract_content_text(&m.content),
             name: None,
         })
         .collect();
@@ -139,7 +164,8 @@ pub async fn anthropic_messages(
     // Inject system prompt into first user message if present
     let messages = prepend_system(internal_messages, request.system);
 
-    let model = request.model;
+    let (provider_slug, model_slug) = parse_model_string(&request.model);
+    let model = model_slug;
     let max_tokens = request.max_tokens; // required by Anthropic
     let sid = extract_session_id(&headers).or_else(|| default_session_id(&auth));
 
@@ -152,6 +178,7 @@ pub async fn anthropic_messages(
             request.temperature.unwrap_or(1.0),
             max_tokens,
             sid,
+            provider_slug,
         )
         .await
     } else {
@@ -163,6 +190,7 @@ pub async fn anthropic_messages(
             request.temperature.unwrap_or(1.0),
             max_tokens,
             sid,
+            provider_slug,
         )
         .await
     }
@@ -193,6 +221,7 @@ async fn anthropic_blocking_handler(
     temperature: f32,
     max_tokens: Option<i32>,
     session_id: Option<String>,
+    provider_slug: String,
 ) -> Result<Response, ApiError> {
     let user_id = auth.user.id.to_string();
     let rpm = rate_limit_for_user();
@@ -208,18 +237,42 @@ async fn anthropic_blocking_handler(
     }
     check_balance(&state, auth.user.id).await?;
 
-    let provider_slug = "anthropic".to_string();
+    validate_temperature(temperature)?;
+
+    let db_model = state
+        .db
+        .get_model_by_id(&model)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?
+        .ok_or_else(|| ApiError::ModelNotFound(model.clone()))?;
+
+    if let Some(mt) = max_tokens {
+        if mt <= 0 || mt > db_model.context_window {
+            return Err(ApiError::InvalidRequest(format!(
+                "max_tokens ({}) out of range",
+                mt
+            )));
+        }
+    }
+
+    let provider_for_request = if provider_slug.is_empty() {
+        db_model.provider_id.clone()
+    } else {
+        provider_slug.clone()
+    };
+
+    let provider_messages: Vec<ProviderMessage> = messages
+        .iter()
+        .map(|m| ProviderMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        })
+        .collect();
 
     let provider_request = ProviderChatRequest {
-        provider: provider_slug.clone(),
-        model: model.clone(),
-        messages: messages
-            .iter()
-            .map(|m| ProviderMessage {
-                role: m.role.clone(),
-                content: m.content.clone(),
-            })
-            .collect(),
+        provider: provider_for_request.clone(),
+        model: db_model.model_id.clone(),
+        messages: provider_messages,
         temperature,
         max_tokens,
         stream: false,
@@ -230,11 +283,11 @@ async fn anthropic_blocking_handler(
     let (source, is_user_key) = select_key_with_priority(
         &state,
         auth.user.id,
-        &provider_slug,
+        &provider_for_request,
         session_id.as_deref(),
     )
     .await?;
-    let (client, key_id) = create_client_from_source(&provider_slug, &source)?;
+    let (client, key_id) = create_client_from_source(&provider_for_request, &source)?;
 
     let resp = client
         .chat(provider_request)
@@ -244,7 +297,7 @@ async fn anthropic_blocking_handler(
     if !is_user_key {
         if let Some(kid) = key_id {
             let mut scheduler = state.key_scheduler.write().await;
-            scheduler.record_success(&provider_slug, kid, start_time.elapsed().as_millis() as f64);
+            scheduler.record_success(&provider_for_request, kid, start_time.elapsed().as_millis() as f64);
         }
     }
 
@@ -255,7 +308,7 @@ async fn anthropic_blocking_handler(
     log_api_call(
         &state,
         &auth,
-        &provider_slug,
+        &provider_for_request,
         &model,
         "chat",
         prompt_tokens,
@@ -300,11 +353,29 @@ async fn anthropic_stream_handler(
     temperature: f32,
     max_tokens: Option<i32>,
     session_id: Option<String>,
+    provider_slug: String,
 ) -> Result<Response, ApiError> {
     let (tx, rx) = broadcast::channel::<Result<Event, std::convert::Infallible>>(1024);
     let state_clone = state.clone();
     let auth_clone = auth.clone();
-    let provider_slug = "anthropic".to_string();
+
+    let db_model = match state
+        .db
+        .get_model_by_id(&model)
+        .await
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{}", e)))?
+    {
+        Some(m) => m,
+        None => return Err(ApiError::ModelNotFound(model.clone())),
+    };
+
+    let provider_for_request = if provider_slug.is_empty() {
+        db_model.provider_id.clone()
+    } else {
+        provider_slug
+    };
+
+    let model_id = db_model.model_id.clone();
 
     tokio::spawn(async move {
         let mut used_key_id: Option<uuid::Uuid> = None;
@@ -318,7 +389,7 @@ async fn anthropic_stream_handler(
         let (source, user_key) = match select_key_with_priority(
             &state_clone,
             auth_clone.user.id,
-            &provider_slug,
+            &provider_for_request,
             session_id.as_deref(),
         )
         .await
@@ -333,7 +404,7 @@ async fn anthropic_stream_handler(
         };
         is_user_key = user_key;
 
-        let client_result = match create_client_from_source(&provider_slug, &source) {
+        let client_result = match create_client_from_source(&provider_for_request, &source) {
             Ok((c, kid)) => {
                 used_key_id = kid;
                 Ok(c)
@@ -346,8 +417,8 @@ async fn anthropic_stream_handler(
         match client_result {
             Ok(client) => {
                 let provider_request = ProviderChatRequest {
-                    provider: provider_slug.clone(),
-                    model: model.clone(),
+                    provider: provider_for_request.clone(),
+                    model: model_id.clone(),
                     messages: messages
                         .iter()
                         .map(|m| ProviderMessage {
@@ -438,7 +509,7 @@ async fn anthropic_stream_handler(
                         if !is_user_key {
                             if let Some(kid) = used_key_id {
                                 let mut scheduler = state_clone.key_scheduler.write().await;
-                                scheduler.record_failure(&provider_slug, kid);
+                                scheduler.record_failure(&provider_for_request, kid);
                             }
                         }
                         let _ = tx.send(Ok(Event::default()
@@ -457,7 +528,7 @@ async fn anthropic_stream_handler(
         if !is_user_key {
             if let Some(kid) = used_key_id {
                 let mut scheduler = state_clone.key_scheduler.write().await;
-                scheduler.record_success(&provider_slug, kid, start_time.elapsed().as_millis() as f64);
+                scheduler.record_success(&provider_for_request, kid, start_time.elapsed().as_millis() as f64);
             }
         }
 
@@ -465,7 +536,7 @@ async fn anthropic_stream_handler(
         log_api_call(
             &state_clone,
             &auth_clone,
-            &provider_slug,
+            &provider_for_request,
             &model,
             "chat",
             estimated_input_tokens,
@@ -504,5 +575,16 @@ fn prepend_system(messages: Vec<InternalMessage>, system: Option<String>) -> Vec
             result
         }
         _ => messages,
+    }
+}
+
+/// 解析模型字符串
+///
+/// 支持 "provider/model" 或 "model" 格式
+fn parse_model_string(model_str: &str) -> (String, String) {
+    if let Some((provider, model)) = model_str.split_once('/') {
+        (provider.to_string(), model.to_string())
+    } else {
+        (String::new(), model_str.to_string())
     }
 }
